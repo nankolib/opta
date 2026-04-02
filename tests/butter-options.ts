@@ -1478,4 +1478,243 @@ describe("butter-options", () => {
       assert.equal(buyerPnl, usdc(1_500).toNumber(), "Buyer should receive $1,500 PnL for 30 tokens");
     });
   });
+
+  // ===========================================================================
+  // 9. Token-2022 extension verification tests
+  //    Transfer hook, metadata, permanent delegate
+  // ===========================================================================
+  describe("Token-2022 extension verification", () => {
+    const strikePrice = usdc(200);
+    let hookTestExpiry: BN;
+    let hookTestMarketPda: PublicKey;
+    let hookTestCreatedAt: BN;
+    let hookTestPositionPda: PublicKey;
+    let hookTestEscrowPda: PublicKey;
+    let hookTestOptionMintPda: PublicKey;
+    let hookTestPurchaseEscrowPda: PublicKey;
+    let buyerOptionAccount: PublicKey;
+    // Second user for user-to-user transfer test
+    let user2: anchor.web3.Keypair;
+    let user2OptionAccount: PublicKey;
+
+    before(async () => {
+      const now = Math.floor(Date.now() / 1000);
+      // Short expiry: 8 seconds from now
+      hookTestExpiry = new BN(now + 8);
+      hookTestCreatedAt = new BN(now + 800);
+
+      user2 = Keypair.generate();
+      // Fund user2 with SOL
+      const fundTx = new Transaction().add(
+        SystemProgram.transfer({ fromPubkey: admin.publicKey, toPubkey: user2.publicKey, lamports: 2 * LAMPORTS_PER_SOL }),
+      );
+      await provider.sendAndConfirm(fundTx);
+
+      [hookTestMarketPda] = deriveMarketPda("SOL", strikePrice, hookTestExpiry, 0);
+      [hookTestPositionPda] = derivePositionPda(hookTestMarketPda, writer.publicKey, hookTestCreatedAt);
+      [hookTestEscrowPda] = deriveEscrowPda(hookTestMarketPda, writer.publicKey, hookTestCreatedAt);
+      [hookTestOptionMintPda] = deriveOptionMintPda(hookTestPositionPda);
+      [hookTestPurchaseEscrowPda] = derivePurchaseEscrowPda(hookTestPositionPda);
+
+      // Create short-expiry market
+      await program.methods
+        .createMarket("SOL", strikePrice, hookTestExpiry, { call: {} }, fakePythFeed, 0)
+        .accountsStrict({
+          creator: admin.publicKey, protocolState: protocolStatePda,
+          market: hookTestMarketPda, systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      // Write option (10 contracts)
+      await program.methods
+        .writeOption(usdc(4_000), usdc(10), new BN(10), hookTestCreatedAt)
+        .accountsStrict(buildWriteOptionAccounts({
+          writer: writer.publicKey,
+          market: hookTestMarketPda,
+          position: hookTestPositionPda,
+          escrow: hookTestEscrowPda,
+          optionMint: hookTestOptionMintPda,
+          purchaseEscrow: hookTestPurchaseEscrowPda,
+          writerUsdcAccount: writerUsdcAccount,
+        }))
+        .preInstructions([EXTRA_CU])
+        .signers([writer])
+        .rpc();
+
+      // Buyer purchases all 10 contracts
+      buyerOptionAccount = await ensureOptionAta(hookTestOptionMintPda, buyer.publicKey);
+      await program.methods
+        .purchaseOption(new BN(10))
+        .accountsStrict(buildPurchaseOptionAccounts({
+          buyer: buyer.publicKey,
+          market: hookTestMarketPda,
+          position: hookTestPositionPda,
+          purchaseEscrow: hookTestPurchaseEscrowPda,
+          buyerUsdcAccount: buyerUsdcAccount,
+          writerUsdcAccount: writerUsdcAccount,
+          buyerOptionAccount: buyerOptionAccount,
+          optionMint: hookTestOptionMintPda,
+        }))
+        .preInstructions([EXTRA_CU])
+        .signers([buyer])
+        .rpc();
+
+      // Create ATA for user2
+      user2OptionAccount = await ensureOptionAta(hookTestOptionMintPda, user2.publicKey);
+
+      // Verify buyer has tokens before expiry
+      const buyerTokens = await getAccount(provider.connection, buyerOptionAccount, "confirmed", TOKEN_2022_PROGRAM_ID);
+      assert.equal(Number(buyerTokens.amount), 10, "Buyer should have 10 tokens before expiry test");
+
+      // Wait for expiry
+      console.log("    Waiting 10s for hook test market to expire...");
+      await sleep(10_000);
+
+      // Settle the market so exercise/expire work
+      await program.methods
+        .settleMarket(usdc(250))
+        .accountsStrict({
+          admin: admin.publicKey, protocolState: protocolStatePda,
+          market: hookTestMarketPda,
+        })
+        .rpc();
+    });
+
+    // --- Test 1: Transfer hook blocks user-to-user transfer after expiry ---
+    it("transfer hook blocks user-to-user transfer after expiry", async () => {
+      // Attempt direct Token-2022 transfer from buyer to user2 (no protocol escrow).
+      // The transfer hook should reject this because the option is expired and
+      // neither party is the protocol PDA.
+      // Must use transferCheckedWithTransferHook to include hook extra accounts.
+      const { transferCheckedWithTransferHook } = await import("@solana/spl-token");
+      try {
+        await transferCheckedWithTransferHook(
+          provider.connection,
+          payer,             // fee payer
+          buyerOptionAccount, // source
+          hookTestOptionMintPda, // mint
+          user2OptionAccount, // dest
+          buyer.publicKey,   // owner
+          BigInt(1),         // amount
+          0,                 // decimals
+          [buyer],           // multiSigners (owner must sign)
+          { commitment: "confirmed" },
+          TOKEN_2022_PROGRAM_ID,
+        );
+        assert.fail("Should have thrown OptionExpired");
+      } catch (err: any) {
+        // The transfer hook should reject with OptionExpired or a custom program error
+        const errStr = err.toString();
+        assert.ok(
+          errStr.includes("OptionExpired") || errStr.includes("custom program error"),
+          `Expected OptionExpired error, got: ${errStr.slice(0, 200)}`,
+        );
+      }
+    });
+
+    // --- Test 2: Transfer hook allows protocol escrow transfers (buy_resale before expiry tested elsewhere, but exercise works post-expiry) ---
+    it("transfer hook allows protocol operations after expiry (exercise)", async () => {
+      // exercise_option burns tokens via Token-2022. Burns don't trigger the hook,
+      // but this verifies the protocol can still operate on expired options.
+      const buyerUsdcBefore = (await getAccount(provider.connection, buyerUsdcAccount)).amount;
+
+      await program.methods
+        .exerciseOption(new BN(10))
+        .accountsStrict(buildExerciseOptionAccounts({
+          exerciser: buyer.publicKey,
+          market: hookTestMarketPda,
+          position: hookTestPositionPda,
+          escrow: hookTestEscrowPda,
+          optionMint: hookTestOptionMintPda,
+          exerciserOptionAccount: buyerOptionAccount,
+          exerciserUsdcAccount: buyerUsdcAccount,
+          writerUsdcAccount: writerUsdcAccount,
+          writer: writer.publicKey,
+        }))
+        .preInstructions([EXTRA_CU])
+        .signers([buyer])
+        .rpc();
+
+      const buyerUsdcAfter = (await getAccount(provider.connection, buyerUsdcAccount)).amount;
+      const pnl = Number(buyerUsdcAfter) - Number(buyerUsdcBefore);
+      // Settlement = $250, Strike = $200, 10 contracts => PnL = $500
+      assert.equal(pnl, usdc(500).toNumber(), "Exercise should work after expiry — buyer receives $500 PnL");
+    });
+
+    // --- Test 3: Token metadata contains correct fields ---
+    it("token metadata contains correct fields (asset, strike, expiry, type)", async () => {
+      // Write a fresh option to verify metadata on a known mint
+      const now = Math.floor(Date.now() / 1000);
+      const metadataExpiry = new BN(now + 30 * 24 * 60 * 60); // 30 days out
+      const metadataCreatedAt = new BN(now + 900);
+      const metadataStrike = usdc(300);
+
+      const [metaMarketPda] = deriveMarketPda("ETH", metadataStrike, metadataExpiry, 0);
+
+      // Create ETH market
+      await program.methods
+        .createMarket("ETH", metadataStrike, metadataExpiry, { call: {} }, fakePythFeed, 0)
+        .accountsStrict({
+          creator: admin.publicKey, protocolState: protocolStatePda,
+          market: metaMarketPda, systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      const [metaPositionPda] = derivePositionPda(metaMarketPda, writer.publicKey, metadataCreatedAt);
+      const [metaEscrowPda] = deriveEscrowPda(metaMarketPda, writer.publicKey, metadataCreatedAt);
+      const [metaOptionMintPda] = deriveOptionMintPda(metaPositionPda);
+      const [metaPurchaseEscrowPda] = derivePurchaseEscrowPda(metaPositionPda);
+
+      await program.methods
+        .writeOption(usdc(6_000), usdc(20), new BN(10), metadataCreatedAt)
+        .accountsStrict(buildWriteOptionAccounts({
+          writer: writer.publicKey,
+          market: metaMarketPda,
+          position: metaPositionPda,
+          escrow: metaEscrowPda,
+          optionMint: metaOptionMintPda,
+          purchaseEscrow: metaPurchaseEscrowPda,
+          writerUsdcAccount: writerUsdcAccount,
+        }))
+        .preInstructions([EXTRA_CU])
+        .signers([writer])
+        .rpc();
+
+      // Use getTokenMetadata to read on-chain metadata from the Token-2022 mint
+      const { getTokenMetadata } = await import("@solana/spl-token");
+      const metadata = await getTokenMetadata(provider.connection, metaOptionMintPda, "confirmed", TOKEN_2022_PROGRAM_ID);
+      assert.ok(metadata, "Token metadata should exist on the mint");
+
+      // Verify base metadata
+      assert.ok(metadata!.name.startsWith("BUTTER-ETH-300C"), `Name should start with BUTTER-ETH-300C, got: ${metadata!.name}`);
+      assert.equal(metadata!.symbol, "bOPT", "Symbol should be bOPT");
+
+      // Verify additional fields stored as key-value pairs
+      const fields = new Map(metadata!.additionalMetadata);
+      assert.equal(fields.get("asset_name"), "ETH", "asset_name should be ETH");
+      assert.equal(fields.get("strike_price"), metadataStrike.toString(), "strike_price should match");
+      assert.equal(fields.get("expiry"), metadataExpiry.toString(), "expiry should match");
+      assert.equal(fields.get("option_type"), "call", "option_type should be call");
+      assert.ok(fields.has("pyth_feed"), "Should have pyth_feed field");
+      assert.ok(fields.has("collateral_per_token"), "Should have collateral_per_token field");
+      assert.ok(fields.has("market_pda"), "Should have market_pda field");
+
+      console.log("    Metadata name:", metadata!.name);
+      console.log("    Fields:", [...fields.entries()].map(([k, v]) => `${k}=${v.slice(0, 20)}`).join(", "));
+    });
+
+    // --- Test 4: Permanent delegate is set correctly on the mint ---
+    it("permanent delegate is set correctly on the mint", async () => {
+      // Use getPermanentDelegate from @solana/spl-token to read the extension
+      const { getMint, getPermanentDelegate } = await import("@solana/spl-token");
+      const mintData = await getMint(provider.connection, hookTestOptionMintPda, "confirmed", TOKEN_2022_PROGRAM_ID);
+
+      const permDelegate = getPermanentDelegate(mintData);
+      assert.ok(permDelegate, "PermanentDelegate extension should be present on the mint");
+      assert.ok(permDelegate!.delegate.equals(protocolStatePda),
+        `Permanent delegate should be protocol PDA (${protocolStatePda.toBase58()}), got: ${permDelegate!.delegate.toBase58()}`);
+
+      console.log("    Permanent delegate:", permDelegate!.delegate.toBase58());
+    });
+  });
 });
