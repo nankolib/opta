@@ -1,0 +1,2311 @@
+{
+  "address": "CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq",
+  "metadata": {
+    "name": "butter_options",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "buy_resale",
+      "docs": [
+        "Buy tokens from a resale listing. amount is how many to buy (partial fills)."
+      ],
+      "discriminator": [
+        71,
+        230,
+        159,
+        123,
+        90,
+        231,
+        111,
+        104
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "resale_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  115,
+                  97,
+                  108,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer_usdc_account",
+          "writable": true
+        },
+        {
+          "name": "seller_usdc_account",
+          "writable": true
+        },
+        {
+          "name": "buyer_option_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "option_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "option_mint"
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "cancel_option",
+      "docs": [
+        "Cancel an unsold option. Burns all tokens, returns collateral."
+      ],
+      "discriminator": [
+        176,
+        215,
+        7,
+        71,
+        184,
+        200,
+        241,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "writer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "escrow",
+          "docs": [
+            "USDC collateral escrow."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.market",
+                "account": "OptionPosition"
+              },
+              {
+                "kind": "account",
+                "path": "position.writer",
+                "account": "OptionPosition"
+              },
+              {
+                "kind": "account",
+                "path": "position.created_at",
+                "account": "OptionPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "purchase_escrow",
+          "docs": [
+            "Purchase escrow holding option tokens."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  117,
+                  114,
+                  99,
+                  104,
+                  97,
+                  115,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "option_mint",
+          "writable": true
+        },
+        {
+          "name": "writer_usdc_account",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_resale",
+      "docs": [
+        "Cancel a resale listing. Returns tokens to seller."
+      ],
+      "discriminator": [
+        215,
+        11,
+        117,
+        119,
+        200,
+        163,
+        110,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "resale_escrow",
+          "docs": [
+            "Resale escrow holding option tokens."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  115,
+                  97,
+                  108,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seller_option_account",
+          "docs": [
+            "Seller's option token account (receives tokens back)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "option_mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_market",
+      "discriminator": [
+        103,
+        226,
+        97,
+        235,
+        200,
+        188,
+        251,
+        254
+      ],
+      "accounts": [
+        {
+          "name": "creator",
+          "docs": [
+            "The user creating this market. Anyone can create a market — there's no",
+            "permissioning. They pay the rent for the new account."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "docs": [
+            "The global ProtocolState — we need this to increment total_markets."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "docs": [
+            "The new OptionsMarket PDA.",
+            "",
+            "Seeds use the asset name as bytes (not an enum discriminant), making",
+            "the protocol open to ANY asset. For example:",
+            "- \"SOL\" + strike + expiry + Call  → one unique PDA",
+            "- \"AAPL\" + strike + expiry + Call → a different PDA",
+            "- \"EUR/USD\" + strike + expiry + Put → yet another",
+            "",
+            "Attempting to create a duplicate combination will fail."
+          ],
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "Required for creating new accounts."
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "asset_name",
+          "type": "string"
+        },
+        {
+          "name": "strike_price",
+          "type": "u64"
+        },
+        {
+          "name": "expiry_timestamp",
+          "type": "i64"
+        },
+        {
+          "name": "option_type",
+          "type": {
+            "defined": {
+              "name": "OptionType"
+            }
+          }
+        },
+        {
+          "name": "pyth_feed",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "exercise_option",
+      "docs": [
+        "Exercise option tokens after settlement. Burns tokens, distributes PnL."
+      ],
+      "discriminator": [
+        231,
+        98,
+        131,
+        183,
+        245,
+        93,
+        122,
+        48
+      ],
+      "accounts": [
+        {
+          "name": "exerciser",
+          "docs": [
+            "The token holder exercising the option."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.market",
+                "account": "OptionPosition"
+              },
+              {
+                "kind": "account",
+                "path": "position.writer",
+                "account": "OptionPosition"
+              },
+              {
+                "kind": "account",
+                "path": "position.created_at",
+                "account": "OptionPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "option_mint",
+          "docs": [
+            "Option token mint (for burning)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "exerciser_option_account",
+          "docs": [
+            "Exerciser's option token account (tokens to burn)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "exerciser_usdc_account",
+          "docs": [
+            "Exerciser's USDC account (receives PnL)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "writer_usdc_account",
+          "docs": [
+            "Writer's USDC account (receives remaining collateral)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "writer",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "tokens_to_exercise",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "expire_option",
+      "docs": [
+        "Expire an unexercised option. Returns collateral to writer."
+      ],
+      "discriminator": [
+        38,
+        144,
+        3,
+        237,
+        125,
+        177,
+        141,
+        229
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position.market",
+                "account": "OptionPosition"
+              },
+              {
+                "kind": "account",
+                "path": "position.writer",
+                "account": "OptionPosition"
+              },
+              {
+                "kind": "account",
+                "path": "position.created_at",
+                "account": "OptionPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "writer_usdc_account",
+          "writable": true
+        },
+        {
+          "name": "writer",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_protocol",
+      "discriminator": [
+        188,
+        233,
+        252,
+        106,
+        134,
+        146,
+        202,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "The admin who is initializing the protocol. They pay for account rent",
+            "and become the protocol admin."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "docs": [
+            "ProtocolState PDA — the global config singleton.",
+            "`init` means Anchor will create this account. If it already exists,",
+            "the transaction fails (preventing double-initialization)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury — a USDC token account owned by the protocol PDA.",
+            "This is where protocol fees accumulate."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint",
+          "docs": [
+            "The USDC mint account. On devnet, this is a test mint."
+          ]
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "Required system programs for account creation."
+          ],
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "list_for_resale",
+      "docs": [
+        "List option tokens for resale. token_amount is how many to list."
+      ],
+      "discriminator": [
+        235,
+        101,
+        201,
+        204,
+        83,
+        163,
+        213,
+        243
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "seller_option_account",
+          "writable": true
+        },
+        {
+          "name": "resale_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  115,
+                  97,
+                  108,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "option_mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "resale_premium",
+          "type": "u64"
+        },
+        {
+          "name": "token_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "purchase_option",
+      "docs": [
+        "Purchase option tokens. Amount is how many tokens to buy (partial fills supported)."
+      ],
+      "discriminator": [
+        146,
+        223,
+        0,
+        55,
+        50,
+        0,
+        11,
+        32
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "purchase_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  117,
+                  114,
+                  99,
+                  104,
+                  97,
+                  115,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer_usdc_account",
+          "writable": true
+        },
+        {
+          "name": "writer_usdc_account",
+          "writable": true
+        },
+        {
+          "name": "buyer_option_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "option_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "option_mint"
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle_market",
+      "docs": [
+        "Settle an expired market with a price (admin-only for hackathon)."
+      ],
+      "discriminator": [
+        193,
+        153,
+        95,
+        216,
+        166,
+        6,
+        144,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Only the protocol admin can settle markets (hackathon constraint).",
+            "In production, this would be permissionless with Pyth validation."
+          ],
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "docs": [
+            "Protocol state — used to verify admin identity."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "docs": [
+            "The market to settle. Must be a valid OptionsMarket account."
+          ],
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "settlement_price",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "write_option",
+      "docs": [
+        "Write an option: lock collateral, mint option tokens to writer."
+      ],
+      "discriminator": [
+        96,
+        144,
+        104,
+        51,
+        39,
+        132,
+        235,
+        38
+      ],
+      "accounts": [
+        {
+          "name": "writer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market"
+        },
+        {
+          "name": "position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "writer"
+              },
+              {
+                "kind": "arg",
+                "path": "created_at"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "docs": [
+            "USDC escrow for collateral. Authority = protocol PDA."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              },
+              {
+                "kind": "account",
+                "path": "writer"
+              },
+              {
+                "kind": "arg",
+                "path": "created_at"
+              }
+            ]
+          }
+        },
+        {
+          "name": "option_mint",
+          "docs": [
+            "Option token mint — unique per position. Authority = protocol PDA.",
+            "0 decimals since option tokens are whole units (contract_size is scaled)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "purchase_escrow",
+          "docs": [
+            "Purchase escrow — holds option tokens until a buyer purchases them.",
+            "Authority = protocol PDA so the program can transfer to buyers."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  117,
+                  114,
+                  99,
+                  104,
+                  97,
+                  115,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "position"
+              }
+            ]
+          }
+        },
+        {
+          "name": "writer_usdc_account",
+          "docs": [
+            "Writer's USDC account (source of collateral)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "collateral_amount",
+          "type": "u64"
+        },
+        {
+          "name": "premium",
+          "type": "u64"
+        },
+        {
+          "name": "contract_size",
+          "type": "u64"
+        },
+        {
+          "name": "created_at",
+          "type": "i64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "OptionPosition",
+      "discriminator": [
+        212,
+        247,
+        167,
+        73,
+        56,
+        224,
+        204,
+        102
+      ]
+    },
+    {
+      "name": "OptionsMarket",
+      "discriminator": [
+        67,
+        30,
+        90,
+        36,
+        130,
+        219,
+        166,
+        8
+      ]
+    },
+    {
+      "name": "ProtocolState",
+      "discriminator": [
+        33,
+        51,
+        173,
+        134,
+        35,
+        140,
+        195,
+        248
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "MarketSettled",
+      "discriminator": [
+        237,
+        212,
+        22,
+        175,
+        201,
+        117,
+        215,
+        99
+      ]
+    },
+    {
+      "name": "OptionCancelled",
+      "discriminator": [
+        200,
+        7,
+        36,
+        77,
+        69,
+        191,
+        174,
+        148
+      ]
+    },
+    {
+      "name": "OptionExercised",
+      "discriminator": [
+        34,
+        100,
+        89,
+        14,
+        247,
+        159,
+        22,
+        97
+      ]
+    },
+    {
+      "name": "OptionExpired",
+      "discriminator": [
+        164,
+        0,
+        177,
+        167,
+        225,
+        148,
+        88,
+        250
+      ]
+    },
+    {
+      "name": "OptionListedForResale",
+      "discriminator": [
+        72,
+        5,
+        23,
+        201,
+        179,
+        134,
+        149,
+        31
+      ]
+    },
+    {
+      "name": "OptionPurchased",
+      "discriminator": [
+        9,
+        175,
+        211,
+        168,
+        31,
+        202,
+        39,
+        191
+      ]
+    },
+    {
+      "name": "OptionResold",
+      "discriminator": [
+        24,
+        199,
+        191,
+        176,
+        131,
+        186,
+        52,
+        64
+      ]
+    },
+    {
+      "name": "OptionWritten",
+      "discriminator": [
+        216,
+        89,
+        143,
+        186,
+        129,
+        212,
+        10,
+        147
+      ]
+    },
+    {
+      "name": "ResaleCancelled",
+      "discriminator": [
+        136,
+        250,
+        89,
+        243,
+        72,
+        144,
+        231,
+        75
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "AlreadyInitialized",
+      "msg": "Protocol has already been initialized"
+    },
+    {
+      "code": 6001,
+      "name": "Unauthorized",
+      "msg": "Unauthorized: signer is not the protocol admin"
+    },
+    {
+      "code": 6002,
+      "name": "ExpiryInPast",
+      "msg": "Expiry timestamp must be in the future"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidStrikePrice",
+      "msg": "Strike price must be greater than zero"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidPythFeed",
+      "msg": "Invalid Pyth price feed address"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidAssetName",
+      "msg": "Asset name must be 1-16 characters"
+    },
+    {
+      "code": 6006,
+      "name": "MarketNotExpired",
+      "msg": "Market has not expired yet"
+    },
+    {
+      "code": 6007,
+      "name": "MarketAlreadySettled",
+      "msg": "Market has already been settled"
+    },
+    {
+      "code": 6008,
+      "name": "MarketNotSettled",
+      "msg": "Market has not been settled yet"
+    },
+    {
+      "code": 6009,
+      "name": "MarketExpired",
+      "msg": "Market has already expired"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidSettlementPrice",
+      "msg": "Settlement price must be greater than zero"
+    },
+    {
+      "code": 6011,
+      "name": "PositionNotActive",
+      "msg": "Position is no longer active"
+    },
+    {
+      "code": 6012,
+      "name": "InsufficientCollateral",
+      "msg": "Insufficient collateral for this option"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidContractSize",
+      "msg": "Contract size must be greater than zero"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidPremium",
+      "msg": "Premium must be greater than zero"
+    },
+    {
+      "code": 6015,
+      "name": "NotWriter",
+      "msg": "Only the writer can perform this action"
+    },
+    {
+      "code": 6016,
+      "name": "NotTokenHolder",
+      "msg": "Only the token holder can perform this action"
+    },
+    {
+      "code": 6017,
+      "name": "CannotBuyOwnOption",
+      "msg": "Cannot buy your own option"
+    },
+    {
+      "code": 6018,
+      "name": "InsufficientOptionTokens",
+      "msg": "Insufficient option tokens to exercise"
+    },
+    {
+      "code": 6019,
+      "name": "TokensAlreadySold",
+      "msg": "Writer must hold all tokens to cancel (some were sold)"
+    },
+    {
+      "code": 6020,
+      "name": "NotListedForResale",
+      "msg": "Option is not listed for resale"
+    },
+    {
+      "code": 6021,
+      "name": "AlreadyListedForResale",
+      "msg": "Option is already listed for resale"
+    },
+    {
+      "code": 6022,
+      "name": "NotResaleSeller",
+      "msg": "Only the resale seller can cancel the listing"
+    },
+    {
+      "code": 6023,
+      "name": "CannotBuyOwnResale",
+      "msg": "Cannot buy your own resale listing"
+    },
+    {
+      "code": 6024,
+      "name": "MathOverflow",
+      "msg": "Arithmetic overflow"
+    }
+  ],
+  "types": [
+    {
+      "name": "MarketSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "settlement_price",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionExercised",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "exerciser",
+            "type": "pubkey"
+          },
+          {
+            "name": "settlement_price",
+            "type": "u64"
+          },
+          {
+            "name": "pnl",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_burned",
+            "type": "u64"
+          },
+          {
+            "name": "profitable",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionExpired",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionListedForResale",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "resale_premium",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionPosition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "docs": [
+              "The OptionsMarket this position belongs to."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "writer",
+            "docs": [
+              "The writer (seller) who locked collateral to create this position."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "option_mint",
+            "docs": [
+              "The SPL token mint representing ownership of this option."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "total_supply",
+            "docs": [
+              "Total supply of option tokens minted."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "tokens_sold",
+            "docs": [
+              "Number of tokens that have been purchased from the primary sale.",
+              "Position stays active for more purchases until tokens_sold == total_supply."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "collateral_amount",
+            "docs": [
+              "Amount of USDC collateral locked by the writer, scaled by 10^6."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "premium",
+            "docs": [
+              "Total premium price for ALL tokens (scaled by 10^6 USDC).",
+              "Per-token premium = premium / total_supply."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "contract_size",
+            "docs": [
+              "Number of option contracts, scaled by 10^6."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Unix timestamp when this position was created (also PDA seed)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "is_exercised",
+            "docs": [
+              "Whether ALL tokens have been exercised (escrow fully drained)."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "is_expired",
+            "docs": [
+              "Whether the option has expired without being exercised."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "is_cancelled",
+            "docs": [
+              "Whether the writer cancelled this position."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "is_listed_for_resale",
+            "docs": [
+              "Whether this option has tokens listed for resale."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "resale_premium",
+            "docs": [
+              "The resale asking price for ALL listed tokens (scaled by 10^6 USDC).",
+              "Per-token resale price = resale_premium / resale_token_amount."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "resale_token_amount",
+            "docs": [
+              "How many tokens are currently listed for resale."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "resale_seller",
+            "docs": [
+              "The seller who listed this for resale."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionPurchased",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "premium",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionResold",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "resale_premium",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionType",
+      "docs": [
+        "Whether this option is a call (right to buy) or put (right to sell)."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Call"
+          },
+          {
+            "name": "Put"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionWritten",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "market",
+            "type": "pubkey"
+          },
+          {
+            "name": "writer",
+            "type": "pubkey"
+          },
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "option_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "premium",
+            "type": "u64"
+          },
+          {
+            "name": "collateral",
+            "type": "u64"
+          },
+          {
+            "name": "contract_size",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OptionsMarket",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_name",
+            "docs": [
+              "Human-readable asset identifier (e.g. \"SOL\", \"BTC\", \"AAPL\", \"EUR/USD\").",
+              "This is a flexible string — the protocol supports ANY asset that has",
+              "a Pyth oracle feed. Max 16 characters."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "strike_price",
+            "docs": [
+              "The strike price in USDC, scaled by 10^6.",
+              "Example: $200.00 is stored as 200_000_000."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "expiry_timestamp",
+            "docs": [
+              "Unix timestamp when this option expires. After this time, the option",
+              "can be settled using the Pyth oracle price."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "option_type",
+            "docs": [
+              "Call or Put."
+            ],
+            "type": {
+              "defined": {
+                "name": "OptionType"
+              }
+            }
+          },
+          {
+            "name": "is_settled",
+            "docs": [
+              "Whether this market has been settled (the Pyth price at expiry has",
+              "been recorded). Once settled, no new positions can be written."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "settlement_price",
+            "docs": [
+              "The Pyth oracle price recorded at settlement time, scaled by 10^6.",
+              "Zero until the market is settled."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pyth_feed",
+            "docs": [
+              "The Pyth Network price feed account for this asset.",
+              "Used during settlement to read the current price."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "The admin wallet that can update protocol settings.",
+              "Set to the signer of the `initialize_protocol` transaction."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "fee_bps",
+            "docs": [
+              "Fee charged on option purchases, in basis points (1 bps = 0.01%).",
+              "Default: 50 bps = 0.50%.",
+              "Example: on a 100 USDC premium, the fee is 0.50 USDC."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "The treasury token account (PDA) that collects protocol fees in USDC."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "docs": [
+              "The USDC mint address. Stored so all instructions can validate that",
+              "token accounts are denominated in USDC."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "total_markets",
+            "docs": [
+              "Running count of all markets created. Used for stats/tracking."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_volume",
+            "docs": [
+              "Running total of all USDC volume (premiums + settlements) flowing",
+              "through the protocol. Scaled by 10^6 (USDC decimals)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed, stored so we don't have to recalculate it."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResaleCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "position",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          }
+        ]
+      }
+    }
+  ]
+}

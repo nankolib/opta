@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   Butter Options — Global Theme
+
+   Colors:
+     - Background: #0A0A0B (near-black)
+     - Surface:    #141416 (charcoal card backgrounds)
+     - Gold:       #D4A843 (brand accent)
+     - Green:      #14F195 (Solana green / profit)
+     - Purple:     #9945FF (Solana purple / secondary)
+     - Red:        #EF4444 (loss / error)
+   ============================================================================ */
+
+@theme {
+  --color-bg-primary: #0A0A0B;
+  --color-bg-surface: #141416;
+  --color-bg-surface-hover: #1A1A1E;
+  --color-border: #1E1E22;
+  --color-border-light: #2A2A30;
+  --color-gold: #D4A843;
+  --color-gold-dim: #B8922F;
+  --color-gold-glow: #D4A84330;
+  --color-sol-green: #14F195;
+  --color-sol-purple: #9945FF;
+  --color-loss: #EF4444;
+  --color-text-primary: #F5F5F5;
+  --color-text-secondary: #9CA3AF;
+  --color-text-muted: #6B7280;
+}
+
+/* Base styles */
+html {
+  background-color: #0A0A0B;
+  color: #F5F5F5;
+}
+
+body {
+  margin: 0;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0A0A0B;
+}
+::-webkit-scrollbar-thumb {
+  background: #2A2A30;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3A3A40;
+}
+
+/* Wallet adapter modal overrides */
+.wallet-adapter-modal-wrapper {
+  background-color: #141416 !important;
+}
+.wallet-adapter-modal-button-close {
+  background-color: #1E1E22 !important;
+}
+.wallet-adapter-button {
+  font-family: "Inter", system-ui, sans-serif !important;
+}
