@@ -1,7 +1,7 @@
 import { FC, useEffect, useState, useMemo } from "react";
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
@@ -267,6 +267,11 @@ const ResaleModal: FC<{
       const [hookState] = deriveHookStatePda(optionMint);
       const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
 
+      // Ensure seller's Token-2022 ATA exists before the transfer
+      const createSellerAtaIx = createAssociatedTokenAccountInstruction(
+        publicKey, sellerOptionAccount, publicKey, optionMint, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
+
       const tokenAmountBN = new BN(parseInt(listQuantity) || totalSupply);
       const tx = await program.methods.listForResale(resalePremiumBN, tokenAmountBN).accountsStrict({
         seller: publicKey, protocolState: protocolStatePda, position: position.publicKey,
@@ -276,7 +281,7 @@ const ResaleModal: FC<{
         transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
         systemProgram: SystemProgram.programId,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-      }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
+      }).preInstructions([EXTRA_CU, createSellerAtaIx]).rpc({ commitment: "confirmed" });
 
       showToast({ type: "success", title: "Listed for resale!", message: `Asking: $${resalePrice}`, txSignature: tx });
       onSuccess();
