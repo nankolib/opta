@@ -33,8 +33,32 @@ export const Portfolio: FC = () => {
 
   const marketMap = useMemo(() => { const m = new Map<string, any>(); markets.forEach((x) => m.set(x.publicKey.toBase58(), x.account)); return m; }, [markets]);
   const writtenPositions = useMemo(() => publicKey ? positions.filter((p) => p.account.writer.toBase58() === publicKey.toBase58()) : [], [positions, publicKey]);
-  // All active positions (for token holdings tab)
-  const activePositions = useMemo(() => positions.filter((p) => !p.account.isExercised && !p.account.isExpired && !p.account.isCancelled), [positions]);
+
+  // Token Holdings tab: only positions where the connected wallet actually holds option tokens.
+  // Fetch all Token-2022 accounts for the wallet, then match mints to positions.
+  const [heldPositions, setHeldPositions] = useState<PositionAccount[]>([]);
+  useEffect(() => {
+    if (!publicKey || !program || positions.length === 0) { setHeldPositions([]); return; }
+    (async () => {
+      try {
+        const accounts = await program.provider.connection.getTokenAccountsByOwner(publicKey, { programId: TOKEN_2022_PROGRAM_ID });
+        // Build set of mints where balance > 0
+        const heldMints = new Set<string>();
+        for (const a of accounts.value) {
+          const mint = new PublicKey(a.account.data.slice(0, 32)).toBase58();
+          const balance = a.account.data.readBigUInt64LE(64);
+          if (balance > BigInt(0)) heldMints.add(mint);
+        }
+        const held = positions.filter((p) =>
+          !p.account.isExercised && !p.account.isExpired && !p.account.isCancelled &&
+          heldMints.has(p.account.optionMint.toBase58())
+        );
+        setHeldPositions(held);
+      } catch {
+        setHeldPositions([]);
+      }
+    })();
+  }, [publicKey, program, positions]);
 
   const refetch = async () => {
     if (!program) return;
@@ -83,7 +107,7 @@ export const Portfolio: FC = () => {
         ) : activeTab === "written" ? (
           <WrittenTab positions={writtenPositions} marketMap={marketMap} program={program} provider={provider} publicKey={publicKey!} onSuccess={refetch} />
         ) : (
-          <HeldTab positions={activePositions} marketMap={marketMap} publicKey={publicKey!} onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
+          <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!} onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
         )}
       </div>
 
@@ -244,13 +268,32 @@ const ResaleModal: FC<{
   const days = daysUntilExpiry(market.expiryTimestamp);
   const vol = getDefaultVolatility(market.assetName);
   const suggestedPricePerToken = isCall ? calculateCallPremium(strike, strike, days, vol) : calculatePutPremium(strike, strike, days, vol);
-  // Estimate: user's token balance is totalSupply (simplification for UI)
-  const totalSupply = position.account.totalSupply?.toNumber?.() || 1_000_000;
+  const totalSupply = position.account.totalSupply?.toNumber?.() || 1;
 
+  // Fetch actual token balance from chain
+  const [sellerBalance, setSellerBalance] = useState<number>(totalSupply);
   useEffect(() => {
-    setListQuantity(totalSupply.toString());
-    setResalePrice((suggestedPricePerToken * totalSupply).toFixed(2));
-  }, []);
+    if (!publicKey) return;
+    (async () => {
+      try {
+        const ata = getAssociatedTokenAddressSync(position.account.optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
+        const info = await program.provider.connection.getAccountInfo(ata);
+        if (info && info.data.length >= 72) {
+          const buf = info.data.slice(64, 72);
+          const bal = Number(buf.readBigUInt64LE(0));
+          setSellerBalance(bal);
+          setListQuantity(bal.toString());
+          setResalePrice((suggestedPricePerToken * bal).toFixed(2));
+        } else {
+          setSellerBalance(0);
+          setListQuantity("0");
+        }
+      } catch {
+        setListQuantity(totalSupply.toString());
+        setResalePrice((suggestedPricePerToken * totalSupply).toFixed(2));
+      }
+    })();
+  }, [publicKey]);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -312,7 +355,7 @@ const ResaleModal: FC<{
           <input type="number" value={listQuantity} onChange={(e) => setListQuantity(e.target.value)}
             placeholder={totalSupply.toString()} min="1" max={totalSupply}
             className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2.5 text-sm text-text-primary focus:border-gold/50 focus:outline-none" />
-          <div className="text-xs text-text-muted mt-1">You hold up to {totalSupply.toLocaleString()} contracts</div>
+          <div className="text-xs text-text-muted mt-1">You hold {sellerBalance.toLocaleString()} contracts</div>
         </div>
         <div className="mb-4">
           <label className="block text-xs font-medium text-text-secondary mb-1.5">Total Asking Price (USDC)</label>
@@ -322,7 +365,7 @@ const ResaleModal: FC<{
         </div>
         <div className="flex gap-3">
           <button onClick={onClose} className="flex-1 rounded-xl border border-border py-3 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors">Cancel</button>
-          <button onClick={handleList} disabled={submitting || !resalePrice || parseFloat(resalePrice) <= 0}
+          <button onClick={handleList} disabled={submitting || !resalePrice || parseFloat(resalePrice) <= 0 || sellerBalance <= 0}
             className="flex-1 rounded-xl bg-gold py-3 text-sm font-semibold text-bg-primary hover:bg-gold-dim transition-colors disabled:opacity-50">
             {submitting ? "Confirm in wallet..." : `List for $${resalePrice || "0"}`}
           </button>
