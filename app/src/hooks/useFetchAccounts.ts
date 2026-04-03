@@ -6,9 +6,11 @@
  * Also validates decoded data to filter out stale accounts.
  */
 import { PublicKey } from "@solana/web3.js";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { Program } from "@coral-xyz/anchor";
 import { Buffer } from "buffer";
+
+// Token-2022 program ID — hardcoded to avoid importing @solana/spl-token here
+const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
 // Account discriminators from the current IDL
 const DISCRIMINATORS: Record<string, number[]> = {
@@ -76,13 +78,17 @@ export async function safeFetchAll<T>(
   // For positions, filter to only Token-2022 mints (post-migration).
   // Old pre-migration positions use standard SPL Token mints and will fail on any transaction.
   if (accountName === "optionPosition" && decoded.length > 0) {
-    const mints = decoded.map((d) => (d.account as any).optionMint as PublicKey);
-    const mintInfos = await connection.getMultipleAccountsInfo(mints);
-    const t22Only = decoded.filter((_, i) => {
-      const info = mintInfos[i];
-      return info && info.owner.equals(TOKEN_2022_PROGRAM_ID);
-    });
-    return t22Only;
+    try {
+      const mints = decoded.map((d) => (d.account as any).optionMint as PublicKey);
+      const mintInfos = await connection.getMultipleAccountsInfo(mints);
+      return decoded.filter((_, i) => {
+        const info = mintInfos[i];
+        return info && info.owner.equals(TOKEN_2022_PROGRAM_ID);
+      });
+    } catch {
+      // If mint lookup fails (e.g. network error), return all decoded positions
+      return decoded;
+    }
   }
 
   return decoded;
