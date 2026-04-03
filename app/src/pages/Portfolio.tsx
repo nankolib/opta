@@ -1,7 +1,7 @@
 import { FC, useEffect, useState, useMemo } from "react";
 import * as anchor from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
@@ -268,7 +268,7 @@ const ResaleModal: FC<{
       const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
 
       // Ensure seller's Token-2022 ATA exists before the transfer
-      const createSellerAtaIx = createAssociatedTokenAccountInstruction(
+      const createSellerAtaIx = createAssociatedTokenAccountIdempotentInstruction(
         publicKey, sellerOptionAccount, publicKey, optionMint, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
       );
 

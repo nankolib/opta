@@ -1,6 +1,6 @@
 import { FC, useEffect, useState, useMemo } from "react";
 import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
@@ -246,7 +246,7 @@ const BuyConfirmModal: FC<{
       // Buyer's Token-2022 ATA must exist before the program can transfer option tokens into it.
       // Create it idempotently as a pre-instruction (no-op if it already exists).
       const buyerOptionAccount = getAssociatedTokenAddressSync(optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
-      const createBuyerAtaIx = createAssociatedTokenAccountInstruction(
+      const createBuyerAtaIx = createAssociatedTokenAccountIdempotentInstruction(
         publicKey, buyerOptionAccount, publicKey, optionMint, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
       );
       const preIxs = [EXTRA_CU, createBuyerAtaIx];

@@ -7,6 +7,12 @@ export default defineConfig({
   define: {
     // Polyfills needed for Solana wallet adapter libraries
     "process.env": {},
+    global: "globalThis",
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      define: { global: "globalThis" },
+    },
   },
   resolve: {
     alias: {
