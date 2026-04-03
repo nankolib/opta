@@ -1,11 +1,12 @@
 import { FC, useEffect, useState, useMemo } from "react";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
+import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
 import { showToast } from "../components/Toast";
+import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
 import { formatUsdc, formatExpiryShort, truncateAddress, usdcToNumber, toUsdcBN, daysUntilExpiry, isExpired } from "../utils/format";
 import { calculateCallPremium, calculatePutPremium, getDefaultVolatility } from "../utils/blackScholes";
 
@@ -236,35 +237,43 @@ const BuyConfirmModal: FC<{
       const buyerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, publicKey);
       const writerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, position.account.writer);
 
+      // Option tokens are Token-2022 — derive ATA with Token-2022 program
+      const optionMint = position.account.optionMint;
+      const [extraAccountMetaList] = deriveExtraAccountMetaListPda(optionMint);
+      const [hookState] = deriveHookStatePda(optionMint);
+      const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
+
       if (isResale) {
         // buy_resale: buy from resale listing
         const sellerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, position.account.resaleSeller);
-        const buyerOptionAccount = await getAssociatedTokenAddress(position.account.optionMint, publicKey);
+        const buyerOptionAccount = getAssociatedTokenAddressSync(optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
         const [resaleEscrowPda] = PublicKey.findProgramAddressSync([Buffer.from("resale_escrow"), position.publicKey.toBuffer()], program.programId);
 
         const tx = await program.methods.buyResale(new BN(qty)).accountsStrict({
           buyer: publicKey, protocolState: protocolStatePda, position: position.publicKey,
           resaleEscrow: resaleEscrowPda, buyerUsdcAccount, sellerUsdcAccount,
-          buyerOptionAccount, optionMint: position.account.optionMint, treasury: treasuryPda,
-          tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+          buyerOptionAccount, optionMint, treasury: treasuryPda,
+          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
+          systemProgram: SystemProgram.programId,
           rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        }).rpc();
+        }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
         showToast({ type: "success", title: "Resale purchased!", message: `Paid $${formatUsdc(price)}`, txSignature: tx });
       } else {
         // purchase_option: buy from purchase escrow (no writer signature needed!)
-        const buyerOptionAccount = await getAssociatedTokenAddress(position.account.optionMint, publicKey);
+        const buyerOptionAccount = getAssociatedTokenAddressSync(optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
         const [purchaseEscrowPda] = PublicKey.findProgramAddressSync([Buffer.from("purchase_escrow"), position.publicKey.toBuffer()], program.programId);
 
         const tx = await program.methods.purchaseOption(new BN(qty)).accountsStrict({
           buyer: publicKey, protocolState: protocolStatePda, market: position.account.market,
           position: position.publicKey, purchaseEscrow: purchaseEscrowPda,
           buyerUsdcAccount, writerUsdcAccount,
-          buyerOptionAccount, optionMint: position.account.optionMint, treasury: treasuryPda,
-          tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+          buyerOptionAccount, optionMint, treasury: treasuryPda,
+          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
+          systemProgram: SystemProgram.programId,
           rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
-          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        }).rpc();
+        }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
         showToast({ type: "success", title: "Option purchased!", message: `Paid $${formatUsdc(price)} USDC`, txSignature: tx });
       }
       onSuccess();
@@ -379,15 +388,22 @@ const WriteOptionPanel: FC<{
       const protocolState = await program.account.protocolState.fetch(protocolStatePda);
       const writerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, publicKey);
 
+      const [extraAccountMetaList] = deriveExtraAccountMetaListPda(optionMintPda);
+      const [hookState] = deriveHookStatePda(optionMintPda);
+      const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
+
       const tx = await program.methods
         .writeOption(collateralBN, premiumBN, sizeBN, createdAt)
         .accountsStrict({
           writer: publicKey, protocolState: protocolStatePda, market: marketPubkey,
           position: positionPda, escrow: escrowPda, optionMint: optionMintPda,
           purchaseEscrow: purchaseEscrowPda, writerUsdcAccount,
-          usdcMint: protocolState.usdcMint, systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID, rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
-        }).rpc();
+          usdcMint: protocolState.usdcMint,
+          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
+          systemProgram: SystemProgram.programId,
+          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+          rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
+        }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
 
       showToast({ type: "success", title: "Option written!", message: `Option created. Premium: $${premium}`, txSignature: tx });
       setCollateral(""); onSuccess();

@@ -172,6 +172,7 @@ const CreateMarketModal: FC<{ onClose: () => void; onCreated: () => void }> = ({
   const [expiryDate, setExpiryDate] = useState("");
   const [optionType, setOptionType] = useState<"call" | "put">("call");
   const [pythFeed, setPythFeed] = useState("");
+  const [assetClass, setAssetClass] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
@@ -196,9 +197,9 @@ const CreateMarketModal: FC<{ onClose: () => void; onCreated: () => void }> = ({
       const [protocolStatePda] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], program.programId);
 
       const tx = await program.methods
-        .createMarket(assetName, strikeBN, expiryBN, optionType === "call" ? { call: {} } : { put: {} } as any, feedPubkey)
+        .createMarket(assetName, strikeBN, expiryBN, optionType === "call" ? { call: {} } : { put: {} } as any, feedPubkey, assetClass)
         .accountsStrict({ creator: publicKey, protocolState: protocolStatePda, market: marketPda, systemProgram: SystemProgram.programId })
-        .rpc();
+        .rpc({ commitment: "confirmed" });
       showToast({ type: "success", title: "Market created!", message: `${assetName} ${optionType.toUpperCase()} at $${strike}`, txSignature: tx });
       onCreated();
     } catch (err: any) {
@@ -235,6 +236,17 @@ const CreateMarketModal: FC<{ onClose: () => void; onCreated: () => void }> = ({
               <button onClick={() => setOptionType("call")} className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${optionType === "call" ? "bg-sol-green/15 text-sol-green border border-sol-green/30" : "bg-bg-primary text-text-secondary border border-border"}`}>Call</button>
               <button onClick={() => setOptionType("put")} className={`flex-1 rounded-lg py-2.5 text-sm font-medium transition-all ${optionType === "put" ? "bg-sol-purple/15 text-sol-purple border border-sol-purple/30" : "bg-bg-primary text-text-secondary border border-border"}`}>Put</button>
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">Asset Class</label>
+            <select value={assetClass} onChange={(e) => setAssetClass(parseInt(e.target.value))}
+              className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2.5 text-sm text-text-primary focus:border-gold/50 focus:outline-none">
+              <option value={0}>Crypto</option>
+              <option value={1}>Commodity</option>
+              <option value={2}>Equity</option>
+              <option value={3}>Forex</option>
+              <option value={4}>ETF / Fund</option>
+            </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5">Pyth Oracle Feed</label>

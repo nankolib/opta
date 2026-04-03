@@ -1,12 +1,13 @@
 import { FC, useEffect, useState, useMemo } from "react";
 import * as anchor from "@coral-xyz/anchor";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
+import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
 import { showToast } from "../components/Toast";
+import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
 import { formatUsdc, formatExpiryShort, usdcToNumber, getPositionStatus, isExpired, daysUntilExpiry } from "../utils/format";
 import { calculateCallPremium, calculatePutPremium, getDefaultVolatility } from "../utils/blackScholes";
 
@@ -113,11 +114,13 @@ const WrittenTab: FC<{
       const protocolState = await program.account.protocolState.fetch(protocolStatePda);
       const writerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, publicKey);
 
+      const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
       const tx = await program.methods.cancelOption().accountsStrict({
         writer: publicKey, protocolState: protocolStatePda, position: p.publicKey,
         escrow: escrowPda, purchaseEscrow: purchaseEscrowPda,
-        optionMint: p.account.optionMint, writerUsdcAccount, tokenProgram: TOKEN_PROGRAM_ID,
-      }).rpc();
+        optionMint: p.account.optionMint, writerUsdcAccount,
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
       showToast({ type: "success", title: "Cancelled!", message: "Tokens burned, collateral returned.", txSignature: tx });
       onSuccess();
     } catch (err: any) {
@@ -257,17 +260,23 @@ const ResaleModal: FC<{
     try {
       const resalePremiumBN = new BN(Math.round(parseFloat(resalePrice) * 1_000_000));
       const [protocolStatePda] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], program.programId);
-      const sellerOptionAccount = await getAssociatedTokenAddress(position.account.optionMint, publicKey);
+      const optionMint = position.account.optionMint;
+      const sellerOptionAccount = getAssociatedTokenAddressSync(optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
       const [resaleEscrowPda] = PublicKey.findProgramAddressSync([Buffer.from("resale_escrow"), position.publicKey.toBuffer()], program.programId);
+      const [extraAccountMetaList] = deriveExtraAccountMetaListPda(optionMint);
+      const [hookState] = deriveHookStatePda(optionMint);
+      const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
 
       const tokenAmountBN = new BN(parseInt(listQuantity) || totalSupply);
       const tx = await program.methods.listForResale(resalePremiumBN, tokenAmountBN).accountsStrict({
         seller: publicKey, protocolState: protocolStatePda, position: position.publicKey,
         sellerOptionAccount, resaleEscrow: resaleEscrowPda,
-        optionMint: position.account.optionMint,
-        systemProgram: SystemProgram.programId, tokenProgram: TOKEN_PROGRAM_ID,
+        optionMint,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
+        systemProgram: SystemProgram.programId,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-      }).rpc();
+      }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
 
       showToast({ type: "success", title: "Listed for resale!", message: `Asking: $${resalePrice}`, txSignature: tx });
       onSuccess();
