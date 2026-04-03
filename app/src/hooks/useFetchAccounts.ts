@@ -6,6 +6,7 @@
  * Also validates decoded data to filter out stale accounts.
  */
 import { PublicKey } from "@solana/web3.js";
+import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { Program } from "@coral-xyz/anchor";
 import { Buffer } from "buffer";
 
@@ -53,6 +54,8 @@ export async function safeFetchAll<T>(
       if (accountName === "optionsMarket") {
         // Current format has assetName (string). Old format had underlyingAsset (enum).
         if (typeof account.assetName !== "string" || !account.assetName) continue;
+        // Post-migration markets have assetClass 0-4. Old markets read garbage (249-255).
+        if (typeof account.assetClass !== "number" || account.assetClass > 4) continue;
       }
       if (accountName === "optionPosition") {
         // Current format has optionMint (Pubkey). Old format had buyer (Option<Pubkey>).
@@ -68,6 +71,18 @@ export async function safeFetchAll<T>(
     } catch {
       // Skip old-format accounts that can't be decoded
     }
+  }
+
+  // For positions, filter to only Token-2022 mints (post-migration).
+  // Old pre-migration positions use standard SPL Token mints and will fail on any transaction.
+  if (accountName === "optionPosition" && decoded.length > 0) {
+    const mints = decoded.map((d) => (d.account as any).optionMint as PublicKey);
+    const mintInfos = await connection.getMultipleAccountsInfo(mints);
+    const t22Only = decoded.filter((_, i) => {
+      const info = mintInfos[i];
+      return info && info.owner.equals(TOKEN_2022_PROGRAM_ID);
+    });
+    return t22Only;
   }
 
   return decoded;
