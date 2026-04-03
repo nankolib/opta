@@ -107,7 +107,9 @@ export const Portfolio: FC = () => {
         ) : activeTab === "written" ? (
           <WrittenTab positions={writtenPositions} marketMap={marketMap} program={program} provider={provider} publicKey={publicKey!} onSuccess={refetch} />
         ) : (
-          <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!} onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
+          <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!}
+          program={program} provider={provider} onSuccess={refetch}
+          onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
         )}
       </div>
 
@@ -195,8 +197,45 @@ const WrittenTab: FC<{
 // =============================================================================
 const HeldTab: FC<{
   positions: PositionAccount[]; marketMap: Map<string, any>; publicKey: PublicKey;
+  program: any; provider: any; onSuccess: () => void;
   onListForResale: (p: PositionAccount, mkt: any) => void;
-}> = ({ positions, marketMap, publicKey, onListForResale }) => {
+}> = ({ positions, marketMap, publicKey, program, provider, onSuccess, onListForResale }) => {
+  const [exercisingId, setExercisingId] = useState<string | null>(null);
+
+  const handleExercise = async (p: PositionAccount) => {
+    if (!program || !provider || !publicKey) return;
+    setExercisingId(p.publicKey.toBase58());
+    try {
+      const [protocolStatePda] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], program.programId);
+      const [escrowPda] = PublicKey.findProgramAddressSync([Buffer.from("escrow"), p.account.market.toBuffer(), p.account.writer.toBuffer(), p.account.createdAt.toArrayLike(Buffer, "le", 8)], program.programId);
+      const protocolState = await program.account.protocolState.fetch(protocolStatePda);
+      const exerciserUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, publicKey);
+      const writerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, p.account.writer);
+      const exerciserOptionAccount = getAssociatedTokenAddressSync(p.account.optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
+
+      const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
+
+      // Fetch exerciser's actual token balance
+      const ataInfo = await program.provider.connection.getAccountInfo(exerciserOptionAccount);
+      let tokensToExercise = 1;
+      if (ataInfo && ataInfo.data.length >= 72) {
+        tokensToExercise = Number(ataInfo.data.readBigUInt64LE(64));
+      }
+
+      const tx = await program.methods.exerciseOption(new BN(tokensToExercise)).accountsStrict({
+        exerciser: publicKey, protocolState: protocolStatePda,
+        market: p.account.market, position: p.publicKey,
+        escrow: escrowPda, optionMint: p.account.optionMint,
+        exerciserOptionAccount, exerciserUsdcAccount,
+        writerUsdcAccount, writer: p.account.writer,
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+      }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
+      showToast({ type: "success", title: "Exercised!", message: "Tokens burned, PnL distributed.", txSignature: tx });
+      onSuccess();
+    } catch (err: any) {
+      showToast({ type: "error", title: "Exercise failed", message: err?.message?.slice(0, 120) });
+    } finally { setExercisingId(null); }
+  };
   if (positions.length === 0) return <div className="rounded-xl border border-border bg-bg-surface p-12 text-center"><div className="text-text-muted">No active positions.</div></div>;
 
   return (
@@ -240,8 +279,9 @@ const HeldTab: FC<{
                 </button>
               )}
               {settled && (
-                <button className="rounded-lg bg-sol-green/15 border border-sol-green/30 px-4 py-1.5 text-xs font-semibold text-sol-green hover:bg-sol-green/25 transition-colors">
-                  Exercise
+                <button onClick={() => handleExercise(p)} disabled={exercisingId === p.publicKey.toBase58()}
+                  className="rounded-lg bg-sol-green/15 border border-sol-green/30 px-4 py-1.5 text-xs font-semibold text-sol-green hover:bg-sol-green/25 transition-colors disabled:opacity-50">
+                  {exercisingId === p.publicKey.toBase58() ? "Exercising..." : "Exercise"}
                 </button>
               )}
               {p.account.isListedForResale && <span className="text-xs text-sol-purple py-1.5">Listed for ${formatUsdc(p.account.resalePremium)}</span>}
