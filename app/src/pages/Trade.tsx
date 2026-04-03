@@ -1,6 +1,6 @@
 import { FC, useEffect, useState, useMemo } from "react";
 import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
@@ -243,10 +243,17 @@ const BuyConfirmModal: FC<{
       const [hookState] = deriveHookStatePda(optionMint);
       const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
 
+      // Buyer's Token-2022 ATA must exist before the program can transfer option tokens into it.
+      // Create it idempotently as a pre-instruction (no-op if it already exists).
+      const buyerOptionAccount = getAssociatedTokenAddressSync(optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const createBuyerAtaIx = createAssociatedTokenAccountInstruction(
+        publicKey, buyerOptionAccount, publicKey, optionMint, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
+      );
+      const preIxs = [EXTRA_CU, createBuyerAtaIx];
+
       if (isResale) {
         // buy_resale: buy from resale listing
         const sellerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, position.account.resaleSeller);
-        const buyerOptionAccount = getAssociatedTokenAddressSync(optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
         const [resaleEscrowPda] = PublicKey.findProgramAddressSync([Buffer.from("resale_escrow"), position.publicKey.toBuffer()], program.programId);
 
         const tx = await program.methods.buyResale(new BN(qty)).accountsStrict({
@@ -257,11 +264,10 @@ const BuyConfirmModal: FC<{
           transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
           systemProgram: SystemProgram.programId,
           rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
-        }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
+        }).preInstructions(preIxs).rpc({ commitment: "confirmed" });
         showToast({ type: "success", title: "Resale purchased!", message: `Paid $${formatUsdc(price)}`, txSignature: tx });
       } else {
         // purchase_option: buy from purchase escrow (no writer signature needed!)
-        const buyerOptionAccount = getAssociatedTokenAddressSync(optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
         const [purchaseEscrowPda] = PublicKey.findProgramAddressSync([Buffer.from("purchase_escrow"), position.publicKey.toBuffer()], program.programId);
 
         const tx = await program.methods.purchaseOption(new BN(qty)).accountsStrict({
@@ -273,7 +279,7 @@ const BuyConfirmModal: FC<{
           transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
           systemProgram: SystemProgram.programId,
           rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
-        }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
+        }).preInstructions(preIxs).rpc({ commitment: "confirmed" });
         showToast({ type: "success", title: "Option purchased!", message: `Paid $${formatUsdc(price)} USDC`, txSignature: tx });
       }
       onSuccess();
