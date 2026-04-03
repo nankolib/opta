@@ -64,6 +64,9 @@ export type ButterOptions = {
         },
         {
           "name": "resaleEscrow",
+          "docs": [
+            "Resale escrow holding option tokens (Token-2022 PDA)."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -102,96 +105,16 @@ export type ButterOptions = {
         },
         {
           "name": "buyerOptionAccount",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "buyer"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "optionMint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
+          "docs": [
+            "Buyer's option token account (Token-2022). Frontend creates ATA before calling."
+          ],
+          "writable": true
         },
         {
-          "name": "optionMint"
+          "name": "optionMint",
+          "docs": [
+            "Option token mint (Token-2022 mint)."
+          ]
         },
         {
           "name": "treasury",
@@ -219,7 +142,35 @@ export type ButterOptions = {
         },
         {
           "name": "tokenProgram",
+          "docs": [
+            "Standard SPL Token program — for USDC transfers."
+          ],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "docs": [
+            "Token-2022 program — for option token transfers."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "transferHookProgram",
+          "docs": [
+            "Transfer hook program."
+          ]
+        },
+        {
+          "name": "extraAccountMetaList",
+          "docs": [
+            "ExtraAccountMetaList for the transfer hook."
+          ]
+        },
+        {
+          "name": "hookState",
+          "docs": [
+            "HookState with expiry info for the transfer hook."
+          ]
         },
         {
           "name": "systemProgram",
@@ -228,10 +179,6 @@ export type ButterOptions = {
         {
           "name": "rent",
           "address": "SysvarRent111111111111111111111111111111111"
-        },
-        {
-          "name": "associatedTokenProgram",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": [
@@ -292,7 +239,7 @@ export type ButterOptions = {
         {
           "name": "escrow",
           "docs": [
-            "USDC collateral escrow."
+            "USDC collateral escrow (standard Token)."
           ],
           "writable": true,
           "pda": {
@@ -329,7 +276,7 @@ export type ButterOptions = {
         {
           "name": "purchaseEscrow",
           "docs": [
-            "Purchase escrow holding option tokens."
+            "Purchase escrow holding option tokens (Token-2022)."
           ],
           "writable": true,
           "pda": {
@@ -363,6 +310,9 @@ export type ButterOptions = {
         },
         {
           "name": "optionMint",
+          "docs": [
+            "Option token mint (Token-2022)."
+          ],
           "writable": true
         },
         {
@@ -371,7 +321,17 @@ export type ButterOptions = {
         },
         {
           "name": "tokenProgram",
+          "docs": [
+            "Standard SPL Token — for USDC operations."
+          ],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "docs": [
+            "Token-2022 — for burning option tokens."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         }
       ],
       "args": []
@@ -427,7 +387,7 @@ export type ButterOptions = {
         {
           "name": "resaleEscrow",
           "docs": [
-            "Resale escrow holding option tokens."
+            "Resale escrow holding option tokens (Token-2022 PDA)."
           ],
           "writable": true,
           "pda": {
@@ -460,16 +420,40 @@ export type ButterOptions = {
         {
           "name": "sellerOptionAccount",
           "docs": [
-            "Seller's option token account (receives tokens back)."
+            "Seller's option token account (Token-2022, receives tokens back)."
           ],
           "writable": true
         },
         {
-          "name": "optionMint"
+          "name": "optionMint",
+          "docs": [
+            "Option token mint (Token-2022 mint)."
+          ]
         },
         {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+          "name": "token2022Program",
+          "docs": [
+            "Token-2022 program — for option token transfers."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "transferHookProgram",
+          "docs": [
+            "Transfer hook program."
+          ]
+        },
+        {
+          "name": "extraAccountMetaList",
+          "docs": [
+            "ExtraAccountMetaList for the transfer hook."
+          ]
+        },
+        {
+          "name": "hookState",
+          "docs": [
+            "HookState with expiry info for the transfer hook."
+          ]
         }
       ],
       "args": []
@@ -570,6 +554,10 @@ export type ButterOptions = {
         {
           "name": "pythFeed",
           "type": "pubkey"
+        },
+        {
+          "name": "assetClass",
+          "type": "u8"
         }
       ]
     },
@@ -591,9 +579,6 @@ export type ButterOptions = {
       "accounts": [
         {
           "name": "exerciser",
-          "docs": [
-            "The token holder exercising the option."
-          ],
           "writable": true,
           "signer": true
         },
@@ -665,14 +650,14 @@ export type ButterOptions = {
         {
           "name": "optionMint",
           "docs": [
-            "Option token mint (for burning)."
+            "Option token mint (Token-2022)."
           ],
           "writable": true
         },
         {
           "name": "exerciserOptionAccount",
           "docs": [
-            "Exerciser's option token account (tokens to burn)."
+            "Exerciser's option token account (Token-2022)."
           ],
           "writable": true
         },
@@ -696,7 +681,17 @@ export type ButterOptions = {
         },
         {
           "name": "tokenProgram",
+          "docs": [
+            "Standard SPL Token — for USDC operations."
+          ],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "docs": [
+            "Token-2022 — for burning option tokens."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         }
       ],
       "args": [
@@ -959,10 +954,17 @@ export type ButterOptions = {
         },
         {
           "name": "sellerOptionAccount",
+          "docs": [
+            "Seller's option token account (Token-2022)."
+          ],
           "writable": true
         },
         {
           "name": "resaleEscrow",
+          "docs": [
+            "Resale escrow for holding listed option tokens (Token-2022 PDA).",
+            "Created in handler if it doesn't exist yet."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -992,15 +994,39 @@ export type ButterOptions = {
           }
         },
         {
-          "name": "optionMint"
+          "name": "optionMint",
+          "docs": [
+            "Option token mint (Token-2022 mint)."
+          ]
+        },
+        {
+          "name": "token2022Program",
+          "docs": [
+            "Token-2022 program — for option token transfers."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "transferHookProgram",
+          "docs": [
+            "Transfer hook program."
+          ]
+        },
+        {
+          "name": "extraAccountMetaList",
+          "docs": [
+            "ExtraAccountMetaList for the transfer hook."
+          ]
+        },
+        {
+          "name": "hookState",
+          "docs": [
+            "HookState with expiry info for the transfer hook."
+          ]
         },
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
           "name": "rent",
@@ -1072,6 +1098,9 @@ export type ButterOptions = {
         },
         {
           "name": "purchaseEscrow",
+          "docs": [
+            "Purchase escrow holding option tokens (Token-2022 account)."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -1112,96 +1141,16 @@ export type ButterOptions = {
         },
         {
           "name": "buyerOptionAccount",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "account",
-                "path": "buyer"
-              },
-              {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "optionMint"
-              }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
-          }
+          "docs": [
+            "Buyer's option token account (Token-2022). Frontend creates ATA before calling."
+          ],
+          "writable": true
         },
         {
-          "name": "optionMint"
+          "name": "optionMint",
+          "docs": [
+            "Option token mint (Token-2022 mint)."
+          ]
         },
         {
           "name": "treasury",
@@ -1229,7 +1178,35 @@ export type ButterOptions = {
         },
         {
           "name": "tokenProgram",
+          "docs": [
+            "Standard SPL Token program — for USDC transfers."
+          ],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "docs": [
+            "Token-2022 program — for option token transfers."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "transferHookProgram",
+          "docs": [
+            "Transfer hook program."
+          ]
+        },
+        {
+          "name": "extraAccountMetaList",
+          "docs": [
+            "ExtraAccountMetaList for the transfer hook."
+          ]
+        },
+        {
+          "name": "hookState",
+          "docs": [
+            "HookState with expiry info for the transfer hook."
+          ]
         },
         {
           "name": "systemProgram",
@@ -1238,10 +1215,6 @@ export type ButterOptions = {
         {
           "name": "rent",
           "address": "SysvarRent111111111111111111111111111111111"
-        },
-        {
-          "name": "associatedTokenProgram",
-          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": [
@@ -1399,7 +1372,8 @@ export type ButterOptions = {
         {
           "name": "escrow",
           "docs": [
-            "USDC escrow for collateral. Authority = protocol PDA."
+            "USDC escrow for collateral. Authority = protocol PDA.",
+            "This stays on the standard SPL Token program (USDC is not Token-2022)."
           ],
           "writable": true,
           "pda": {
@@ -1433,8 +1407,11 @@ export type ButterOptions = {
         {
           "name": "optionMint",
           "docs": [
-            "Option token mint — unique per position. Authority = protocol PDA.",
-            "0 decimals since option tokens are whole units (contract_size is scaled)."
+            "Option token mint — Token-2022 with TransferHook + PermanentDelegate +",
+            "MetadataPointer extensions. Created manually via CPI in the handler",
+            "because Anchor's `init` doesn't support Token-2022 extensions.",
+            "",
+            "the address matches the expected PDA."
           ],
           "writable": true,
           "pda": {
@@ -1465,8 +1442,10 @@ export type ButterOptions = {
         {
           "name": "purchaseEscrow",
           "docs": [
-            "Purchase escrow — holds option tokens until a buyer purchases them.",
-            "Authority = protocol PDA so the program can transfer to buyers."
+            "Purchase escrow — holds option tokens for buyers. Token-2022 token",
+            "account created manually in the handler (same reason as mint).",
+            "",
+            "the address matches the expected PDA."
           ],
           "writable": true,
           "pda": {
@@ -1509,12 +1488,44 @@ export type ButterOptions = {
           "name": "usdcMint"
         },
         {
+          "name": "transferHookProgram",
+          "docs": [
+            "The transfer hook program. Validated against the known program ID."
+          ]
+        },
+        {
+          "name": "extraAccountMetaList",
+          "docs": [
+            "ExtraAccountMetaList PDA — created by the hook program during CPI.",
+            "Seeds: [\"extra-account-metas\", mint] on the hook program."
+          ],
+          "writable": true
+        },
+        {
+          "name": "hookState",
+          "docs": [
+            "HookState PDA — stores expiry + protocol PDA for the transfer hook.",
+            "Seeds: [\"hook-state\", mint] on the hook program."
+          ],
+          "writable": true
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
           "name": "tokenProgram",
+          "docs": [
+            "Standard SPL Token program — used for USDC operations only."
+          ],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token2022Program",
+          "docs": [
+            "Token-2022 program — used for the option mint and token accounts."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
         {
           "name": "rent",
@@ -1824,6 +1835,11 @@ export type ButterOptions = {
     },
     {
       "code": 6024,
+      "name": "invalidAssetClass",
+      "msg": "Asset class must be 0-4 (crypto, commodity, equity, forex, etf)"
+    },
+    {
+      "code": 6025,
       "name": "mathOverflow",
       "msg": "Arithmetic overflow"
     }
@@ -2224,6 +2240,14 @@ export type ButterOptions = {
               "Used during settlement to read the current price."
             ],
             "type": "pubkey"
+          },
+          {
+            "name": "assetClass",
+            "docs": [
+              "Asset class for categorizing the underlying asset.",
+              "0 = crypto, 1 = commodity, 2 = equity, 3 = forex, 4 = ETF."
+            ],
+            "type": "u8"
           },
           {
             "name": "bump",

@@ -7,3 +7,4 @@ test-ledger
 .yarn
 Cargo.lock
 run.sh
+scripts/.devnet-writer-keypair.json
