@@ -4,6 +4,11 @@ A peer-to-peer, composable options protocol built on Solana.
 
 **Colosseum Frontier Hackathon** (April 6 – May 11, 2026)
 
+## 📖 Documentation
+
+Full protocol documentation is available:
+- **[Protocol Documentation](./docs/PROTOCOL.md)** — Complete technical docs covering architecture, instructions, security, pricing, and more
+
 ## What is Butter Options?
 
 Butter Options is a decentralized options protocol where:

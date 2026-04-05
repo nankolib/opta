@@ -5,6 +5,7 @@ import { Landing } from "./pages/Landing";
 import { Markets } from "./pages/Markets";
 import { Trade } from "./pages/Trade";
 import { Portfolio } from "./pages/Portfolio";
+import { DocsPage } from "./pages/DocsPage";
 
 /**
  * App — Root component with routing.
@@ -27,6 +28,7 @@ function App() {
           <Route path="/markets" element={<Markets />} />
           <Route path="/trade" element={<Trade />} />
           <Route path="/portfolio" element={<Portfolio />} />
+          <Route path="/docs" element={<DocsPage />} />
         </Routes>
       </div>
     </BrowserRouter>

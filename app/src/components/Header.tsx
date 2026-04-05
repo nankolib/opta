@@ -18,6 +18,7 @@ export const Header: FC = () => {
     { path: "/markets", label: "Markets" },
     { path: "/trade", label: "Trade" },
     { path: "/portfolio", label: "Portfolio" },
+    { path: "/docs", label: "Docs" },
   ];
 
   const isActive = (path: string) => location.pathname === path;
