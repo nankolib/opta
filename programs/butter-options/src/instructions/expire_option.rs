@@ -20,7 +20,16 @@ pub fn handle_expire_option(ctx: Context<ExpireOption>) -> Result<()> {
     let clock = Clock::get()?;
 
     require!(clock.unix_timestamp >= market.expiry_timestamp, ButterError::MarketNotExpired);
+    require!(market.is_settled, ButterError::MarketNotSettled);
     require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, ButterError::PositionNotActive);
+
+    // Only allow expiry if the option is out of the money (no value to exercise).
+    // ITM options must be exercised by token holders first.
+    let is_otm = match market.option_type {
+        OptionType::Call => market.settlement_price <= market.strike_price,
+        OptionType::Put  => market.settlement_price >= market.strike_price,
+    };
+    require!(is_otm || position.tokens_sold == 0, ButterError::CannotExpireItmOption);
 
     let protocol_seeds = &[PROTOCOL_SEED, &[ctx.accounts.protocol_state.bump]];
     let signer_seeds = &[&protocol_seeds[..]];

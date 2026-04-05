@@ -18,7 +18,7 @@ const PROGRAM_ID = new PublicKey("CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq")
 const HOOK_PROGRAM_ID = new PublicKey("83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG");
 
 async function main() {
-  const conn = new Connection("https://api.devnet.solana.com", "confirmed");
+  const conn = new Connection(process.env.RPC_URL || "https://api.devnet.solana.com", "confirmed");
   const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "target", "idl", "butter_options.json"), "utf-8"));
   const rawKey = JSON.parse(fs.readFileSync(path.join(process.env.HOME || "~", ".config/solana/id.json"), "utf-8"));
   const payer = Keypair.fromSecretKey(Uint8Array.from(rawKey));
@@ -27,7 +27,7 @@ async function main() {
   anchor.setProvider(provider);
   const program = new Program(idl, provider) as Program<ButterOptions>;
 
-  const buyerPubkey = new PublicKey("DnExEYnZGuEu7xgpmNupJVXJLbMbkNdf3E7f28Zv6LUQ");
+  const buyerPubkey = wallet.publicKey;
 
   // Fetch all positions + markets
   const [protocolStatePda] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], PROGRAM_ID);

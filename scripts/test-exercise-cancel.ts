@@ -22,7 +22,7 @@ const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
 function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }
 
 async function main() {
-  const conn = new Connection("https://api.devnet.solana.com", { commitment: "confirmed", confirmTransactionInitialTimeout: 60000 });
+  const conn = new Connection(process.env.RPC_URL || "https://api.devnet.solana.com", { commitment: "confirmed", confirmTransactionInitialTimeout: 60000 });
   const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "target", "idl", "butter_options.json"), "utf-8"));
   const rawKey = JSON.parse(fs.readFileSync(path.join(process.env.HOME || "~", ".config/solana/id.json"), "utf-8"));
   const admin = Keypair.fromSecretKey(Uint8Array.from(rawKey));
@@ -35,7 +35,7 @@ async function main() {
   const writerRaw = JSON.parse(fs.readFileSync(writerPath, "utf-8"));
   const writer = Keypair.fromSecretKey(Uint8Array.from(writerRaw));
 
-  const buyerPubkey = new PublicKey("DnExEYnZGuEu7xgpmNupJVXJLbMbkNdf3E7f28Zv6LUQ");
+  const buyerPubkey = admin.publicKey;
 
   const [protocolStatePda] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], PROGRAM_ID);
   const [treasuryPda] = PublicKey.findProgramAddressSync([Buffer.from("treasury_v2")], PROGRAM_ID);

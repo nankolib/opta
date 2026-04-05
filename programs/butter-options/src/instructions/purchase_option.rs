@@ -46,6 +46,9 @@ pub fn handle_purchase_option(ctx: Context<PurchaseOption>, amount: u64) -> Resu
         .checked_mul(amount).ok_or(ButterError::MathOverflow)?
         .checked_div(total_supply).ok_or(ButterError::MathOverflow)?;
 
+    // Reject if rounding truncated the premium to zero (dust purchase exploit)
+    require!(proportional_premium > 0, ButterError::PremiumTooLow);
+
     // Fee calculation
     let fee_bps = ctx.accounts.protocol_state.fee_bps as u64;
     let fee = proportional_premium

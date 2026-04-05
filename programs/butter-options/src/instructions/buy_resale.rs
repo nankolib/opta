@@ -23,6 +23,8 @@ use super::initialize_protocol::TREASURY_SEED;
 pub fn handle_buy_resale(ctx: Context<BuyResale>, amount: u64) -> Result<()> {
     let position = &ctx.accounts.position;
 
+    let clock = Clock::get()?;
+    require!(clock.unix_timestamp < ctx.accounts.market.expiry_timestamp, ButterError::MarketExpired);
     require!(position.is_listed_for_resale, ButterError::NotListedForResale);
     require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, ButterError::PositionNotActive);
     require!(ctx.accounts.buyer.key() != position.resale_seller, ButterError::CannotBuyOwnResale);
@@ -155,6 +157,10 @@ pub struct BuyResale<'info> {
         bump = protocol_state.bump,
     )]
     pub protocol_state: Account<'info, ProtocolState>,
+
+    /// The market this position belongs to — used to check expiry.
+    #[account(constraint = market.key() == position.market)]
+    pub market: Account<'info, OptionsMarket>,
 
     #[account(mut)]
     pub position: Box<Account<'info, OptionPosition>>,

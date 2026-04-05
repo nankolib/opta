@@ -321,6 +321,7 @@ describe("butter-options", () => {
 
   function buildBuyResaleAccounts(params: {
     buyer: PublicKey;
+    market: PublicKey;
     position: PublicKey;
     resaleEscrow: PublicKey;
     buyerUsdcAccount: PublicKey;
@@ -333,6 +334,7 @@ describe("butter-options", () => {
     return {
       buyer: params.buyer,
       protocolState: protocolStatePda,
+      market: params.market,
       position: params.position,
       resaleEscrow: params.resaleEscrow,
       buyerUsdcAccount: params.buyerUsdcAccount,
@@ -1280,6 +1282,7 @@ describe("butter-options", () => {
         .buyResale(new BN(10))
         .accountsStrict(buildBuyResaleAccounts({
           buyer: writer.publicKey,
+          market: callMarketPda,
           position: positionPda,
           resaleEscrow: resaleEscrowPda,
           buyerUsdcAccount: writerUsdcAccount,

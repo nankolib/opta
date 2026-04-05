@@ -7,7 +7,7 @@ async function main() {
   anchor.setProvider(provider);
   const program = anchor.workspace.butterOptions;
   const admin = provider.wallet;
-  const userWallet = "DnExEYnZGuEu7xgpmNupJVXJLbMbkNdf3E7f28Zv6LUQ";
+  const userWallet = admin.publicKey.toBase58();
   const connection = provider.connection;
 
   // Find AAPL position written by user

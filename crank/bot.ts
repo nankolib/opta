@@ -242,7 +242,7 @@ async function main() {
   console.log("=== Butter Options Crank Bot ===");
   console.log(`Tick interval: ${TICK_INTERVAL_MS / 1000}s`);
 
-  const conn = new Connection("https://api.devnet.solana.com", {
+  const conn = new Connection(process.env.RPC_URL || "https://api.devnet.solana.com", {
     commitment: "confirmed",
     confirmTransactionInitialTimeout: 60000,
   });

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "solana-dev": {
+      "source": "GuiBibeau/solana-dev-skill",
+      "sourceType": "github",
+      "computedHash": "23ede549cc8beaf50b157945566db98be81b612b0714199e0d96b59708218629"
+    }
+  }
+}

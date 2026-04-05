@@ -145,7 +145,7 @@ async function main() {
   // ---------------------------------------------------------------------------
   // 1. Setup provider & program
   // ---------------------------------------------------------------------------
-  const connection = new Connection("https://api.devnet.solana.com", {
+  const connection = new Connection(process.env.RPC_URL || "https://api.devnet.solana.com", {
     commitment: "confirmed",
     confirmTransactionInitialTimeout: 60000,
   });

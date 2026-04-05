@@ -70,6 +70,14 @@ pub enum ButterError {
     #[msg("Asset class must be 0-4 (crypto, commodity, equity, forex, etf)")]
     InvalidAssetClass,
 
+    // Expiry errors
+    #[msg("Cannot expire an in-the-money option — holders must exercise first")]
+    CannotExpireItmOption,
+
+    // Premium errors
+    #[msg("Purchase amount too small — premium rounds to zero")]
+    PremiumTooLow,
+
     // Math errors
     #[msg("Arithmetic overflow")]
     MathOverflow,
