@@ -21,5 +21,8 @@ id.json
 *.pem
 *.key
 
+# Audit / internal context
+.context/
+
 # Archives
 files.zip
