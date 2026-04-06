@@ -84,6 +84,10 @@ export const Markets: FC = () => {
           )}
         </div>
 
+        <div className="rounded-xl border border-gold/20 bg-gold/5 p-4 mb-6">
+          <p className="text-sm text-text-secondary">Create options on any Pyth-priced asset — crypto, commodities, equities, forex, tokenized funds. Each market uses asset-class-aware pricing.</p>
+        </div>
+
         {/* Filter tabs */}
         <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2">
           {["All", ...assetNames].map((name) => (

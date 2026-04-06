@@ -91,6 +91,10 @@ export const Trade: FC = () => {
         <h1 className="text-3xl font-bold text-text-primary mb-2">Trade</h1>
         <p className="text-text-secondary mb-8">Write new options or purchase from sellers.</p>
 
+        <div className="rounded-xl border border-gold/20 bg-gold/5 p-3 mb-6 text-xs text-text-secondary">
+          Black-Scholes fair value calculated with realized volatility from Pyth, jump risk premium, and asset-class-specific time decay.
+        </div>
+
         {loading ? (
           <div className="rounded-xl border border-border bg-bg-surface p-12 text-center"><div className="text-text-muted animate-pulse">Loading from devnet...</div></div>
         ) : (
@@ -149,10 +153,11 @@ export const Trade: FC = () => {
 
             {/* Secondary Market (Resale) */}
             <div className="rounded-2xl border border-gold/20 bg-bg-surface p-6">
-              <div className="flex items-center gap-3 mb-5">
+              <div className="flex items-center gap-3 mb-2">
                 <h2 className="text-lg font-semibold text-gold">Secondary Market</h2>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-gold/10 text-gold">P2P Resale</span>
               </div>
+              <p className="text-xs text-text-muted mb-5">Supply and demand set the price. B-S fair value shown as reference.</p>
               {resaleOptions.length === 0 ? (
                 <p className="text-text-muted text-sm">No resale listings yet. Option holders can list their tokens for resale from the Portfolio page.</p>
               ) : (

@@ -3,15 +3,6 @@ import { Link } from "react-router-dom";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
-/**
- * Landing page — the first thing hackathon judges see.
- *
- * Layout:
- * 1. Hero section with tagline and CTA
- * 2. Three feature cards explaining the protocol
- * 3. Supported assets strip
- * 4. Architecture preview
- */
 export const Landing: FC = () => {
   const { connected } = useWallet();
 
@@ -32,21 +23,19 @@ export const Landing: FC = () => {
         </div>
 
         {/* Main heading */}
-        <h1 className="text-center text-5xl sm:text-7xl font-bold tracking-tight text-text-primary max-w-4xl leading-[1.1]">
-          The Composable
+        <h1 className="text-center text-5xl sm:text-7xl font-bold tracking-tight text-text-primary max-w-5xl leading-[1.1]">
+          The First
           <br />
           <span className="bg-gradient-to-r from-gold via-gold to-gold-dim bg-clip-text text-transparent">
-            Options Primitive
+            Living Financial Instrument
           </span>
           <br />
-          for Solana
+          on Any Blockchain
         </h1>
 
         {/* Subtitle */}
         <p className="mt-6 max-w-2xl text-center text-lg text-text-secondary leading-relaxed">
-          Peer-to-peer, cash-settled options for every asset with an oracle feed.
-          Create markets for any token, stock, commodity, or forex pair
-          — all settled in USDC on Solana.
+          Self-expiring, any-asset options on Solana. The hedging layer that makes Solana institutionally complete.
         </p>
 
         {/* CTA buttons */}
@@ -91,14 +80,13 @@ export const Landing: FC = () => {
         {/* Stats strip */}
         <div className="mt-16 flex items-center gap-8 sm:gap-16">
           {[
-            { label: "Assets", value: "Any" },
-            { label: "Option Types", value: "2" },
-            { label: "Settlement", value: "USDC" },
-            { label: "Oracle", value: "Pyth" },
+            { label: "Global Derivatives Market", value: "$846T" },
+            { label: "Crypto Volume = Derivatives", value: "74%" },
+            { label: "Options Protocols on Solana", value: "0" },
           ].map((stat) => (
             <div key={stat.label} className="text-center">
               <div className="text-2xl font-bold text-text-primary">{stat.value}</div>
-              <div className="text-xs text-text-muted mt-1">{stat.label}</div>
+              <div className="text-xs text-text-muted mt-1 max-w-[120px]">{stat.label}</div>
             </div>
           ))}
         </div>
@@ -107,39 +95,36 @@ export const Landing: FC = () => {
       {/* ===== Feature Cards ===== */}
       <section className="mx-auto max-w-6xl px-4 pb-24">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Peer-to-Peer */}
           <FeatureCard
             icon={
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
               </svg>
             }
-            title="Peer-to-Peer"
-            description="No order books, no market makers. Writers set their own premiums and buyers choose directly. Fully decentralized option creation and trading."
+            title="Living Option Token"
+            description="The first financial instrument that knows it's a financial instrument. Token-2022 TransferHook enforces expiry. PermanentDelegate enables auto-burn. MetadataExtension carries full terms on-chain. The token IS the term sheet."
             accent="gold"
           />
 
-          {/* Oracle-Priced */}
           <FeatureCard
             icon={
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6" />
               </svg>
             }
-            title="Oracle-Priced"
-            description="Settlement prices powered by Pyth Network price feeds. Supports SOL, BTC, ETH, Gold (XAU), and Oil (WTI) with reliable, decentralized oracles."
+            title="Any Asset, Institutional Pricing"
+            description="Permissionless options on any Pyth-priced asset — crypto, gold, oil, stocks, forex, tokenized funds. 5 asset-class-aware Black-Scholes pricing profiles. Not a one-size-fits-all model."
             accent="green"
           />
 
-          {/* Composable */}
           <FeatureCard
             icon={
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.421 48.421 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.959.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
               </svg>
             }
-            title="Composable via CPI"
-            description="Other Solana programs can call Butter Options directly. Build structured products, vaults, or automated strategies on top of the protocol."
+            title="Isolated Escrow, Zero Pool Risk"
+            description="Every option has its own PDA escrow. No shared pool. Structurally immune to Drift/Mango-style exploits. Built-in P2P secondary marketplace with three-price discovery."
             accent="purple"
           />
         </div>
@@ -157,7 +142,7 @@ export const Landing: FC = () => {
               { name: "BTC", label: "Bitcoin" },
               { name: "ETH", label: "Ethereum" },
               { name: "XAU", label: "Gold" },
-              { name: "WTI", label: "Oil" },
+              { name: "WTI", label: "Crude Oil" },
             ].map((asset) => (
               <div
                 key={asset.name}
@@ -173,6 +158,9 @@ export const Landing: FC = () => {
               </div>
             ))}
           </div>
+          <p className="text-center text-sm text-text-secondary mt-6">
+            Plus any asset Pyth supports — equities, forex, tokenized funds
+          </p>
         </div>
       </section>
 
@@ -190,18 +178,18 @@ export const Landing: FC = () => {
           {[
             {
               step: "01",
-              title: "Write",
-              desc: "Lock USDC collateral to create an option. Set your own premium and contract size.",
+              title: "Create Market",
+              desc: "Anyone can create an options market for any Pyth-priced asset. Select asset class for calibrated pricing.",
             },
             {
               step: "02",
-              title: "Trade",
-              desc: "Browse available options and buy by paying the premium. Fee split: 99.5% to writer, 0.5% protocol.",
+              title: "Write & Trade",
+              desc: "Writers lock USDC collateral and mint Living Option Tokens. Buyers purchase at the writer's premium. B-S fair value shown as reference.",
             },
             {
               step: "03",
-              title: "Settle",
-              desc: "At expiry, the oracle price determines the payout. In-the-money options pay the buyer automatically.",
+              title: "Resale or Exercise",
+              desc: "Trade positions on the built-in secondary market before expiry. At settlement, holders exercise for USDC payout. Tokens self-destruct.",
             },
           ].map((item) => (
             <div
@@ -222,14 +210,40 @@ export const Landing: FC = () => {
         </div>
       </section>
 
+      {/* ===== Why Butter Options ===== */}
+      <section className="border-t border-border bg-bg-surface/30 py-20">
+        <div className="mx-auto max-w-3xl px-4">
+          <h2 className="text-center text-3xl font-bold text-text-primary mb-6">
+            Why Butter Options?
+          </h2>
+          <div className="text-text-secondary leading-relaxed space-y-4 text-[15px]">
+            <p>
+              The global derivatives market is <span className="text-gold font-semibold">$846 trillion</span> — 8x global GDP. In crypto, derivatives do <span className="text-gold font-semibold">74% of all volume</span>. The #1 use case is hedging.
+            </p>
+            <p>
+              Solana is building Internet Capital Markets — tokenized assets are arriving via Securitize, BlackRock-backed JupUSD, and the broader RWA wave. But institutions don't just buy assets — they hedge. No hedging infrastructure means no institutional money.
+            </p>
+            <p>
+              Every previous options protocol on Solana has died or pivoted. Butter Options is the hedging layer that makes Solana institutionally complete.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* ===== Footer ===== */}
       <footer className="border-t border-border py-8">
-        <div className="mx-auto max-w-6xl px-4 flex items-center justify-between">
-          <div className="text-sm text-text-muted">
-            Butter Options — Colosseum Frontier Hackathon 2026
-          </div>
-          <div className="text-xs text-text-muted">
-            Program: <code className="text-gold/70 bg-bg-surface px-2 py-0.5 rounded text-[11px]">CtzJ...z9Cq</code>
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="text-sm text-text-muted">
+              Butter Options — Colosseum Frontier Hackathon 2026
+            </div>
+            <div className="text-xs text-text-muted text-center">
+              Built entirely with Claude Code. Zero traditional developers.
+            </div>
+            <div className="text-xs text-text-muted">
+              Programs: <code className="text-gold/70 bg-bg-surface px-2 py-0.5 rounded text-[11px]">CtzJ...z9Cq</code>{" "}
+              <code className="text-gold/70 bg-bg-surface px-2 py-0.5 rounded text-[11px]">83EW...fZMAG</code>
+            </div>
           </div>
         </div>
       </footer>

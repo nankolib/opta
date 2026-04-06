@@ -87,8 +87,8 @@ export const Portfolio: FC = () => {
         <p className="text-text-secondary mb-6">Your option positions. Options are SPL tokens — tradeable anywhere.</p>
 
         <div className="rounded-xl border border-sol-purple/20 bg-sol-purple/5 p-4 mb-6">
-          <div className="text-sm text-sol-purple font-medium mb-1">Tokenized Options</div>
-          <p className="text-xs text-text-secondary">Each option is an SPL token. Hold, transfer, list for resale, or exercise them. Works with any Solana wallet or DEX.</p>
+          <div className="text-sm text-sol-purple font-medium mb-1">Living Option Tokens</div>
+          <p className="text-xs text-text-secondary">Each option is a Token-2022 Living Option Token. Hold, transfer, list for resale, or exercise them. Tokens self-destruct at settlement.</p>
         </div>
 
         <div className="flex items-center gap-2 mb-6">
@@ -105,11 +105,21 @@ export const Portfolio: FC = () => {
         {loading ? (
           <div className="rounded-xl border border-border bg-bg-surface p-12 text-center"><div className="text-text-muted animate-pulse">Loading...</div></div>
         ) : activeTab === "written" ? (
-          <WrittenTab positions={writtenPositions} marketMap={marketMap} program={program} provider={provider} publicKey={publicKey!} onSuccess={refetch} />
+          <>
+            <div className="rounded-xl border border-border bg-bg-surface/50 p-3 mb-4 text-xs text-text-muted">
+              Options you've written. Collateral locked until settlement. Call Expire after settlement to recover collateral on OTM positions.
+            </div>
+            <WrittenTab positions={writtenPositions} marketMap={marketMap} program={program} provider={provider} publicKey={publicKey!} onSuccess={refetch} />
+          </>
         ) : (
-          <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!}
-          program={program} provider={provider} onSuccess={refetch}
-          onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
+          <>
+            <div className="rounded-xl border border-border bg-bg-surface/50 p-3 mb-4 text-xs text-text-muted">
+              Living Option Tokens you hold. Exercise after settlement for USDC payout. List for resale to exit before expiry.
+            </div>
+            <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!}
+            program={program} provider={provider} onSuccess={refetch}
+            onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
+          </>
         )}
       </div>
 
@@ -244,6 +254,37 @@ const HeldTab: FC<{
   onListForResale: (p: PositionAccount, mkt: any) => void;
 }> = ({ positions, marketMap, publicKey, program, provider, onSuccess, onListForResale }) => {
   const [exercisingId, setExercisingId] = useState<string | null>(null);
+  const [cancellingResaleId, setCancellingResaleId] = useState<string | null>(null);
+
+  const handleCancelResale = async (p: PositionAccount) => {
+    if (!program || !provider || !publicKey) return;
+    setCancellingResaleId(p.publicKey.toBase58());
+    try {
+      const [protocolStatePda] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], program.programId);
+      const [resaleEscrowPda] = PublicKey.findProgramAddressSync([Buffer.from("resale_escrow"), p.publicKey.toBuffer()], program.programId);
+      const sellerOptionAccount = getAssociatedTokenAddressSync(p.account.optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
+      const [extraAccountMetaList] = deriveExtraAccountMetaListPda(p.account.optionMint);
+      const [hookState] = deriveHookStatePda(p.account.optionMint);
+      const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
+
+      const tx = await program.methods.cancelResale().accountsStrict({
+        seller: publicKey, protocolState: protocolStatePda, position: p.publicKey,
+        resaleEscrow: resaleEscrowPda, sellerOptionAccount,
+        optionMint: p.account.optionMint,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
+        transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
+      }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
+      showToast({ type: "success", title: "Listing cancelled", message: "Tokens returned to wallet.", txSignature: tx });
+      onSuccess();
+    } catch (err: any) {
+      const msg = err?.message || err?.toString() || "Unknown error";
+      if (msg.includes("User rejected")) {
+        showToast({ type: "error", title: "Transaction cancelled", message: "You rejected the transaction in your wallet." });
+      } else {
+        showToast({ type: "error", title: "Cancel listing failed", message: msg.slice(0, 120) });
+      }
+    } finally { setCancellingResaleId(null); }
+  };
 
   const handleExercise = async (p: PositionAccount, mkt: any) => {
     if (!program || !provider || !publicKey) return;
@@ -339,7 +380,26 @@ const HeldTab: FC<{
               {settled && !itm && (
                 <span className="text-xs text-text-muted py-1.5">Out of the Money — no exercise needed</span>
               )}
-              {p.account.isListedForResale && <span className="text-xs text-sol-purple py-1.5">Listed for ${formatUsdc(p.account.resalePremium)}</span>}
+              {p.account.isListedForResale && (() => {
+                const isCallR = "call" in mkt.optionType;
+                const strikeR = usdcToNumber(mkt.strikePrice);
+                const daysR = daysUntilExpiry(mkt.expiryTimestamp);
+                const volR = getDefaultVolatility(mkt.assetName);
+                const fairR = isCallR ? calculateCallPremium(strikeR, strikeR, daysR, volR) : calculatePutPremium(strikeR, strikeR, daysR, volR);
+                const resaleTokens = p.account.resaleTokenAmount?.toNumber?.() || 1;
+                return (
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-sol-purple py-1.5">
+                      Listed: <span className="font-semibold">${formatUsdc(p.account.resalePremium)}</span>
+                      <span className="text-text-muted ml-2">B-S ref: ${(fairR * resaleTokens).toFixed(2)}</span>
+                    </span>
+                    <button onClick={() => handleCancelResale(p)} disabled={cancellingResaleId === p.publicKey.toBase58()}
+                      className="rounded-lg border border-loss/30 bg-loss/10 px-3 py-1.5 text-xs font-medium text-loss hover:bg-loss/20 transition-colors disabled:opacity-50">
+                      {cancellingResaleId === p.publicKey.toBase58() ? "Cancelling..." : "Cancel Listing"}
+                    </button>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         );
