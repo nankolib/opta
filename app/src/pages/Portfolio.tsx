@@ -129,6 +129,7 @@ const WrittenTab: FC<{
   positions: PositionAccount[]; marketMap: Map<string, any>; program: any; provider: any; publicKey: PublicKey; onSuccess: () => void;
 }> = ({ positions, marketMap, program, provider, publicKey, onSuccess }) => {
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [expiringId, setExpiringId] = useState<string | null>(null);
 
   const handleCancel = async (p: PositionAccount) => {
     if (!program || !provider) return;
@@ -154,6 +155,31 @@ const WrittenTab: FC<{
     } finally { setCancellingId(null); }
   };
 
+  const handleExpire = async (p: PositionAccount) => {
+    if (!program || !provider) return;
+    setExpiringId(p.publicKey.toBase58());
+    try {
+      const [protocolStatePda] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], program.programId);
+      const [escrowPda] = PublicKey.findProgramAddressSync([Buffer.from("escrow"), p.account.market.toBuffer(), p.account.writer.toBuffer(), p.account.createdAt.toArrayLike(Buffer, "le", 8)], program.programId);
+      const protocolState = await program.account.protocolState.fetch(protocolStatePda);
+      const writerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, p.account.writer);
+
+      const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
+      const tx = await program.methods.expireOption().accountsStrict({
+        caller: publicKey, protocolState: protocolStatePda,
+        market: p.account.market, position: p.publicKey,
+        escrow: escrowPda, writerUsdcAccount, writer: p.account.writer,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
+
+      const collateral = formatUsdc(p.account.collateralAmount);
+      showToast({ type: "success", title: "Expired!", message: `Position expired — $${collateral} USDC collateral returned.`, txSignature: tx });
+      onSuccess();
+    } catch (err: any) {
+      showToast({ type: "error", title: "Expire failed", message: err?.message?.slice(0, 120) });
+    } finally { setExpiringId(null); }
+  };
+
   if (positions.length === 0) return <div className="rounded-xl border border-border bg-bg-surface p-12 text-center"><div className="text-text-muted">No options written yet.</div></div>;
 
   return (
@@ -162,6 +188,15 @@ const WrittenTab: FC<{
         const mkt = marketMap.get(p.account.market.toBase58());
         const status = getPositionStatus(p.account);
         const canCancel = !p.account.isCancelled && !p.account.isExercised && !p.account.isExpired && !p.account.isListedForResale;
+        // Expire: market settled + position not already expired/exercised/cancelled + OTM (or all tokens exercised)
+        const isSettled = mkt?.isSettled;
+        const isOtm = mkt && isSettled ? (() => {
+          const settlement = usdcToNumber(mkt.settlementPrice);
+          const strike = usdcToNumber(mkt.strikePrice);
+          const isCall = "call" in mkt.optionType;
+          return isCall ? settlement <= strike : settlement >= strike;
+        })() : false;
+        const canExpire = isSettled && !p.account.isExpired && !p.account.isExercised && !p.account.isCancelled && isOtm;
         return (
           <div key={p.publicKey.toBase58()} className="rounded-xl border border-border bg-bg-surface p-5">
             <div className="flex items-center justify-between mb-3">
@@ -177,12 +212,20 @@ const WrittenTab: FC<{
               <div><div className="text-text-muted">Collateral</div><div className="text-text-primary font-medium">${formatUsdc(p.account.collateralAmount)}</div></div>
               <div><div className="text-text-muted">Sold</div><div className="text-text-primary font-medium">{(p.account.tokensSold?.toNumber?.() || 0).toLocaleString()}/{(p.account.totalSupply?.toNumber?.() || 0).toLocaleString()}</div></div>
             </div>
-            {canCancel && (
-              <div className="mt-4 pt-3 border-t border-border/50">
-                <button onClick={() => handleCancel(p)} disabled={cancellingId === p.publicKey.toBase58()}
-                  className="rounded-lg border border-loss/30 bg-loss/10 px-4 py-1.5 text-xs font-medium text-loss hover:bg-loss/20 transition-colors disabled:opacity-50">
-                  {cancellingId === p.publicKey.toBase58() ? "Cancelling..." : "Cancel & Burn Tokens"}
-                </button>
+            {(canCancel || canExpire) && (
+              <div className="mt-4 pt-3 border-t border-border/50 flex gap-2">
+                {canCancel && (
+                  <button onClick={() => handleCancel(p)} disabled={cancellingId === p.publicKey.toBase58()}
+                    className="rounded-lg border border-loss/30 bg-loss/10 px-4 py-1.5 text-xs font-medium text-loss hover:bg-loss/20 transition-colors disabled:opacity-50">
+                    {cancellingId === p.publicKey.toBase58() ? "Cancelling..." : "Cancel & Burn Tokens"}
+                  </button>
+                )}
+                {canExpire && (
+                  <button onClick={() => handleExpire(p)} disabled={expiringId === p.publicKey.toBase58()}
+                    className="rounded-lg border border-gold/30 bg-gold/10 px-4 py-1.5 text-xs font-medium text-gold hover:bg-gold/20 transition-colors disabled:opacity-50">
+                    {expiringId === p.publicKey.toBase58() ? "Expiring..." : "Expire & Reclaim Collateral"}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -202,7 +245,7 @@ const HeldTab: FC<{
 }> = ({ positions, marketMap, publicKey, program, provider, onSuccess, onListForResale }) => {
   const [exercisingId, setExercisingId] = useState<string | null>(null);
 
-  const handleExercise = async (p: PositionAccount) => {
+  const handleExercise = async (p: PositionAccount, mkt: any) => {
     if (!program || !provider || !publicKey) return;
     setExercisingId(p.publicKey.toBase58());
     try {
@@ -222,6 +265,13 @@ const HeldTab: FC<{
         tokensToExercise = Number(ataInfo.data.readBigUInt64LE(64));
       }
 
+      // Calculate payout for toast
+      const isCall = "call" in mkt.optionType;
+      const settlement = usdcToNumber(mkt.settlementPrice);
+      const strike = usdcToNumber(mkt.strikePrice);
+      const pnlPerContract = isCall ? Math.max(0, settlement - strike) : Math.max(0, strike - settlement);
+      const totalPayout = (pnlPerContract * tokensToExercise).toFixed(2);
+
       const tx = await program.methods.exerciseOption(new BN(tokensToExercise)).accountsStrict({
         exerciser: publicKey, protocolState: protocolStatePda,
         market: p.account.market, position: p.publicKey,
@@ -230,7 +280,7 @@ const HeldTab: FC<{
         writerUsdcAccount, writer: p.account.writer,
         tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
       }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
-      showToast({ type: "success", title: "Exercised!", message: "Tokens burned, PnL distributed.", txSignature: tx });
+      showToast({ type: "success", title: "Exercised!", message: `Exercised ${tokensToExercise} contracts — received $${totalPayout} USDC payout`, txSignature: tx });
       onSuccess();
     } catch (err: any) {
       showToast({ type: "error", title: "Exercise failed", message: err?.message?.slice(0, 120) });
@@ -247,10 +297,12 @@ const HeldTab: FC<{
         const expired = isExpired(mkt.expiryTimestamp);
         const isCall = "call" in mkt.optionType;
         let pnlDisplay = "—";
+        let itm = false;
         if (settled) {
           const settlement = usdcToNumber(mkt.settlementPrice);
           const strike = usdcToNumber(mkt.strikePrice);
           const pnl = isCall ? Math.max(0, settlement - strike) : Math.max(0, strike - settlement);
+          itm = pnl > 0;
           pnlDisplay = pnl > 0 ? `+$${pnl.toFixed(2)}/contract` : "$0 (OTM)";
         }
 
@@ -278,11 +330,14 @@ const HeldTab: FC<{
                   List for Resale
                 </button>
               )}
-              {settled && (
-                <button onClick={() => handleExercise(p)} disabled={exercisingId === p.publicKey.toBase58()}
+              {settled && itm && (
+                <button onClick={() => handleExercise(p, mkt)} disabled={exercisingId === p.publicKey.toBase58()}
                   className="rounded-lg bg-sol-green/15 border border-sol-green/30 px-4 py-1.5 text-xs font-semibold text-sol-green hover:bg-sol-green/25 transition-colors disabled:opacity-50">
                   {exercisingId === p.publicKey.toBase58() ? "Exercising..." : "Exercise"}
                 </button>
+              )}
+              {settled && !itm && (
+                <span className="text-xs text-text-muted py-1.5">Out of the Money — no exercise needed</span>
               )}
               {p.account.isListedForResale && <span className="text-xs text-sol-purple py-1.5">Listed for ${formatUsdc(p.account.resalePremium)}</span>}
             </div>
