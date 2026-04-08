@@ -1859,18 +1859,16 @@ describe("butter-options", () => {
   });
 
   // ===========================================================================
-  // 10. Pricing PDA — on-chain fair value storage
+  // 10. Pricing PDA — on-chain Black-Scholes via solmath
   // ===========================================================================
-  describe("pricing-pda", () => {
+  describe("pricing-pda (solmath on-chain BS)", () => {
     const strikePrice = usdc(200);
     const expiryTimestamp = new BN(Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60 + 700);
     let pricingMarketPda: PublicKey;
     let pricingPositionPda: PublicKey;
     let pricingDataPda: PublicKey;
     const pricingCreatedAt = new BN(Math.floor(Date.now() / 1000) + 11000);
-    const crankWallet = Keypair.generate();
 
-    // PDA derivation for pricing account
     function derivePricingDataPda(positionPda: PublicKey): [PublicKey, number] {
       return PublicKey.findProgramAddressSync(
         [Buffer.from("pricing"), positionPda.toBuffer()],
@@ -1879,17 +1877,7 @@ describe("butter-options", () => {
     }
 
     before(async () => {
-      // Fund the crank wallet
-      const tx = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: admin.publicKey,
-          toPubkey: crankWallet.publicKey,
-          lamports: 0.5 * LAMPORTS_PER_SOL,
-        }),
-      );
-      await provider.sendAndConfirm(tx);
-
-      // Create market
+      // Create market (SOL Call, $200 strike, 30 days out)
       [pricingMarketPda] = deriveMarketPda("SOL", strikePrice, expiryTimestamp, 0);
       try {
         await program.methods
@@ -1901,7 +1889,7 @@ describe("butter-options", () => {
           .rpc();
       } catch { /* may exist */ }
 
-      // Write an option to get a position
+      // Write an option
       [pricingPositionPda] = derivePositionPda(pricingMarketPda, writer.publicKey, pricingCreatedAt);
       const [escrowPda] = deriveEscrowPda(pricingMarketPda, writer.publicKey, pricingCreatedAt);
       const [optionMintPda] = deriveOptionMintPda(pricingPositionPda);
@@ -1929,102 +1917,160 @@ describe("butter-options", () => {
       await program.methods
         .initializePricing()
         .accountsStrict({
-          authority: crankWallet.publicKey,
+          payer: admin.publicKey,
           position: pricingPositionPda,
           pricingData: pricingDataPda,
           systemProgram: SystemProgram.programId,
         })
-        .signers([crankWallet])
         .rpc();
 
       const pricing = await program.account.pricingData.fetch(pricingDataPda);
       assert.ok(pricing.position.equals(pricingPositionPda), "Position should match");
-      assert.ok(pricing.updateAuthority.equals(crankWallet.publicKey), "Authority should be crank wallet");
       assert.equal(pricing.fairValuePerToken.toNumber(), 0, "Fair value should be 0 (not yet updated)");
       assert.equal(pricing.lastUpdated.toNumber(), 0, "Last updated should be 0");
+      assert.equal(pricing.deltaBps.toNumber(), 0, "Delta should be 0 initially");
     });
 
-    it("update_pricing sets fair value correctly", async () => {
+    it("update_pricing computes fair value on-chain via solmath", async () => {
       await program.methods
         .updatePricing(
-          new BN(11_160_000),  // $11.16 fair value per token
-          new BN(180_000_000), // $180.00 spot
-          new BN(8500),        // 85% implied vol
+          new BN(180_000_000), // $180 spot
+          new BN(8500),        // 85% vol
         )
         .accountsStrict({
-          authority: crankWallet.publicKey,
+          caller: admin.publicKey,
           pricingData: pricingDataPda,
+          optionPosition: pricingPositionPda,
+          market: pricingMarketPda,
         })
-        .signers([crankWallet])
         .rpc();
 
       const pricing = await program.account.pricingData.fetch(pricingDataPda);
-      assert.equal(pricing.fairValuePerToken.toNumber(), 11_160_000, "Fair value should be $11.16");
+      // Fair value should be positive and less than spot price
+      assert.isAbove(pricing.fairValuePerToken.toNumber(), 0, "Fair value should be positive");
+      assert.isBelow(pricing.fairValuePerToken.toNumber(), 180_000_000, "Fair value < spot");
       assert.equal(pricing.spotPriceUsed.toNumber(), 180_000_000, "Spot should be $180");
       assert.equal(pricing.impliedVolBps.toNumber(), 8500, "Vol should be 85%");
       assert.isAbove(pricing.lastUpdated.toNumber(), 0, "Last updated should be set");
+      // Call delta: between 0 and 10000 bps (0 and 1.0)
+      assert.isAbove(pricing.deltaBps.toNumber(), 0, "Call delta should be positive");
+      assert.isBelow(pricing.deltaBps.toNumber(), 10000, "Call delta should be < 1.0");
+      // Gamma should be positive
+      assert.isAbove(pricing.gammaBps.toNumber(), 0, "Gamma should be positive");
+      console.log(`    Fair value: $${(pricing.fairValuePerToken.toNumber() / 1_000_000).toFixed(4)}`);
+      console.log(`    Delta: ${pricing.deltaBps.toNumber()} bps, Gamma: ${pricing.gammaBps.toNumber()}`);
+      console.log(`    Vega: ${pricing.vegaUsdc.toNumber()}, Theta: ${pricing.thetaUsdc.toNumber()}`);
     });
 
-    it("update_pricing rejects wrong authority", async () => {
-      const fakeAuthority = Keypair.generate();
-      // Fund fake authority
+    it("update_pricing can be called by anyone (permissionless)", async () => {
+      const randomWallet = Keypair.generate();
       const tx = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: admin.publicKey,
-          toPubkey: fakeAuthority.publicKey,
+          toPubkey: randomWallet.publicKey,
           lamports: 0.1 * LAMPORTS_PER_SOL,
         }),
       );
       await provider.sendAndConfirm(tx);
 
+      // Different wallet can call update_pricing — permissionless
+      await program.methods
+        .updatePricing(new BN(190_000_000), new BN(9000))
+        .accountsStrict({
+          caller: randomWallet.publicKey,
+          pricingData: pricingDataPda,
+          optionPosition: pricingPositionPda,
+          market: pricingMarketPda,
+        })
+        .signers([randomWallet])
+        .rpc();
+
+      const pricing = await program.account.pricingData.fetch(pricingDataPda);
+      assert.equal(pricing.spotPriceUsed.toNumber(), 190_000_000, "Spot should be updated to $190");
+      assert.isAbove(pricing.fairValuePerToken.toNumber(), 0, "Fair value should be positive");
+    });
+
+    it("update_pricing rejects vol below minimum", async () => {
       try {
         await program.methods
-          .updatePricing(new BN(999), new BN(999), new BN(999))
+          .updatePricing(new BN(180_000_000), new BN(100)) // 1% vol — too low
           .accountsStrict({
-            authority: fakeAuthority.publicKey,
+            caller: admin.publicKey,
             pricingData: pricingDataPda,
+            optionPosition: pricingPositionPda,
+            market: pricingMarketPda,
           })
-          .signers([fakeAuthority])
           .rpc();
-        assert.fail("Should have thrown UnauthorizedPricingUpdate");
+        assert.fail("Should have thrown VolTooLow");
       } catch (err: any) {
-        if (err.message === "Should have thrown UnauthorizedPricingUpdate") throw err;
-        assert.include(err.toString(), "UnauthorizedPricingUpdate");
+        if (err.message === "Should have thrown VolTooLow") throw err;
+        assert.include(err.toString(), "VolTooLow");
       }
     });
 
-    it("update_pricing can be called multiple times (overwrites)", async () => {
-      // First update
-      await program.methods
-        .updatePricing(new BN(5_000_000), new BN(170_000_000), new BN(9000))
-        .accountsStrict({
-          authority: crankWallet.publicKey,
-          pricingData: pricingDataPda,
-        })
-        .signers([crankWallet])
-        .rpc();
+    it("update_pricing rejects vol above maximum", async () => {
+      try {
+        await program.methods
+          .updatePricing(new BN(180_000_000), new BN(60000)) // 600% vol — too high
+          .accountsStrict({
+            caller: admin.publicKey,
+            pricingData: pricingDataPda,
+            optionPosition: pricingPositionPda,
+            market: pricingMarketPda,
+          })
+          .rpc();
+        assert.fail("Should have thrown VolTooHigh");
+      } catch (err: any) {
+        if (err.message === "Should have thrown VolTooHigh") throw err;
+        assert.include(err.toString(), "VolTooHigh");
+      }
+    });
 
+    it("update_pricing with different inputs gives different results", async () => {
+      // First: $180 spot, 85% vol
+      await program.methods
+        .updatePricing(new BN(180_000_000), new BN(8500))
+        .accountsStrict({
+          caller: admin.publicKey,
+          pricingData: pricingDataPda,
+          optionPosition: pricingPositionPda,
+          market: pricingMarketPda,
+        })
+        .rpc();
       const first = await program.account.pricingData.fetch(pricingDataPda);
-      const firstTimestamp = first.lastUpdated.toNumber();
 
-      await new Promise((r) => setTimeout(r, 1500)); // wait for clock to advance
-
-      // Second update with different values
+      // Second: $195 spot, 9500 vol (higher spot + vol = higher call price)
       await program.methods
-        .updatePricing(new BN(8_500_000), new BN(195_000_000), new BN(7500))
+        .updatePricing(new BN(195_000_000), new BN(9500))
         .accountsStrict({
-          authority: crankWallet.publicKey,
+          caller: admin.publicKey,
           pricingData: pricingDataPda,
+          optionPosition: pricingPositionPda,
+          market: pricingMarketPda,
         })
-        .signers([crankWallet])
+        .rpc();
+      const second = await program.account.pricingData.fetch(pricingDataPda);
+
+      assert.isAbove(second.fairValuePerToken.toNumber(), first.fairValuePerToken.toNumber(),
+        "Higher spot + vol should give higher call premium");
+    });
+
+    it("Greeks have correct signs for a call option", async () => {
+      await program.methods
+        .updatePricing(new BN(180_000_000), new BN(8500))
+        .accountsStrict({
+          caller: admin.publicKey,
+          pricingData: pricingDataPda,
+          optionPosition: pricingPositionPda,
+          market: pricingMarketPda,
+        })
         .rpc();
 
-      const second = await program.account.pricingData.fetch(pricingDataPda);
-      assert.equal(second.fairValuePerToken.toNumber(), 8_500_000, "Fair value should be overwritten");
-      assert.equal(second.spotPriceUsed.toNumber(), 195_000_000, "Spot should be overwritten");
-      assert.equal(second.impliedVolBps.toNumber(), 7500, "Vol should be overwritten");
-      assert.isAtLeast(second.lastUpdated.toNumber(), firstTimestamp,
-        "Second update timestamp should be >= first");
+      const pricing = await program.account.pricingData.fetch(pricingDataPda);
+      assert.isAbove(pricing.deltaBps.toNumber(), 0, "Call delta > 0");
+      assert.isAbove(pricing.gammaBps.toNumber(), 0, "Gamma > 0");
+      assert.isAbove(pricing.vegaUsdc.toNumber(), 0, "Vega > 0");
+      assert.isBelow(pricing.thetaUsdc.toNumber(), 0, "Theta < 0 (time decay)");
     });
   });
 });

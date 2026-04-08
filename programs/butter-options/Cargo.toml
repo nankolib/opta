@@ -28,6 +28,7 @@ spl-transfer-hook-interface = "0.10.0"
 spl-tlv-account-resolution = "0.10.0"
 spl-token-metadata-interface = "0.7.0"
 butter-transfer-hook = { path = "../butter-transfer-hook", features = ["cpi"] }
+solmath = { version = "0.1.2", default-features = false, features = ["bs"] }
 
 
 [lints.rust]

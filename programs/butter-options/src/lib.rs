@@ -25,6 +25,7 @@ pub mod errors;
 pub mod events;
 pub mod instructions;
 pub mod state;
+pub mod utils;
 
 use instructions::*;
 use state::*;
@@ -108,14 +109,13 @@ pub mod butter_options {
         instructions::initialize_pricing::handle_initialize_pricing(ctx)
     }
 
-    /// Update the on-chain fair value for an option position.
-    /// Called every ~60s by the crank bot with computed Black-Scholes price.
+    /// Compute Black-Scholes on-chain and store fair value + Greeks.
+    /// Permissionless — anyone can call with a spot price and implied vol.
     pub fn update_pricing(
         ctx: Context<UpdatePricing>,
-        fair_value_per_token: u64,
         spot_price_used: u64,
         implied_vol_bps: u64,
     ) -> Result<()> {
-        instructions::update_pricing::handle_update_pricing(ctx, fair_value_per_token, spot_price_used, implied_vol_bps)
+        instructions::update_pricing::handle_update_pricing(ctx, spot_price_used, implied_vol_bps)
     }
 }

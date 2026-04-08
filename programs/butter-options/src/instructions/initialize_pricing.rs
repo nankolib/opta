@@ -2,11 +2,11 @@
 // instructions/initialize_pricing.rs — Create on-chain pricing account
 // =============================================================================
 //
-// Creates a PricingData PDA for an option position. The crank bot calls this
-// once per position, then calls update_pricing every ~60 seconds.
+// Creates a PricingData PDA for an option position. Anyone can call this
+// (permissionless) — creating the PDA costs SOL rent, which is a natural
+// spam deterrent.
 //
-// The crank bot wallet becomes the update_authority — only that wallet
-// can write fair values later. This prevents fake price injection.
+// After creation, anyone can call update_pricing to compute fair value.
 //
 // PDA seeds: ["pricing", position_pubkey]
 // =============================================================================
@@ -31,14 +31,18 @@ pub fn handle_initialize_pricing(ctx: Context<InitializePricing>) -> Result<()> 
     pricing.fair_value_per_token = 0;
     pricing.spot_price_used = 0;
     pricing.implied_vol_bps = 0;
+    pricing.delta_bps = 0;
+    pricing.gamma_bps = 0;
+    pricing.vega_usdc = 0;
+    pricing.theta_usdc = 0;
     pricing.last_updated = 0;
-    pricing.update_authority = ctx.accounts.authority.key();
+    pricing.update_authority = ctx.accounts.payer.key();
     pricing.bump = ctx.bumps.pricing_data;
 
     msg!(
-        "Pricing initialized: position={}, authority={}",
+        "Pricing initialized: position={}, payer={}",
         ctx.accounts.position.key(),
-        ctx.accounts.authority.key(),
+        ctx.accounts.payer.key(),
     );
 
     Ok(())
@@ -50,9 +54,9 @@ pub fn handle_initialize_pricing(ctx: Context<InitializePricing>) -> Result<()> 
 
 #[derive(Accounts)]
 pub struct InitializePricing<'info> {
-    /// The crank bot wallet that will own this pricing feed.
+    /// Anyone can create a pricing PDA (pays rent).
     #[account(mut)]
-    pub authority: Signer<'info>,
+    pub payer: Signer<'info>,
 
     /// The option position to create pricing for. Must exist and be active.
     pub position: Account<'info, OptionPosition>,
@@ -62,7 +66,7 @@ pub struct InitializePricing<'info> {
         init,
         seeds = [PRICING_SEED, position.key().as_ref()],
         bump,
-        payer = authority,
+        payer = payer,
         space = 8 + PricingData::INIT_SPACE,
     )]
     pub pricing_data: Account<'info, PricingData>,

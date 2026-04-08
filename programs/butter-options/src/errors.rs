@@ -87,6 +87,14 @@ pub enum ButterError {
     // Pricing errors
     #[msg("Only the pricing update authority can update fair values")]
     UnauthorizedPricingUpdate,
+    #[msg("Volatility too low — must be at least 500 bps (5%)")]
+    VolTooLow,
+    #[msg("Volatility too high — must be at most 50000 bps (500%)")]
+    VolTooHigh,
+    #[msg("Option has already expired — cannot price")]
+    OptionExpired,
+    #[msg("solmath pricing calculation failed")]
+    PricingCalculationFailed,
 
     // Math errors
     #[msg("Arithmetic overflow")]

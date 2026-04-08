@@ -2,12 +2,13 @@
 // state/pricing.rs — On-chain pricing data for option positions
 // =============================================================================
 //
-// Stores the latest fair value computed by a crank bot. This makes the
-// Living Option Token fully self-describing: financial terms AND current
-// price, all readable on-chain by wallets, AI agents, and DEXes.
+// Stores the latest fair value computed ON-CHAIN via solmath's Black-Scholes.
+// The Living Option Token becomes fully self-describing: financial terms,
+// current price, AND Greeks — all readable on-chain by wallets, AI agents,
+// and DEXes.
 //
-// The crank bot runs off-chain, computes fair value using Black-Scholes
-// with EWMA vol and smile, then writes the result here every ~60 seconds.
+// Anyone can call update_pricing (permissionless). The contract computes
+// the price deterministically from the caller-provided spot and vol inputs.
 //
 // PDA seed: ["pricing", position_pubkey]
 // =============================================================================
@@ -15,13 +16,12 @@
 use anchor_lang::prelude::*;
 
 /// On-chain pricing data for an option position.
-/// Updated periodically by a crank bot with the latest fair value.
+/// Computed on-chain via solmath's bs_full_hp() Black-Scholes engine.
 ///
 /// WHY THIS EXISTS:
 /// Without this, anyone holding a Butter option token has to call our
 /// SDK to know what it's worth. With this, the fair value is right there
-/// on the blockchain. Wallets can display it. AI agents can read it.
-/// DEXes can use it for order matching. The token becomes self-pricing.
+/// on the blockchain — computed deterministically by the smart contract.
 #[account]
 #[derive(InitSpace)]
 pub struct PricingData {
@@ -37,14 +37,26 @@ pub struct PricingData {
     pub spot_price_used: u64,
 
     /// The implied volatility used (basis points, e.g. 8500 = 85.00%).
-    /// Stored for transparency — anyone can verify the crank's math.
     pub implied_vol_bps: u64,
+
+    /// Delta (basis points, e.g. 5000 = 0.50 delta).
+    /// Positive for calls, negative for puts.
+    pub delta_bps: i64,
+
+    /// Gamma (basis points × 100 for precision).
+    pub gamma_bps: i64,
+
+    /// Vega (USDC smallest units — dollar change per 1% vol move).
+    pub vega_usdc: i64,
+
+    /// Theta (USDC smallest units — daily time decay, typically negative).
+    pub theta_usdc: i64,
 
     /// Unix timestamp of when this pricing was last updated.
     pub last_updated: i64,
 
-    /// The authority (crank bot wallet) that can update this data.
-    /// Set once during initialization and never changed.
+    /// The authority that created this PDA. Kept for backwards compat but
+    /// NOT enforced — update_pricing is permissionless.
     pub update_authority: Pubkey,
 
     /// PDA bump seed.
@@ -53,3 +65,13 @@ pub struct PricingData {
 
 /// PDA seed prefix for pricing accounts.
 pub const PRICING_SEED: &[u8] = b"pricing";
+
+/// Minimum implied volatility in basis points (5%).
+pub const MIN_VOL_BPS: u64 = 500;
+
+/// Maximum implied volatility in basis points (500%).
+pub const MAX_VOL_BPS: u64 = 50_000;
+
+/// Risk-free rate at solmath SCALE (5% = 0.05 × 1e12).
+/// Hardcoded for hackathon — can be upgraded to read from Ondo OUSG yield later.
+pub const RISK_FREE_RATE_SCALE: u128 = 50_000_000_000;
