@@ -95,6 +95,8 @@ pub enum ButterError {
     OptionExpired,
     #[msg("solmath pricing calculation failed")]
     PricingCalculationFailed,
+    #[msg("Pyth oracle price is stale or invalid — must be less than 30 seconds old")]
+    OracleStaleOrInvalid,
 
     // Math errors
     #[msg("Arithmetic overflow")]

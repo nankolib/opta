@@ -47,6 +47,51 @@ pub fn scale_to_usdc(scale_value: u128) -> u64 {
     (scale_value / 1_000_000) as u64
 }
 
+/// Converts a Pyth price (i64 value + i32 exponent) to solmath SCALE (1e12).
+///
+/// HOW IT WORKS:
+/// Pyth says: price = 18050000000, exponent = -8. That means $180.50.
+/// solmath wants: 180_500_000_000_000 (180.50 × 1e12).
+/// The real price is: value × 10^exponent = 18050000000 × 10^(-8) = 180.50
+/// At SCALE: 180.50 × 10^12
+/// So: result = value × 10^(12 + exponent)
+pub fn pyth_price_to_scale(price: i64, exponent: i32) -> Result<u128> {
+    require!(price > 0, ButterError::InvalidSettlementPrice);
+    let price_u128 = price as u128;
+    let target_decimals: i32 = 12; // SCALE = 1e12
+    let shift = target_decimals + exponent;
+
+    if shift >= 0 {
+        let multiplier = 10u128.pow(shift as u32);
+        price_u128.checked_mul(multiplier)
+            .ok_or_else(|| error!(ButterError::MathOverflow))
+    } else {
+        let divisor = 10u128.pow((-shift) as u32);
+        Ok(price_u128 / divisor)
+    }
+}
+
+/// Converts a Pyth price to USDC smallest units (6 decimals).
+///
+/// HOW IT WORKS:
+/// Pyth: price = 18050000000, exponent = -8 → $180.50
+/// USDC: 180_500_000 (6 decimal places)
+/// Math: value × 10^(6 + exponent)
+pub fn pyth_price_to_usdc(price: i64, exponent: i32) -> Result<u64> {
+    require!(price > 0, ButterError::InvalidSettlementPrice);
+    let price_u128 = price as u128;
+    let target_decimals: i32 = 6;
+    let shift = target_decimals + exponent;
+
+    let result = if shift >= 0 {
+        price_u128.checked_mul(10u128.pow(shift as u32))
+            .ok_or_else(|| error!(ButterError::MathOverflow))?
+    } else {
+        price_u128 / 10u128.pow((-shift) as u32)
+    };
+    Ok(result as u64)
+}
+
 /// Converts time-to-expiry in seconds to solmath SCALE (fraction of a year).
 ///
 /// HOW IT WORKS:
@@ -98,6 +143,27 @@ mod tests {
         let result = seconds_to_time_scale(604_800).unwrap();
         assert!(result > 19_000_000_000u128, "7 days should be > 19e9");
         assert!(result < 20_000_000_000u128, "7 days should be < 20e9");
+    }
+
+    #[test]
+    fn test_pyth_price_to_scale_8_decimals() {
+        // SOL at $180.50: price=18050000000, exponent=-8
+        let result = pyth_price_to_scale(18050000000, -8).unwrap();
+        assert_eq!(result, 180_500_000_000_000u128);
+    }
+
+    #[test]
+    fn test_pyth_price_to_scale_5_decimals() {
+        // SOL at $180.50: price=18050000, exponent=-5
+        let result = pyth_price_to_scale(18050000, -5).unwrap();
+        assert_eq!(result, 180_500_000_000_000u128);
+    }
+
+    #[test]
+    fn test_pyth_price_to_usdc() {
+        // SOL at $180.50: price=18050000000, exponent=-8
+        let result = pyth_price_to_usdc(18050000000, -8).unwrap();
+        assert_eq!(result, 180_500_000u64); // $180.50 in USDC 6-dec
     }
 
     #[test]

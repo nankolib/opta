@@ -1942,6 +1942,7 @@ describe("butter-options", () => {
           pricingData: pricingDataPda,
           optionPosition: pricingPositionPda,
           market: pricingMarketPda,
+          priceUpdate: null,
         })
         .rpc();
 
@@ -1981,6 +1982,7 @@ describe("butter-options", () => {
           pricingData: pricingDataPda,
           optionPosition: pricingPositionPda,
           market: pricingMarketPda,
+          priceUpdate: null,
         })
         .signers([randomWallet])
         .rpc();
@@ -1999,6 +2001,7 @@ describe("butter-options", () => {
             pricingData: pricingDataPda,
             optionPosition: pricingPositionPda,
             market: pricingMarketPda,
+            priceUpdate: null,
           })
           .rpc();
         assert.fail("Should have thrown VolTooLow");
@@ -2017,6 +2020,7 @@ describe("butter-options", () => {
             pricingData: pricingDataPda,
             optionPosition: pricingPositionPda,
             market: pricingMarketPda,
+            priceUpdate: null,
           })
           .rpc();
         assert.fail("Should have thrown VolTooHigh");
@@ -2035,6 +2039,7 @@ describe("butter-options", () => {
           pricingData: pricingDataPda,
           optionPosition: pricingPositionPda,
           market: pricingMarketPda,
+          priceUpdate: null,
         })
         .rpc();
       const first = await program.account.pricingData.fetch(pricingDataPda);
@@ -2047,6 +2052,7 @@ describe("butter-options", () => {
           pricingData: pricingDataPda,
           optionPosition: pricingPositionPda,
           market: pricingMarketPda,
+          priceUpdate: null,
         })
         .rpc();
       const second = await program.account.pricingData.fetch(pricingDataPda);
@@ -2063,6 +2069,7 @@ describe("butter-options", () => {
           pricingData: pricingDataPda,
           optionPosition: pricingPositionPda,
           market: pricingMarketPda,
+          priceUpdate: null,
         })
         .rpc();
 
