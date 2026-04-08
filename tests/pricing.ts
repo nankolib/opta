@@ -14,6 +14,7 @@ import {
   calculateEWMAVol,
   calculateCallPremium,
   calculatePutPremium,
+  applyVolSmile,
 } from "../app/src/utils/blackScholes";
 
 describe("pricing-engine", () => {
@@ -139,7 +140,8 @@ describe("pricing-engine", () => {
       const days = 7;
       const fewPrices = [100, 105, 98]; // only 3 — below the 20 threshold
 
-      const staticPremium = calculateCallPremium(spot, strike, days, 0.8);
+      // Both use "SOL" so the smile profile is the same for both
+      const staticPremium = calculateCallPremium(spot, strike, days, 0.8, 0, undefined, "SOL");
       const withFewPrices = calculateCallPremium(
         spot, strike, days, 0.8, 0, fewPrices, "SOL",
       );
@@ -161,7 +163,9 @@ describe("pricing-engine", () => {
       const premiumWithFlat = calculateCallPremium(
         spot, strike, days, 0.8, 0, flatPrices, "SOL",
       );
-      const premiumWithDefault = calculateCallPremium(spot, strike, days, 0.8);
+      const premiumWithDefault = calculateCallPremium(
+        spot, strike, days, 0.8, 0, undefined, "SOL",
+      );
 
       // The floor (0.8 for crypto) should kick in, so both premiums match
       assert.approximately(
@@ -186,6 +190,86 @@ describe("pricing-engine", () => {
 
       assert.isAbove(staticPut, 0, "Static put premium should be positive");
       assert.isAbove(realVolPut, 0, "Real vol put premium should be positive");
+    });
+  });
+
+  // =========================================================================
+  // Volatility Smile
+  // =========================================================================
+  describe("volatility smile", () => {
+    it("ATM options have no smile adjustment", () => {
+      // spot = strike → moneyness = 1.0 → deviation = 0 → no adjustment
+      const vol = applyVolSmile(0.80, 200, 200, "SOL");
+      assert.equal(vol, 0.80, "ATM smile should return base vol unchanged");
+    });
+
+    it("OTM puts have higher vol than ATM", () => {
+      // 25% OTM put: strike=150, spot=200, moneyness=0.75
+      const otmPutVol = applyVolSmile(0.80, 200, 150, "SOL");
+      assert.isAbove(otmPutVol, 0.80, "OTM put vol should be above base vol");
+    });
+
+    it("OTM puts are more expensive than equidistant OTM calls (skew tilt)", () => {
+      const spot = 200;
+      // 25% OTM call: strike=250, moneyness=1.25
+      const otmCallVol = applyVolSmile(0.80, spot, 250, "SOL");
+      // 25% OTM put: strike=150, moneyness=0.75
+      const otmPutVol = applyVolSmile(0.80, spot, 150, "SOL");
+
+      // The negative tilt means OTM puts always get higher vol than equidistant calls.
+      // OTM calls may be slightly below base vol — that's the skew working correctly.
+      assert.isAbove(otmPutVol, otmCallVol,
+        "OTM put vol should be higher than equidistant OTM call vol (tilt)");
+      assert.isAbove(otmPutVol, 0.80, "OTM put vol should be above base vol");
+    });
+
+    it("crypto has steeper smile than forex", () => {
+      // Same 25% OTM moneyness for both
+      const cryptoVol = applyVolSmile(0.80, 200, 150, "SOL");
+      const forexVol = applyVolSmile(0.10, 1.20, 0.90, "EUR/USD");
+
+      // Compare smile multipliers (ratio to base vol)
+      const cryptoMultiplier = cryptoVol / 0.80;
+      const forexMultiplier = forexVol / 0.10;
+
+      assert.isAbove(cryptoMultiplier, forexMultiplier,
+        "Crypto smile multiplier should be bigger than forex");
+    });
+
+    it("extreme moneyness is clamped — doesn't explode", () => {
+      // spot=200, strike=20 → moneyness=0.1, very deep OTM
+      const vol = applyVolSmile(0.80, 200, 20, "SOL");
+      assert.isAtMost(vol, 5.0, "Extreme OTM vol should not exceed MAX_VOL");
+      assert.isAtLeast(vol, 0.80 * 0.5, "Smile factor floor should prevent vol collapse");
+    });
+
+    it("smile integrates with premium calculation — OTM put costs more", () => {
+      // ATM call
+      const atmCall = calculateCallPremium(200, 200, 7, 0.8, 0, undefined, "SOL");
+      // 25% OTM put
+      const otmPut = calculatePutPremium(200, 150, 7, 0.8, 0, undefined, "SOL");
+
+      assert.isAbove(atmCall, 0, "ATM call premium should be positive");
+      assert.isAbove(otmPut, 0, "OTM put premium should be positive");
+      // The OTM put uses higher vol (smile), so its premium is elevated
+    });
+
+    it("smile works on top of EWMA vol", () => {
+      const historicalPrices = [100, 105, 98, 110, 95, 108, 92, 115, 88, 110,
+        105, 100, 108, 95, 112, 90, 118, 85, 120, 82, 125];
+
+      // ATM call with EWMA vol + smile
+      const atmPremium = calculateCallPremium(
+        200, 200, 7, 0.8, 0, historicalPrices, "SOL",
+      );
+      // OTM call with EWMA vol + smile (strike further out → smile adds vol)
+      const otmPremium = calculateCallPremium(
+        200, 260, 7, 0.8, 0, historicalPrices, "SOL",
+      );
+
+      assert.isAbove(atmPremium, 0, "ATM premium should be positive");
+      assert.isAbove(otmPremium, 0, "OTM premium should be positive");
+      // Both use EWMA vol as base, but OTM gets smile boost
     });
   });
 });

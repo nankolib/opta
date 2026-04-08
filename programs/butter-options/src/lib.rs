@@ -101,4 +101,21 @@ pub mod butter_options {
     pub fn cancel_resale(ctx: Context<CancelResale>) -> Result<()> {
         instructions::cancel_resale::handle_cancel_resale(ctx)
     }
+
+    /// Create on-chain pricing account for an option position.
+    /// Called once per position by the crank bot.
+    pub fn initialize_pricing(ctx: Context<InitializePricing>) -> Result<()> {
+        instructions::initialize_pricing::handle_initialize_pricing(ctx)
+    }
+
+    /// Update the on-chain fair value for an option position.
+    /// Called every ~60s by the crank bot with computed Black-Scholes price.
+    pub fn update_pricing(
+        ctx: Context<UpdatePricing>,
+        fair_value_per_token: u64,
+        spot_price_used: u64,
+        implied_vol_bps: u64,
+    ) -> Result<()> {
+        instructions::update_pricing::handle_update_pricing(ctx, fair_value_per_token, spot_price_used, implied_vol_bps)
+    }
 }

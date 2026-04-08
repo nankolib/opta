@@ -8,8 +8,10 @@
 
 pub mod market;
 pub mod position;
+pub mod pricing;
 pub mod protocol;
 
 pub use market::*;
 pub use position::*;
+pub use pricing::*;
 pub use protocol::*;

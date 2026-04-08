@@ -84,6 +84,10 @@ pub enum ButterError {
     #[msg("Premium too high — must be at most 50% of collateral")]
     WritePremiumTooHigh,
 
+    // Pricing errors
+    #[msg("Only the pricing update authority can update fair values")]
+    UnauthorizedPricingUpdate,
+
     // Math errors
     #[msg("Arithmetic overflow")]
     MathOverflow,

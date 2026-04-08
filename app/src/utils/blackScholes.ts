@@ -108,6 +108,89 @@ export function calculateEWMAVol(
 }
 
 // =============================================================================
+// Volatility Smile / Skew — adjusts vol based on how far strike is from spot
+// =============================================================================
+
+/**
+ * Get volatility smile parameters for a given asset.
+ *
+ * Returns { skewStrength, skewTilt } based on asset class.
+ * skewStrength: how steep the "U" shape is (higher = steeper smile)
+ * skewTilt: how much OTM puts are elevated vs OTM calls
+ *           (negative = puts more expensive, which is realistic)
+ */
+function getSmileParams(assetName?: string): { skewStrength: number; skewTilt: number } {
+  if (!assetName) return { skewStrength: 0.20, skewTilt: -0.10 };
+  const lower = assetName.toLowerCase();
+
+  // Crypto: steep smile + strong tilt (crashes are violent and sudden)
+  if (["sol", "btc", "eth", "avax", "bnb", "doge"].some((a) => lower.includes(a)))
+    return { skewStrength: 0.30, skewTilt: -0.15 };
+
+  // Commodities: moderate smile + slight tilt (supply shocks go both ways)
+  if (["xau", "gold", "wti", "oil"].some((a) => lower.includes(a)))
+    return { skewStrength: 0.15, skewTilt: -0.05 };
+
+  // Equities: moderate smile + strong tilt (equity crashes are well-documented)
+  if (["aapl", "tsla", "nvda", "googl", "msft", "amzn"].some((a) => lower.includes(a)))
+    return { skewStrength: 0.20, skewTilt: -0.12 };
+
+  // Forex: shallow smile + minimal tilt (currencies are more symmetric)
+  if (["eur", "gbp", "jpy", "usd"].some((a) => lower.includes(a)))
+    return { skewStrength: 0.08, skewTilt: -0.03 };
+
+  // Default (covers ETFs and unknowns)
+  return { skewStrength: 0.12, skewTilt: -0.08 };
+}
+
+/**
+ * Volatility Smile / Skew Adjustment.
+ *
+ * HOW IT WORKS (for Nanko):
+ * Options far from the current price should have higher implied volatility.
+ * This is because:
+ * 1. Crash protection is valuable — people pay extra for OTM puts
+ * 2. Prices can jump suddenly — the further out, the more "jump risk"
+ * 3. Market makers charge wider spreads on far-from-money options
+ *
+ * The formula:
+ *   moneyness = strike / spot
+ *   deviation = moneyness - 1.0
+ *   smile_factor = 1 + skewStrength * deviation² + skewTilt * deviation
+ *   adjusted_vol = baseVol * smile_factor
+ *
+ * At ATM (moneyness = 1.0), deviation = 0, so smile_factor = 1 (no change).
+ * OTM puts (moneyness < 1) get boosted more than OTM calls due to negative tilt.
+ *
+ * @param baseVol - The base volatility (from EWMA or asset class profile)
+ * @param spot - Current spot price
+ * @param strike - The option's strike price
+ * @param assetName - Asset name for smile profile selection
+ * @returns Adjusted volatility with smile/skew applied, clamped to [MIN_VOL, MAX_VOL]
+ */
+export function applyVolSmile(
+  baseVol: number,
+  spot: number,
+  strike: number,
+  assetName?: string,
+): number {
+  if (spot <= 0 || strike <= 0) return baseVol;
+
+  const moneyness = strike / spot;
+  const deviation = moneyness - 1.0;
+  const { skewStrength, skewTilt } = getSmileParams(assetName);
+
+  // Quadratic smile with linear tilt
+  let smileFactor = 1 + skewStrength * deviation * deviation + skewTilt * deviation;
+
+  // Clamp smile factor: don't let it halve or triple the base vol
+  smileFactor = Math.max(0.5, Math.min(3.0, smileFactor));
+
+  const adjustedVol = baseVol * smileFactor;
+  return Math.max(MIN_VOL, Math.min(MAX_VOL, adjustedVol));
+}
+
+// =============================================================================
 // Black-Scholes Pricing
 // =============================================================================
 
@@ -175,8 +258,9 @@ export function calculateCallPremium(
 ): number {
   if (daysToExpiry <= 0 || spotPrice <= 0 || strikePrice <= 0) return 0;
 
-  // If enough historical prices are provided, use EWMA vol with asset-class floor
-  const vol = resolveVolatility(volatility, historicalPrices, assetName);
+  // Pipeline: resolve base vol → apply smile → Black-Scholes
+  const baseVol = resolveVolatility(volatility, historicalPrices, assetName);
+  const vol = applyVolSmile(baseVol, spotPrice, strikePrice, assetName);
 
   const T = daysToExpiry / 365;
   const d1 =
@@ -208,7 +292,8 @@ export function calculatePutPremium(
 ): number {
   if (daysToExpiry <= 0 || spotPrice <= 0 || strikePrice <= 0) return 0;
 
-  const vol = resolveVolatility(volatility, historicalPrices, assetName);
+  const baseVol = resolveVolatility(volatility, historicalPrices, assetName);
+  const vol = applyVolSmile(baseVol, spotPrice, strikePrice, assetName);
 
   const T = daysToExpiry / 365;
   const d1 =
