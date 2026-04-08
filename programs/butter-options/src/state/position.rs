@@ -82,3 +82,12 @@ pub const ESCROW_SEED: &[u8] = b"escrow";
 pub const OPTION_MINT_SEED: &[u8] = b"option_mint";
 pub const PURCHASE_ESCROW_SEED: &[u8] = b"purchase_escrow";
 pub const RESALE_ESCROW_SEED: &[u8] = b"resale_escrow";
+
+/// Minimum total premium as basis points of collateral (0.1% = 10 bps).
+/// Prevents writers from giving away options for essentially free.
+pub const MIN_PREMIUM_BPS: u64 = 10;
+
+/// Maximum total premium as basis points of collateral (50% = 5000 bps).
+/// An option premium above 50% of collateral doesn't make economic sense —
+/// the buyer would be better off just buying the underlying asset.
+pub const MAX_PREMIUM_BPS: u64 = 5000;

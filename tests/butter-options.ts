@@ -1720,4 +1720,141 @@ describe("butter-options", () => {
       console.log("    Permanent delegate:", permDelegate!.delegate.toBase58());
     });
   });
+
+  // ===========================================================================
+  // 9. Premium bounds — write_option rejects premiums outside 0.1%–50% of collateral
+  // ===========================================================================
+  describe("premium-bounds", () => {
+    const strikePrice = usdc(200);
+    const expiryTimestamp = new BN(Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60 + 500);
+    let boundsMarketPda: PublicKey;
+    const boundsBaseCreatedAt = new BN(Math.floor(Date.now() / 1000) + 9000);
+
+    before(async () => {
+      [boundsMarketPda] = deriveMarketPda("SOL", strikePrice, expiryTimestamp, 0);
+      try {
+        await program.methods
+          .createMarket("SOL", strikePrice, expiryTimestamp, { call: {} }, fakePythFeed, 0)
+          .accountsStrict({
+            creator: admin.publicKey, protocolState: protocolStatePda,
+            market: boundsMarketPda, systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+      } catch { /* may exist */ }
+    });
+
+    it("rejects premium below minimum (0.1% of collateral)", async () => {
+      // collateral = $4,000, 0.1% = $4, premium = $0.001 (way below)
+      const createdAt = new BN(boundsBaseCreatedAt.toNumber() + 1);
+      const [positionPda] = derivePositionPda(boundsMarketPda, writer.publicKey, createdAt);
+      const [escrowPda] = deriveEscrowPda(boundsMarketPda, writer.publicKey, createdAt);
+      const [optionMintPda] = deriveOptionMintPda(positionPda);
+      const [purchaseEscrowPda] = derivePurchaseEscrowPda(positionPda);
+
+      try {
+        await program.methods
+          .writeOption(usdc(4_000), usdc(0.001), new BN(10), createdAt)
+          .accountsStrict(buildWriteOptionAccounts({
+            writer: writer.publicKey,
+            market: boundsMarketPda,
+            position: positionPda,
+            escrow: escrowPda,
+            optionMint: optionMintPda,
+            purchaseEscrow: purchaseEscrowPda,
+            writerUsdcAccount: writerUsdcAccount,
+          }))
+          .preInstructions([EXTRA_CU])
+          .signers([writer])
+          .rpc();
+        assert.fail("Should have thrown WritePremiumTooLow");
+      } catch (err: any) {
+        if (err.message === "Should have thrown WritePremiumTooLow") throw err;
+        assert.include(err.toString(), "WritePremiumTooLow");
+      }
+    });
+
+    it("rejects premium above maximum (50% of collateral)", async () => {
+      // collateral = $4,000, 50% = $2,000, premium = $2,400 (above)
+      const createdAt = new BN(boundsBaseCreatedAt.toNumber() + 2);
+      const [positionPda] = derivePositionPda(boundsMarketPda, writer.publicKey, createdAt);
+      const [escrowPda] = deriveEscrowPda(boundsMarketPda, writer.publicKey, createdAt);
+      const [optionMintPda] = deriveOptionMintPda(positionPda);
+      const [purchaseEscrowPda] = derivePurchaseEscrowPda(positionPda);
+
+      try {
+        await program.methods
+          .writeOption(usdc(4_000), usdc(2_400), new BN(10), createdAt)
+          .accountsStrict(buildWriteOptionAccounts({
+            writer: writer.publicKey,
+            market: boundsMarketPda,
+            position: positionPda,
+            escrow: escrowPda,
+            optionMint: optionMintPda,
+            purchaseEscrow: purchaseEscrowPda,
+            writerUsdcAccount: writerUsdcAccount,
+          }))
+          .preInstructions([EXTRA_CU])
+          .signers([writer])
+          .rpc();
+        assert.fail("Should have thrown WritePremiumTooHigh");
+      } catch (err: any) {
+        if (err.message === "Should have thrown WritePremiumTooHigh") throw err;
+        assert.include(err.toString(), "WritePremiumTooHigh");
+      }
+    });
+
+    it("accepts premium at minimum boundary (0.1%)", async () => {
+      // collateral = $4,000, 0.1% = $4
+      const createdAt = new BN(boundsBaseCreatedAt.toNumber() + 3);
+      const [positionPda] = derivePositionPda(boundsMarketPda, writer.publicKey, createdAt);
+      const [escrowPda] = deriveEscrowPda(boundsMarketPda, writer.publicKey, createdAt);
+      const [optionMintPda] = deriveOptionMintPda(positionPda);
+      const [purchaseEscrowPda] = derivePurchaseEscrowPda(positionPda);
+
+      await program.methods
+        .writeOption(usdc(4_000), usdc(4), new BN(10), createdAt)
+        .accountsStrict(buildWriteOptionAccounts({
+          writer: writer.publicKey,
+          market: boundsMarketPda,
+          position: positionPda,
+          escrow: escrowPda,
+          optionMint: optionMintPda,
+          purchaseEscrow: purchaseEscrowPda,
+          writerUsdcAccount: writerUsdcAccount,
+        }))
+        .preInstructions([EXTRA_CU])
+        .signers([writer])
+        .rpc();
+
+      const position = await program.account.optionPosition.fetch(positionPda);
+      assert.ok(position.premium.eq(usdc(4)), "Premium should be $4 (minimum boundary)");
+    });
+
+    it("accepts premium at maximum boundary (50%)", async () => {
+      // collateral = $4,000, 50% = $2,000
+      const createdAt = new BN(boundsBaseCreatedAt.toNumber() + 4);
+      const [positionPda] = derivePositionPda(boundsMarketPda, writer.publicKey, createdAt);
+      const [escrowPda] = deriveEscrowPda(boundsMarketPda, writer.publicKey, createdAt);
+      const [optionMintPda] = deriveOptionMintPda(positionPda);
+      const [purchaseEscrowPda] = derivePurchaseEscrowPda(positionPda);
+
+      await program.methods
+        .writeOption(usdc(4_000), usdc(2_000), new BN(10), createdAt)
+        .accountsStrict(buildWriteOptionAccounts({
+          writer: writer.publicKey,
+          market: boundsMarketPda,
+          position: positionPda,
+          escrow: escrowPda,
+          optionMint: optionMintPda,
+          purchaseEscrow: purchaseEscrowPda,
+          writerUsdcAccount: writerUsdcAccount,
+        }))
+        .preInstructions([EXTRA_CU])
+        .signers([writer])
+        .rpc();
+
+      const position = await program.account.optionPosition.fetch(positionPda);
+      assert.ok(position.premium.eq(usdc(2_000)), "Premium should be $2,000 (maximum boundary)");
+    });
+  });
 });

@@ -78,6 +78,12 @@ pub enum ButterError {
     #[msg("Purchase amount too small — premium rounds to zero")]
     PremiumTooLow,
 
+    // Premium bounds errors (write_option)
+    #[msg("Premium too low — must be at least 0.1% of collateral")]
+    WritePremiumTooLow,
+    #[msg("Premium too high — must be at most 50% of collateral")]
+    WritePremiumTooHigh,
+
     // Math errors
     #[msg("Arithmetic overflow")]
     MathOverflow,

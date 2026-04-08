@@ -106,6 +106,21 @@ pub fn handle_write_option(
     require!(collateral_amount >= required_collateral, ButterError::InsufficientCollateral);
 
     // =========================================================================
+    // Premium bounds check: total premium must be 0.1%–50% of collateral.
+    // This prevents writers from giving away free options (too low) or setting
+    // absurd premiums that nobody would buy (too high).
+    // =========================================================================
+    let min_premium = collateral_amount
+        .checked_mul(MIN_PREMIUM_BPS).ok_or(ButterError::MathOverflow)?
+        .checked_div(10_000).ok_or(ButterError::MathOverflow)?;
+    let max_premium = collateral_amount
+        .checked_mul(MAX_PREMIUM_BPS).ok_or(ButterError::MathOverflow)?
+        .checked_div(10_000).ok_or(ButterError::MathOverflow)?;
+
+    require!(premium >= min_premium, ButterError::WritePremiumTooLow);
+    require!(premium <= max_premium, ButterError::WritePremiumTooHigh);
+
+    // =========================================================================
     // Step 1: Transfer USDC collateral from writer to escrow (standard Token)
     // =========================================================================
     let transfer_ctx = CpiContext::new(
