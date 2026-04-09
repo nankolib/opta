@@ -1,5 +1,5 @@
 // =============================================================================
-// scripts/create-sample-markets.ts — Create sample data for tokenized protocol
+// scripts/create-sample-markets.ts — Seed devnet with 9 assets × 7 strikes × 2 types × 2 expiries
 // =============================================================================
 
 import * as anchor from "@coral-xyz/anchor";
@@ -33,9 +33,18 @@ function deriveHookStatePda(mint: PublicKey): [PublicKey, number] {
 }
 
 const PYTH_FEEDS: Record<string, PublicKey> = {
+  // Crypto
   SOL: new PublicKey("J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"),
   BTC: new PublicKey("HovQMDrbAgAYPCmHVSrezcSmkMtXSSUsLDFANExrZh2J"),
   ETH: new PublicKey("EdVCmQ9FSPcVe5YySXDPCRmc8aDQLKJ9GvYRk4HY7y44"),
+  // Commodities
+  XAU: new PublicKey("8y3WWjvmSmVGWVKH1rCA7VTRmuU7QbJ9axMK6JUUuCyi"),
+  WTI: new PublicKey("JTjCRSsBCz5FNjRiVRBFnBqGwU5QGqJ9hHsqpHoFaJT"),
+  XAG: new PublicKey("9ErnFgqkWMBgWkN9bMBRNbKfGJHBZ1dAzaRBviCrgDR8"),
+  // Equities
+  AAPL: new PublicKey("5yKHAuiDWKUGRgs3s6mYGdfZjFmTfgHVDBwFBDfMuZJH"),
+  TSLA: new PublicKey("3Mnn2fX6rQyUsyELYms1sBJyChWofzSNRoqYzvgMVz5E"),
+  NVDA: new PublicKey("8NHiU8hRFVUMfWBoNTo3GmJYk3YzGKxq7mdDPnMf8B93"),
 };
 
 function usdc(amount: number): BN {
@@ -51,7 +60,7 @@ async function main() {
   const admin = provider.wallet as anchor.Wallet;
   const payer = (admin as any).payer as Keypair;
 
-  console.log("=== Butter Options — Full Options Chain Seeder ===");
+  console.log("=== Butter Options — Full 9-Asset Options Chain Seeder ===");
   console.log(`Program: ${program.programId.toBase58()}`);
   console.log(`Admin:   ${admin.publicKey.toBase58()}`);
   console.log("");
@@ -81,7 +90,7 @@ async function main() {
     console.log(`✓ Protocol initialized. USDC Mint: ${usdcMint.toBase58()}`);
   }
 
-  // Step 2: Ensure admin has USDC — mint 10M for all the collateral we'll need
+  // Step 2: Ensure admin has USDC — mint 10M
   let adminUsdcAta: PublicKey;
   try {
     adminUsdcAta = await getAssociatedTokenAddress(usdcMint, admin.publicKey);
@@ -90,7 +99,7 @@ async function main() {
     adminUsdcAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, admin.publicKey);
   }
   try {
-    await mintTo(provider.connection, payer, usdcMint, adminUsdcAta, admin.publicKey, 10_000_000_000_000);
+    await mintTo(provider.connection, payer, usdcMint, adminUsdcAta, admin.publicKey, 10_000_000_000_000); // 10M USDC
     console.log("✓ Minted 10M test USDC to admin");
   } catch {
     console.log("  (Mint skipped — not mint authority)");
@@ -100,14 +109,30 @@ async function main() {
   console.log(`  Admin USDC balance: ${bal.value.uiAmountString}`);
   console.log("");
 
-  // Step 3: Build full options chain
-  const expiry7d = new BN(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
-  const expiry14d = new BN(Math.floor(Date.now() / 1000) + 14 * 24 * 60 * 60);
+  // Step 3: Build full options chain — exact midnight UTC expiries
+  const now = new Date();
+  const exp7d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 7, 0, 0, 0));
+  const expiry7d = new BN(Math.floor(exp7d.getTime() / 1000));
+  const exp14d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 14, 0, 0, 0));
+  const expiry14d = new BN(Math.floor(exp14d.getTime() / 1000));
+
+  console.log(`Expiry 7d:  ${exp7d.toISOString()} (${expiry7d.toString()})`);
+  console.log(`Expiry 14d: ${exp14d.toISOString()} (${expiry14d.toString()})`);
+  console.log("");
 
   const assets = [
-    { name: "SOL", strikes: [120, 130, 140, 150, 160, 170, 200] },
-    { name: "BTC", strikes: [70_000, 80_000, 85_000, 90_000, 100_000] },
-    { name: "ETH", strikes: [1_500, 1_700, 1_800, 1_900, 2_000] },
+    // Crypto
+    { name: "SOL",  category: "CRYPTO",      strikes: [50, 60, 70, 80, 90, 100, 120] },
+    { name: "BTC",  category: "CRYPTO",      strikes: [50_000, 60_000, 65_000, 70_000, 75_000, 80_000, 90_000] },
+    { name: "ETH",  category: "CRYPTO",      strikes: [1_500, 1_800, 2_000, 2_200, 2_400, 2_800, 3_500] },
+    // Commodities
+    { name: "XAU",  category: "COMMODITIES", strikes: [3_800, 4_200, 4_400, 4_650, 4_800, 5_200, 5_600] },
+    { name: "WTI",  category: "COMMODITIES", strikes: [75, 85, 90, 97, 105, 115, 130] },
+    { name: "XAG",  category: "COMMODITIES", strikes: [26, 30, 32, 34, 36, 40, 45] },
+    // Equities
+    { name: "AAPL", category: "EQUITIES",    strikes: [220, 235, 250, 260, 270, 285, 300] },
+    { name: "TSLA", category: "EQUITIES",    strikes: [180, 210, 230, 245, 260, 280, 320] },
+    { name: "NVDA", category: "EQUITIES",    strikes: [100, 115, 125, 135, 145, 160, 180] },
   ];
 
   const expiries = [
@@ -115,18 +140,18 @@ async function main() {
     { label: "14d", bn: expiry14d },
   ];
 
-  const marketsToCreate: { asset: string; strike: BN; expiry: BN; expiryLabel: string; type: any; typeIdx: number }[] = [];
+  const marketsToCreate: { asset: string; category: string; strike: BN; expiry: BN; expiryLabel: string; type: any; typeIdx: number }[] = [];
   for (const asset of assets) {
     for (const expiry of expiries) {
       for (const strike of asset.strikes) {
-        marketsToCreate.push({ asset: asset.name, strike: usdc(strike), expiry: expiry.bn, expiryLabel: expiry.label, type: { call: {} }, typeIdx: 0 });
-        marketsToCreate.push({ asset: asset.name, strike: usdc(strike), expiry: expiry.bn, expiryLabel: expiry.label, type: { put: {} }, typeIdx: 1 });
+        marketsToCreate.push({ asset: asset.name, category: asset.category, strike: usdc(strike), expiry: expiry.bn, expiryLabel: expiry.label, type: { call: {} }, typeIdx: 0 });
+        marketsToCreate.push({ asset: asset.name, category: asset.category, strike: usdc(strike), expiry: expiry.bn, expiryLabel: expiry.label, type: { put: {} }, typeIdx: 1 });
       }
     }
   }
 
-  console.log(`--- Creating ${marketsToCreate.length} Markets ---`);
-  const createdMarkets: { pda: PublicKey; asset: string; strike: BN; isCall: boolean; expiry: BN; expiryLabel: string }[] = [];
+  console.log(`--- Creating ${marketsToCreate.length} Markets (9 assets × 7 strikes × 2 types × 2 expiries) ---`);
+  const createdMarkets: { pda: PublicKey; asset: string; category: string; strike: BN; isCall: boolean; expiry: BN; expiryLabel: string }[] = [];
   let marketsCreated = 0;
   let marketsSkipped = 0;
 
@@ -145,8 +170,8 @@ async function main() {
 
     try {
       await program.account.optionsMarket.fetch(marketPda);
-      console.log(`  [${i + 1}/${marketsToCreate.length}] ⊘ ${mkt.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${mkt.expiryLabel}) — exists`);
-      createdMarkets.push({ pda: marketPda, asset: mkt.asset, strike: mkt.strike, isCall: mkt.typeIdx === 0, expiry: mkt.expiry, expiryLabel: mkt.expiryLabel });
+      console.log(`  [${mkt.category} ${i + 1}/${marketsToCreate.length}] ⊘ ${mkt.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${mkt.expiryLabel}) — exists`);
+      createdMarkets.push({ pda: marketPda, asset: mkt.asset, category: mkt.category, strike: mkt.strike, isCall: mkt.typeIdx === 0, expiry: mkt.expiry, expiryLabel: mkt.expiryLabel });
       marketsSkipped++;
       continue;
     } catch {}
@@ -157,14 +182,14 @@ async function main() {
           creator: admin.publicKey, protocolState: protocolStatePda,
           market: marketPda, systemProgram: SystemProgram.programId,
         }).rpc();
-      console.log(`  [${i + 1}/${marketsToCreate.length}] ✓ ${mkt.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${mkt.expiryLabel}) — created`);
-      createdMarkets.push({ pda: marketPda, asset: mkt.asset, strike: mkt.strike, isCall: mkt.typeIdx === 0, expiry: mkt.expiry, expiryLabel: mkt.expiryLabel });
+      console.log(`  [${mkt.category} ${i + 1}/${marketsToCreate.length}] ✓ ${mkt.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${mkt.expiryLabel}) — created`);
+      createdMarkets.push({ pda: marketPda, asset: mkt.asset, category: mkt.category, strike: mkt.strike, isCall: mkt.typeIdx === 0, expiry: mkt.expiry, expiryLabel: mkt.expiryLabel });
       marketsCreated++;
     } catch (e: any) {
-      console.log(`  [${i + 1}/${marketsToCreate.length}] ✗ ${mkt.asset} $${strikeNum.toLocaleString()} ${typeLabel} FAILED: ${e.message?.slice(0, 80)}`);
+      console.log(`  [${mkt.category} ${i + 1}/${marketsToCreate.length}] ✗ ${mkt.asset} $${strikeNum.toLocaleString()} ${typeLabel} FAILED: ${e.message?.slice(0, 80)}`);
     }
 
-    await delay(500);
+    await delay(400);
   }
 
   console.log("");
@@ -210,7 +235,7 @@ async function main() {
     // Skip if position already exists
     try {
       await program.account.optionPosition.fetch(positionPda);
-      console.log(`  [${i + 1}/${createdMarkets.length}] ⊘ ${market.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${market.expiryLabel}) — position exists`);
+      console.log(`  [${market.category} ${i + 1}/${createdMarkets.length}] ⊘ ${market.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${market.expiryLabel}) — position exists`);
       optionsSkipped++;
       continue;
     } catch {}
@@ -233,27 +258,26 @@ async function main() {
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
       }).preInstructions([EXTRA_CU]).rpc();
 
-      console.log(`  [${i + 1}/${createdMarkets.length}] ✓ ${market.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${market.expiryLabel}) — written (premium $${premium.toLocaleString()}, collateral $${collateral.toLocaleString()})`);
+      console.log(`  [${market.category} ${i + 1}/${createdMarkets.length}] ✓ ${market.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${market.expiryLabel}) — written (premium $${premium.toLocaleString()}, collateral $${collateral.toLocaleString()})`);
       optionsWritten++;
     } catch (e: any) {
-      console.log(`  [${i + 1}/${createdMarkets.length}] ✗ ${market.asset} $${strikeNum.toLocaleString()} ${typeLabel} write FAILED: ${e.message?.slice(0, 100)}`);
+      console.log(`  [${market.category} ${i + 1}/${createdMarkets.length}] ✗ ${market.asset} $${strikeNum.toLocaleString()} ${typeLabel} write FAILED: ${e.message?.slice(0, 100)}`);
     }
 
-    await delay(500);
+    await delay(400);
   }
 
   // Summary
-  const solCount = assets[0].strikes.length * expiries.length * 2;
-  const btcCount = assets[1].strikes.length * expiries.length * 2;
-  const ethCount = assets[2].strikes.length * expiries.length * 2;
-
   console.log("");
-  console.log("=== Summary ===");
+  console.log("=== SEED COMPLETE ===");
+  console.log(`Crypto:       SOL (28), BTC (28), ETH (28)`);
+  console.log(`Commodities:  XAU (28), WTI (28), XAG (28)`);
+  console.log(`Equities:     AAPL (28), TSLA (28), NVDA (28)`);
+  console.log(`Total markets: ${marketsCreated + marketsSkipped}`);
+  console.log(`Total options: ${optionsWritten + optionsSkipped}`);
+  console.log(`Expiries: 7d (${exp7d.toISOString().slice(0, 10)}), 14d (${exp14d.toISOString().slice(0, 10)})`);
   console.log(`Markets created: ${marketsCreated} (${marketsSkipped} already existed)`);
   console.log(`Options written: ${optionsWritten} (${optionsSkipped} already existed)`);
-  console.log(`Assets: SOL (${solCount} markets), BTC (${btcCount} markets), ETH (${ethCount} markets)`);
-  console.log(`Expiries: 7d, 14d`);
-  console.log("Ready to trade at butteroptionsapp.vercel.app/trade");
 }
 
 describe("create-sample-markets", () => {

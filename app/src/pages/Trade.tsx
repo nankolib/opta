@@ -86,15 +86,17 @@ export const Trade: FC = () => {
   }, [assets]);
 
   // Step 3: For selected asset, unique expiry timestamps → expiry tabs
+  // Round to nearest day to avoid duplicate tabs from timestamps seconds apart
+  const roundToDay = (ts: number) => Math.floor(ts / 86400) * 86400;
   const expiries = useMemo(() => {
-    const ts = new Set<number>();
-    activeMarkets
-      .filter((m) => m.account.assetName === selectedAsset)
-      .forEach((m) => {
-        const t = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
-        ts.add(t);
-      });
-    return Array.from(ts).sort((a, b) => a - b);
+    const assetMarkets = activeMarkets.filter((m) => m.account.assetName === selectedAsset);
+    const dayMap = new Map<number, number>(); // rounded → first actual timestamp
+    for (const m of assetMarkets) {
+      const t = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
+      const rounded = roundToDay(t);
+      if (!dayMap.has(rounded)) dayMap.set(rounded, t);
+    }
+    return Array.from(dayMap.values()).sort((a, b) => a - b);
   }, [activeMarkets, selectedAsset]);
 
   // Auto-select first expiry
@@ -106,9 +108,10 @@ export const Trade: FC = () => {
 
   // Step 4-8: Build the chain rows
   const { rows, spotPrice } = useMemo(() => {
+    const selectedDay = roundToDay(selectedExpiry);
     const filtered = activeMarkets.filter((m) => {
       const t = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
-      return m.account.assetName === selectedAsset && t === selectedExpiry;
+      return m.account.assetName === selectedAsset && roundToDay(t) === selectedDay;
     });
 
     // Collect all strikes

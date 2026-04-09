@@ -102,12 +102,28 @@ export function calculatePutPremium(
  */
 export function getDefaultVolatility(assetName: string): number {
   const lower = assetName.toLowerCase();
-  if (["xau", "gold"].some((a) => lower.includes(a))) return 0.2;
-  if (["wti", "oil"].some((a) => lower.includes(a))) return 0.35;
-  if (["eur", "gbp", "jpy", "usd"].some((a) => lower.includes(a))) return 0.1;
-  if (["aapl", "tsla", "nvda", "googl", "msft"].some((a) => lower.includes(a))) return 0.4;
-  // Default: crypto volatility
-  return 0.8;
+
+  // Commodities — each has unique vol profile
+  if (["xau", "gold"].some((a) => lower.includes(a))) return 0.25;       // Gold: elevated but not extreme
+  if (["xag", "silver"].some((a) => lower.includes(a))) return 0.35;     // Silver: more volatile than gold
+  if (["wti", "oil", "crude"].some((a) => lower.includes(a))) return 0.55; // Oil: Iran/Hormuz crisis = extreme vol
+
+  // Forex
+  if (["eur", "gbp", "jpy", "usd"].some((a) => lower.includes(a))) return 0.10;
+
+  // Equities — per-stock vol
+  if (lower === "aapl") return 0.35;
+  if (lower === "tsla") return 0.60;
+  if (lower === "nvda") return 0.55;
+  if (["googl", "msft", "amzn", "meta"].some((a) => lower.includes(a))) return 0.40;
+
+  // Crypto — differentiate by asset
+  if (lower === "btc" || lower === "bitcoin") return 0.65;
+  if (lower === "eth" || lower === "ethereum") return 0.75;
+  if (lower === "sol" || lower === "solana") return 0.85;
+
+  // Default: generic crypto
+  return 0.80;
 }
 
 // =============================================================================
