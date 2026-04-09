@@ -5,29 +5,44 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { ButterOptions } from "../target/types/butter_options";
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import { Keypair, PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
   createMint,
   createAssociatedTokenAccount,
   getAssociatedTokenAddress,
   mintTo,
+  TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
 import BN from "bn.js";
+
+const HOOK_PROGRAM_ID = new PublicKey("83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG");
+
+function deriveExtraAccountMetaListPda(mint: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("extra-account-metas"), mint.toBuffer()],
+    HOOK_PROGRAM_ID,
+  );
+}
+
+function deriveHookStatePda(mint: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("hook-state"), mint.toBuffer()],
+    HOOK_PROGRAM_ID,
+  );
+}
 
 const PYTH_FEEDS: Record<string, PublicKey> = {
   SOL: new PublicKey("J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"),
   BTC: new PublicKey("HovQMDrbAgAYPCmHVSrezcSmkMtXSSUsLDFANExrZh2J"),
   ETH: new PublicKey("EdVCmQ9FSPcVe5YySXDPCRmc8aDQLKJ9GvYRk4HY7y44"),
-  XAU: new PublicKey("8y3WWjvmSmVGWVKH1rCA7VTRmuU7QbJ9axMK6JUUuCyi"),
-  WTI: new PublicKey("JTjCRSsBCz5FNjRiVRBFnBqGwU5QGqJ9hHsqpHoFaJT"),
-  AAPL: new PublicKey("5yKHAuiDWKUGRgs3s6mYGdfZjFmTfgHVDBwFBDfMuZJH"),
 };
 
 function usdc(amount: number): BN {
   return new BN(Math.round(amount * 1_000_000));
 }
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main() {
   const provider = anchor.AnchorProvider.env();
@@ -36,7 +51,7 @@ async function main() {
   const admin = provider.wallet as anchor.Wallet;
   const payer = (admin as any).payer as Keypair;
 
-  console.log("=== Butter Options — Sample Data Creator (Tokenized) ===");
+  console.log("=== Butter Options — Full Options Chain Seeder ===");
   console.log(`Program: ${program.programId.toBase58()}`);
   console.log(`Admin:   ${admin.publicKey.toBase58()}`);
   console.log("");
@@ -66,7 +81,7 @@ async function main() {
     console.log(`✓ Protocol initialized. USDC Mint: ${usdcMint.toBase58()}`);
   }
 
-  // Step 2: Ensure admin has USDC
+  // Step 2: Ensure admin has USDC — mint 10M for all the collateral we'll need
   let adminUsdcAta: PublicKey;
   try {
     adminUsdcAta = await getAssociatedTokenAddress(usdcMint, admin.publicKey);
@@ -75,8 +90,8 @@ async function main() {
     adminUsdcAta = await createAssociatedTokenAccount(provider.connection, payer, usdcMint, admin.publicKey);
   }
   try {
-    await mintTo(provider.connection, payer, usdcMint, adminUsdcAta, admin.publicKey, 1_000_000_000_000);
-    console.log("✓ Minted 1M test USDC to admin");
+    await mintTo(provider.connection, payer, usdcMint, adminUsdcAta, admin.publicKey, 10_000_000_000_000);
+    console.log("✓ Minted 10M test USDC to admin");
   } catch {
     console.log("  (Mint skipped — not mint authority)");
   }
@@ -85,71 +100,97 @@ async function main() {
   console.log(`  Admin USDC balance: ${bal.value.uiAmountString}`);
   console.log("");
 
-  // Step 3: Create markets
+  // Step 3: Build full options chain
+  const expiry7d = new BN(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
   const expiry14d = new BN(Math.floor(Date.now() / 1000) + 14 * 24 * 60 * 60);
 
-  const marketsToCreate = [
-    { asset: "SOL", strike: usdc(180), type: { call: {} }, typeIdx: 0 },
-    { asset: "SOL", strike: usdc(200), type: { call: {} }, typeIdx: 0 },
-    { asset: "SOL", strike: usdc(150), type: { put: {} }, typeIdx: 1 },
-    { asset: "BTC", strike: usdc(100_000), type: { call: {} }, typeIdx: 0 },
-    { asset: "ETH", strike: usdc(3_500), type: { call: {} }, typeIdx: 0 },
-    { asset: "XAU", strike: usdc(5_000), type: { call: {} }, typeIdx: 0 },
-    { asset: "WTI", strike: usdc(80), type: { call: {} }, typeIdx: 0 },
-    { asset: "AAPL", strike: usdc(200), type: { call: {} }, typeIdx: 0 },
+  const assets = [
+    { name: "SOL", strikes: [120, 130, 140, 150, 160, 170, 200] },
+    { name: "BTC", strikes: [70_000, 80_000, 85_000, 90_000, 100_000] },
+    { name: "ETH", strikes: [1_500, 1_700, 1_800, 1_900, 2_000] },
   ];
 
-  console.log("--- Creating Markets ---");
-  const createdMarkets: { pda: PublicKey; asset: string; strike: BN; isCall: boolean }[] = [];
+  const expiries = [
+    { label: "7d", bn: expiry7d },
+    { label: "14d", bn: expiry14d },
+  ];
 
-  for (const mkt of marketsToCreate) {
+  const marketsToCreate: { asset: string; strike: BN; expiry: BN; expiryLabel: string; type: any; typeIdx: number }[] = [];
+  for (const asset of assets) {
+    for (const expiry of expiries) {
+      for (const strike of asset.strikes) {
+        marketsToCreate.push({ asset: asset.name, strike: usdc(strike), expiry: expiry.bn, expiryLabel: expiry.label, type: { call: {} }, typeIdx: 0 });
+        marketsToCreate.push({ asset: asset.name, strike: usdc(strike), expiry: expiry.bn, expiryLabel: expiry.label, type: { put: {} }, typeIdx: 1 });
+      }
+    }
+  }
+
+  console.log(`--- Creating ${marketsToCreate.length} Markets ---`);
+  const createdMarkets: { pda: PublicKey; asset: string; strike: BN; isCall: boolean; expiry: BN; expiryLabel: string }[] = [];
+  let marketsCreated = 0;
+  let marketsSkipped = 0;
+
+  for (let i = 0; i < marketsToCreate.length; i++) {
+    const mkt = marketsToCreate[i];
+    const strikeNum = mkt.strike.toNumber() / 1e6;
+    const typeLabel = mkt.typeIdx === 0 ? "Call" : "Put";
     const feed = PYTH_FEEDS[mkt.asset] || Keypair.generate().publicKey;
+
     const [marketPda] = PublicKey.findProgramAddressSync([
       Buffer.from("market"), Buffer.from(mkt.asset),
       mkt.strike.toArrayLike(Buffer, "le", 8),
-      expiry14d.toArrayLike(Buffer, "le", 8),
+      mkt.expiry.toArrayLike(Buffer, "le", 8),
       Buffer.from([mkt.typeIdx]),
     ], program.programId);
 
     try {
       await program.account.optionsMarket.fetch(marketPda);
-      console.log(`  ⊘ ${mkt.asset} $${mkt.strike.toNumber() / 1e6} ${mkt.typeIdx === 0 ? "Call" : "Put"} — exists`);
-      createdMarkets.push({ pda: marketPda, asset: mkt.asset, strike: mkt.strike, isCall: mkt.typeIdx === 0 });
+      console.log(`  [${i + 1}/${marketsToCreate.length}] ⊘ ${mkt.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${mkt.expiryLabel}) — exists`);
+      createdMarkets.push({ pda: marketPda, asset: mkt.asset, strike: mkt.strike, isCall: mkt.typeIdx === 0, expiry: mkt.expiry, expiryLabel: mkt.expiryLabel });
+      marketsSkipped++;
       continue;
     } catch {}
 
     try {
-      await program.methods.createMarket(mkt.asset, mkt.strike, expiry14d, mkt.type as any, feed)
+      await program.methods.createMarket(mkt.asset, mkt.strike, mkt.expiry, mkt.type as any, feed, 0)
         .accountsStrict({
           creator: admin.publicKey, protocolState: protocolStatePda,
           market: marketPda, systemProgram: SystemProgram.programId,
         }).rpc();
-      console.log(`  ✓ ${mkt.asset} $${mkt.strike.toNumber() / 1e6} ${mkt.typeIdx === 0 ? "Call" : "Put"} — created`);
-      createdMarkets.push({ pda: marketPda, asset: mkt.asset, strike: mkt.strike, isCall: mkt.typeIdx === 0 });
+      console.log(`  [${i + 1}/${marketsToCreate.length}] ✓ ${mkt.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${mkt.expiryLabel}) — created`);
+      createdMarkets.push({ pda: marketPda, asset: mkt.asset, strike: mkt.strike, isCall: mkt.typeIdx === 0, expiry: mkt.expiry, expiryLabel: mkt.expiryLabel });
+      marketsCreated++;
     } catch (e: any) {
-      console.log(`  ✗ ${mkt.asset} FAILED: ${e.message?.slice(0, 80)}`);
+      console.log(`  [${i + 1}/${marketsToCreate.length}] ✗ ${mkt.asset} $${strikeNum.toLocaleString()} ${typeLabel} FAILED: ${e.message?.slice(0, 80)}`);
     }
+
+    await delay(500);
   }
 
   console.log("");
+  console.log(`Markets: ${marketsCreated} created, ${marketsSkipped} already existed`);
+  console.log("");
 
-  // Step 4: Write tokenized options on 5 markets
-  console.log("--- Writing Tokenized Options ---");
+  // Step 4: Write one option position on each market
+  console.log(`--- Writing Options on ${createdMarkets.length} Markets ---`);
+  let optionsWritten = 0;
+  let optionsSkipped = 0;
+  const baseTimestamp = Math.floor(Date.now() / 1000);
 
-  const optionsToWrite = [
-    // Collateral: strike × contracts for puts, strike × 2 × contracts for calls
-    // Premium: per-contract price × contracts
-    { idx: 0, collateral: 3_600, premium: 150, contracts: 10 },   // SOL $180 Call: 10 contracts, $15/contract
-    { idx: 1, collateral: 4_000, premium: 120, contracts: 10 },   // SOL $200 Call: 10 contracts, $12/contract
-    { idx: 2, collateral: 1_500, premium: 80, contracts: 10 },    // SOL $150 Put: 10 contracts, $8/contract
-    { idx: 3, collateral: 200_000, premium: 500, contracts: 1 },  // BTC $100k Call: 1 contract, $500/contract
-    { idx: 4, collateral: 70_000, premium: 175, contracts: 10 },  // ETH $3500 Call: 10 contracts, $17.50/contract
-  ];
+  for (let i = 0; i < createdMarkets.length; i++) {
+    const market = createdMarkets[i];
+    const strikeNum = market.strike.toNumber() / 1e6;
+    const typeLabel = market.isCall ? "Call" : "Put";
+    const contracts = 10;
 
-  for (const opt of optionsToWrite) {
-    if (opt.idx >= createdMarkets.length) continue;
-    const market = createdMarkets[opt.idx];
-    const createdAt = new BN(Math.floor(Date.now() / 1000) + opt.idx);
+    // Collateral: calls need 2x strike × contracts, puts need 1x strike × contracts
+    const collateral = market.isCall ? strikeNum * 2 * contracts : strikeNum * contracts;
+
+    // Premium: 5% of strike × contracts
+    const premium = strikeNum * 0.05 * contracts;
+
+    // Unique createdAt per position to avoid PDA collisions
+    const createdAt = new BN(baseTimestamp + i);
 
     const [positionPda] = PublicKey.findProgramAddressSync([
       Buffer.from("position"), market.pda.toBuffer(), admin.publicKey.toBuffer(),
@@ -162,38 +203,57 @@ async function main() {
     const [optionMintPda] = PublicKey.findProgramAddressSync([
       Buffer.from("option_mint"), positionPda.toBuffer(),
     ], program.programId);
-
-    // Check if position exists
-    try {
-      await program.account.optionPosition.fetch(positionPda);
-      console.log(`  ⊘ ${market.asset} $${market.strike.toNumber() / 1e6} — position exists`);
-      continue;
-    } catch {}
-
     const [purchaseEscrowPda] = PublicKey.findProgramAddressSync([
       Buffer.from("purchase_escrow"), positionPda.toBuffer(),
     ], program.programId);
 
+    // Skip if position already exists
     try {
+      await program.account.optionPosition.fetch(positionPda);
+      console.log(`  [${i + 1}/${createdMarkets.length}] ⊘ ${market.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${market.expiryLabel}) — position exists`);
+      optionsSkipped++;
+      continue;
+    } catch {}
+
+    try {
+      const [extraAccountMetaList] = deriveExtraAccountMetaListPda(optionMintPda);
+      const [hookState] = deriveHookStatePda(optionMintPda);
+      const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
+
       await program.methods.writeOption(
-        usdc(opt.collateral), usdc(opt.premium), new BN(opt.contracts), createdAt,
+        usdc(collateral), usdc(premium), new BN(contracts), createdAt,
       ).accountsStrict({
         writer: admin.publicKey, protocolState: protocolStatePda,
         market: market.pda, position: positionPda, escrow: escrowPda,
         optionMint: optionMintPda, purchaseEscrow: purchaseEscrowPda,
         writerUsdcAccount: adminUsdcAta, usdcMint,
+        transferHookProgram: HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
         systemProgram: SystemProgram.programId, tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-      }).rpc();
+      }).preInstructions([EXTRA_CU]).rpc();
 
-      console.log(`  ✓ ${market.asset} $${market.strike.toNumber() / 1e6} ${market.isCall ? "Call" : "Put"} — written (premium $${opt.premium}, collateral $${opt.collateral})`);
+      console.log(`  [${i + 1}/${createdMarkets.length}] ✓ ${market.asset} $${strikeNum.toLocaleString()} ${typeLabel} (${market.expiryLabel}) — written (premium $${premium.toLocaleString()}, collateral $${collateral.toLocaleString()})`);
+      optionsWritten++;
     } catch (e: any) {
-      console.log(`  ✗ ${market.asset} write FAILED: ${e.message?.slice(0, 100)}`);
+      console.log(`  [${i + 1}/${createdMarkets.length}] ✗ ${market.asset} $${strikeNum.toLocaleString()} ${typeLabel} write FAILED: ${e.message?.slice(0, 100)}`);
     }
+
+    await delay(500);
   }
 
+  // Summary
+  const solCount = assets[0].strikes.length * expiries.length * 2;
+  const btcCount = assets[1].strikes.length * expiries.length * 2;
+  const ethCount = assets[2].strikes.length * expiries.length * 2;
+
   console.log("");
-  console.log("Done! Refresh the frontend to see the data.");
+  console.log("=== Summary ===");
+  console.log(`Markets created: ${marketsCreated} (${marketsSkipped} already existed)`);
+  console.log(`Options written: ${optionsWritten} (${optionsSkipped} already existed)`);
+  console.log(`Assets: SOL (${solCount} markets), BTC (${btcCount} markets), ETH (${ethCount} markets)`);
+  console.log(`Expiries: 7d, 14d`);
+  console.log("Ready to trade at butteroptionsapp.vercel.app/trade");
 }
 
 describe("create-sample-markets", () => {

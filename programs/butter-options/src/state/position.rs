@@ -83,6 +83,9 @@ pub const OPTION_MINT_SEED: &[u8] = b"option_mint";
 pub const PURCHASE_ESCROW_SEED: &[u8] = b"purchase_escrow";
 pub const RESALE_ESCROW_SEED: &[u8] = b"resale_escrow";
 
+// Design choice: these bounds may need widening for deep ITM (>50% intrinsic)
+// or deep OTM weekly options (<0.1% of collateral). Revisit post-hackathon.
+
 /// Minimum total premium as basis points of collateral (0.1% = 10 bps).
 /// Prevents writers from giving away options for essentially free.
 pub const MIN_PREMIUM_BPS: u64 = 10;

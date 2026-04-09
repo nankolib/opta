@@ -21,6 +21,9 @@ id.json
 *.pem
 *.key
 
+# Claude Code local settings (contains secrets)
+.claude/settings.local.json
+
 # Audit / internal context
 .context/
 

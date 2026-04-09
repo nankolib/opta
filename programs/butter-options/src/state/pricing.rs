@@ -46,18 +46,21 @@ pub struct PricingData {
     /// Gamma (basis points × 100 for precision).
     pub gamma_bps: i64,
 
-    /// Vega (USDC smallest units — dollar change per 1% vol move).
+    /// Vega in micro-USDC (1 unit = 0.000001 USDC) per unit vol move.
+    /// Stored at higher precision to avoid truncation to zero for small options.
     pub vega_usdc: i64,
 
-    /// Theta (USDC smallest units — daily time decay, typically negative).
+    /// Theta: daily time decay in micro-USDC (1 unit = 0.000001 USDC).
+    /// Typically negative. Stored at higher precision to avoid truncation.
     pub theta_usdc: i64,
 
     /// Unix timestamp of when this pricing was last updated.
     pub last_updated: i64,
 
-    /// The authority that created this PDA. Kept for backwards compat but
-    /// NOT enforced — update_pricing is permissionless.
-    pub update_authority: Pubkey,
+    /// The last account that called update_pricing on this PDA.
+    /// update_pricing is intentionally permissionless — consumers should
+    /// check last_updater to decide whether they trust the data source.
+    pub last_updater: Pubkey,
 
     /// PDA bump seed.
     pub bump: u8,

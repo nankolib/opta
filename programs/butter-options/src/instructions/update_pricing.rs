@@ -41,14 +41,24 @@ pub fn handle_update_pricing(
     let market = &ctx.accounts.market;
     let clock = Clock::get()?;
 
-    // 3. Check option hasn't expired
-    let time_to_expiry = market.expiry_timestamp - clock.unix_timestamp;
+    // 3. Check option hasn't expired (checked_sub guards against corrupted timestamps)
+    let time_to_expiry = market.expiry_timestamp
+        .checked_sub(clock.unix_timestamp)
+        .ok_or(ButterError::OptionExpired)?;
     require!(time_to_expiry > 0, ButterError::OptionExpired);
 
     // 4. Determine spot price — from Pyth oracle or parameter
     let (spot_usdc, spot_scale) = if let Some(price_update) = &ctx.accounts.price_update {
         // PYTH MODE: read price from oracle with staleness check
         let feed_id = price_update.price_message.feed_id;
+
+        // Validate that the Pyth feed matches the market's expected feed.
+        // market.pyth_feed stores the feed ID as a Pubkey (same 32 bytes).
+        require!(
+            feed_id == market.pyth_feed.to_bytes(),
+            ButterError::InvalidPythFeed
+        );
+
         let price = price_update.get_price_no_older_than(
             &clock,
             MAXIMUM_PRICE_AGE,
@@ -84,7 +94,7 @@ pub fn handle_update_pricing(
         OptionType::Call => greeks.call,
         OptionType::Put => greeks.put,
     };
-    let fair_value_usdc = scale_to_usdc(fair_value_scale);
+    let fair_value_usdc = scale_to_usdc(fair_value_scale)?;
 
     // 8. Convert Greeks to human-readable formats
     let delta_raw = match market.option_type {
@@ -93,11 +103,17 @@ pub fn handle_update_pricing(
     };
     let delta_bps = (delta_raw * 10_000 / SCALE as i128) as i64;
     let gamma_bps = (greeks.gamma * 1_000_000 / SCALE as i128) as i64;
-    let vega_usdc = (greeks.vega / 100 / 1_000_000) as i64;
+    // Vega: stored in micro-USDC (1 unit = 0.000001 USDC) per unit vol move.
+    // greeks.vega is at SCALE (1e12). Divide by 1e6 to get micro-USDC.
+    // Previous code divided by 1e8 which truncated small values to zero.
+    let vega_usdc = (greeks.vega / 1_000_000) as i64;
     let theta_raw = match market.option_type {
         OptionType::Call => greeks.call_theta,
         OptionType::Put => greeks.put_theta,
     };
+    // Theta: daily time decay in micro-USDC (1 unit = 0.000001 USDC).
+    // theta_raw is at SCALE (1e12) per year. Divide by 365 for daily,
+    // then by 1e6 to get micro-USDC.
     let theta_usdc = (theta_raw / 365 / 1_000_000) as i64;
 
     // 9. Store in PricingData PDA
@@ -110,6 +126,7 @@ pub fn handle_update_pricing(
     pricing.vega_usdc = vega_usdc;
     pricing.theta_usdc = theta_usdc;
     pricing.last_updated = clock.unix_timestamp;
+    pricing.last_updater = ctx.accounts.caller.key();
 
     Ok(())
 }

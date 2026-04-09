@@ -3,15 +3,31 @@ import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js"
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
+import { Link } from "react-router-dom";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
 import { showToast } from "../components/Toast";
 import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
-import { formatUsdc, formatExpiryShort, truncateAddress, usdcToNumber, toUsdcBN, daysUntilExpiry, isExpired } from "../utils/format";
-import { calculateCallPremium, calculatePutPremium, getDefaultVolatility } from "../utils/blackScholes";
+import { formatUsdc, formatExpiryShort, usdcToNumber, daysUntilExpiry, isExpired, truncateAddress } from "../utils/format";
+import { calculateCallGreeks, calculatePutGreeks, calculateCallPremium, calculatePutPremium, getDefaultVolatility } from "../utils/blackScholes";
+import type { Greeks } from "../utils/blackScholes";
 
 interface MarketAccount { publicKey: PublicKey; account: any; }
 interface PositionAccount { publicKey: PublicKey; account: any; }
+
+interface ChainRow {
+  strike: number;
+  callMarket: MarketAccount | null;
+  putMarket: MarketAccount | null;
+  callGreeks: Greeks;
+  putGreeks: Greeks;
+  callBestPosition: PositionAccount | null;
+  putBestPosition: PositionAccount | null;
+  callAsk: number | null;
+  putAsk: number | null;
+  callVolume: number;
+  putVolume: number;
+}
 
 export const Trade: FC = () => {
   const { program, provider } = useProgram();
@@ -19,197 +35,380 @@ export const Trade: FC = () => {
   const [markets, setMarkets] = useState<MarketAccount[]>([]);
   const [positions, setPositions] = useState<PositionAccount[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedAsset, setSelectedAsset] = useState<string>("");
+  const [selectedExpiry, setSelectedExpiry] = useState<number>(0);
   const [buyModal, setBuyModal] = useState<{ position: PositionAccount; market: any; isResale: boolean } | null>(null);
 
   useEffect(() => {
     if (!program) return;
     setLoading(true);
     Promise.all([safeFetchAll(program, "optionsMarket"), safeFetchAll(program, "optionPosition")])
-      .then(([mkts, posns]) => { setMarkets(mkts as MarketAccount[]); setPositions(posns as PositionAccount[]); })
-      .catch(console.error).finally(() => setLoading(false));
+      .then(([mkts, posns]) => {
+        setMarkets(mkts as MarketAccount[]);
+        setPositions(posns as PositionAccount[]);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
   }, [program]);
 
-  // Deduplicate + filter active markets (keep newest per asset+strike+type)
+  // Step 1: Filter active markets + deduplicate (keep newest per asset+strike+expiry+type)
   const activeMarkets = useMemo(() => {
-    try {
-      const active = markets.filter((m) => !isExpired(m.account.expiryTimestamp));
-      const map = new Map<string, typeof active[0]>();
-      for (const m of active) {
-        const isCall = "call" in m.account.optionType;
-        const key = `${m.account.assetName}-${m.account.strikePrice.toString()}-${isCall ? "C" : "P"}`;
-        const existing = map.get(key);
-        const mExpiry = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
-        const exExpiry = existing ? (typeof existing.account.expiryTimestamp === "number" ? existing.account.expiryTimestamp : existing.account.expiryTimestamp.toNumber()) : 0;
-        if (!existing || mExpiry > exExpiry) {
+    const active = markets.filter((m) => !isExpired(m.account.expiryTimestamp));
+    const map = new Map<string, MarketAccount>();
+    for (const m of active) {
+      const isCall = "call" in m.account.optionType;
+      const expTs = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
+      const key = `${m.account.assetName}-${m.account.strikePrice.toString()}-${expTs}-${isCall ? "C" : "P"}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, m);
+      } else {
+        // Keep the one with the higher pubkey as tiebreaker (deterministic)
+        if (m.publicKey.toBase58() > existing.publicKey.toBase58()) {
           map.set(key, m);
         }
       }
-      return Array.from(map.values());
-    } catch (e) {
-      console.error("Dedup error:", e);
-      return markets.filter((m) => !isExpired(m.account.expiryTimestamp));
     }
+    return Array.from(map.values());
   }, [markets]);
-  const marketMap = useMemo(() => { const map = new Map<string, any>(); markets.forEach((m) => map.set(m.publicKey.toBase58(), m.account)); return map; }, [markets]);
 
-  // Set of active market pubkeys (for filtering positions to deduped markets only)
-  const activeMarketKeys = useMemo(() => new Set(activeMarkets.map((m) => m.publicKey.toBase58())), [activeMarkets]);
+  // Step 2: Unique asset names → asset tabs
+  const assets = useMemo(() => {
+    const names = new Set(activeMarkets.map((m) => m.account.assetName as string));
+    return Array.from(names).sort();
+  }, [activeMarkets]);
 
-  // Primary options (active, not listed for resale, on deduped markets only)
-  const primaryOptions = useMemo(() =>
-    positions.filter((p) =>
-      !p.account.isExercised && !p.account.isExpired && !p.account.isCancelled &&
-      !p.account.isListedForResale && activeMarketKeys.has(p.account.market.toBase58())
-    ),
-  [positions, activeMarketKeys]);
+  // Auto-select first asset
+  useEffect(() => {
+    if (assets.length > 0 && !assets.includes(selectedAsset)) {
+      setSelectedAsset(assets[0]);
+    }
+  }, [assets]);
 
-  // Resale listings (on deduped markets only)
-  const resaleOptions = useMemo(() =>
-    positions.filter((p) =>
-      p.account.isListedForResale && !p.account.isExercised && !p.account.isExpired &&
-      !p.account.isCancelled && activeMarketKeys.has(p.account.market.toBase58())
-    ),
-  [positions, activeMarketKeys]);
+  // Step 3: For selected asset, unique expiry timestamps → expiry tabs
+  const expiries = useMemo(() => {
+    const ts = new Set<number>();
+    activeMarkets
+      .filter((m) => m.account.assetName === selectedAsset)
+      .forEach((m) => {
+        const t = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
+        ts.add(t);
+      });
+    return Array.from(ts).sort((a, b) => a - b);
+  }, [activeMarkets, selectedAsset]);
+
+  // Auto-select first expiry
+  useEffect(() => {
+    if (expiries.length > 0 && !expiries.includes(selectedExpiry)) {
+      setSelectedExpiry(expiries[0]);
+    }
+  }, [expiries]);
+
+  // Step 4-8: Build the chain rows
+  const { rows, spotPrice } = useMemo(() => {
+    const filtered = activeMarkets.filter((m) => {
+      const t = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
+      return m.account.assetName === selectedAsset && t === selectedExpiry;
+    });
+
+    // Collect all strikes
+    const strikeSet = new Set<number>();
+    filtered.forEach((m) => strikeSet.add(usdcToNumber(m.account.strikePrice)));
+    const strikes = Array.from(strikeSet).sort((a, b) => a - b);
+
+    // TODO: Wire live Pyth oracle price here — currently using median strike as proxy
+    const median = strikes.length > 0 ? strikes[Math.floor(strikes.length / 2)] : 0;
+
+    const vol = getDefaultVolatility(selectedAsset);
+    const days = selectedExpiry > 0 ? Math.max(0, (selectedExpiry - Date.now() / 1000) / 86400) : 0;
+
+    const chainRows: ChainRow[] = strikes.map((strike) => {
+      // Find call and put markets for this strike
+      const callMarket = filtered.find((m) => usdcToNumber(m.account.strikePrice) === strike && "call" in m.account.optionType) || null;
+      const putMarket = filtered.find((m) => usdcToNumber(m.account.strikePrice) === strike && "put" in m.account.optionType) || null;
+
+      // Greeks
+      const callGreeks = calculateCallGreeks(median, strike, days, vol);
+      const putGreeks = calculatePutGreeks(median, strike, days, vol);
+
+      // Find available positions for each market
+      const findBest = (market: MarketAccount | null): { best: PositionAccount | null; ask: number | null; volume: number } => {
+        if (!market) return { best: null, ask: null, volume: 0 };
+        const marketKey = market.publicKey.toBase58();
+        const available = positions.filter((p) =>
+          !p.account.isExercised &&
+          !p.account.isExpired &&
+          !p.account.isCancelled &&
+          !p.account.isListedForResale &&
+          p.account.market.toBase58() === marketKey,
+        );
+
+        let volume = 0;
+        let bestPos: PositionAccount | null = null;
+        let bestPrice = Infinity;
+
+        for (const p of available) {
+          const sold = p.account.tokensSold?.toNumber?.() || 0;
+          const total = p.account.totalSupply?.toNumber?.() || 1;
+          volume += sold;
+          const unsold = total - sold;
+          if (unsold > 0) {
+            const perContract = usdcToNumber(p.account.premium) / total;
+            if (perContract < bestPrice) {
+              bestPrice = perContract;
+              bestPos = p;
+            }
+          }
+        }
+
+        return { best: bestPos, ask: bestPos ? bestPrice : null, volume };
+      };
+
+      const callResult = findBest(callMarket);
+      const putResult = findBest(putMarket);
+
+      return {
+        strike,
+        callMarket,
+        putMarket,
+        callGreeks,
+        putGreeks,
+        callBestPosition: callResult.best,
+        putBestPosition: putResult.best,
+        callAsk: callResult.ask,
+        putAsk: putResult.ask,
+        callVolume: callResult.volume,
+        putVolume: putResult.volume,
+      };
+    });
+
+    return { rows: chainRows, spotPrice: median };
+  }, [activeMarkets, positions, selectedAsset, selectedExpiry]);
+
+  // ATM strike (closest to spot)
+  const atmStrike = useMemo(() => {
+    if (rows.length === 0 || spotPrice === 0) return 0;
+    let closest = rows[0].strike;
+    let minDiff = Math.abs(rows[0].strike - spotPrice);
+    for (const r of rows) {
+      const diff = Math.abs(r.strike - spotPrice);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = r.strike;
+      }
+    }
+    return closest;
+  }, [rows, spotPrice]);
+
+  const ivDisplay = `${(getDefaultVolatility(selectedAsset) * 100).toFixed(0)}%`;
 
   const refetch = async () => {
     if (!program) return;
     const [mkts, posns] = await Promise.all([safeFetchAll(program, "optionsMarket"), safeFetchAll(program, "optionPosition")]);
-    setMarkets(mkts as MarketAccount[]); setPositions(posns as PositionAccount[]);
-  };
-
-  const getFairPrice = (mkt: any) => {
-    const strike = usdcToNumber(mkt.strikePrice);
-    const days = daysUntilExpiry(mkt.expiryTimestamp);
-    const vol = getDefaultVolatility(mkt.assetName);
-    const isCall = "call" in mkt.optionType;
-    return isCall ? calculateCallPremium(strike, strike, days, vol) : calculatePutPremium(strike, strike, days, vol);
+    setMarkets(mkts as MarketAccount[]);
+    setPositions(posns as PositionAccount[]);
   };
 
   return (
     <div className="min-h-screen bg-bg-primary pt-24 px-4 pb-12">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-7xl">
+        {/* 1. Page header */}
         <h1 className="text-3xl font-bold text-text-primary mb-2">Trade</h1>
-        <p className="text-text-secondary mb-8">Write new options or purchase from sellers.</p>
-
-        <div className="rounded-xl border border-gold/20 bg-gold/5 p-3 mb-6 text-xs text-text-secondary">
-          Black-Scholes fair value calculated with realized volatility from Pyth, jump risk premium, and asset-class-specific time decay.
-        </div>
+        <p className="text-text-secondary mb-8">Select an asset and expiry to view the options chain.</p>
 
         {loading ? (
-          <div className="rounded-xl border border-border bg-bg-surface p-12 text-center"><div className="text-text-muted animate-pulse">Loading from devnet...</div></div>
-        ) : (
-          <div className="space-y-8">
-            {/* Write + Primary Options */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <WriteOptionPanel markets={activeMarkets} program={program} provider={provider} publicKey={publicKey} connected={connected} onSuccess={refetch} marketMap={marketMap} getFairPrice={getFairPrice} />
-
-              {/* Available Options */}
-              <div className="rounded-2xl border border-border bg-bg-surface p-6">
-                <h2 className="text-lg font-semibold text-sol-green mb-5">Available Options</h2>
-                {primaryOptions.length === 0 ? (
-                  <p className="text-text-muted text-sm">No options available for purchase.</p>
-                ) : (
-                  <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                    {primaryOptions.map((p) => {
-                      const mkt = marketMap.get(p.account.market.toBase58());
-                      if (!mkt) return null;
-                      const isCall = "call" in mkt.optionType;
-                      const fair = getFairPrice(mkt);
-                      return (
-                        <div key={p.publicKey.toBase58()} className="rounded-xl border border-border bg-bg-primary p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-text-primary">{mkt.assetName}</span>
-                              <span className={`text-xs px-2 py-0.5 rounded-full ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>{isCall ? "Call" : "Put"}</span>
-                            </div>
-                            <span className="text-xs text-text-muted">Exp: {formatExpiryShort(mkt.expiryTimestamp)}</span>
-                          </div>
-                          <div className="grid grid-cols-4 gap-2 text-xs mb-3">
-                            <div><div className="text-text-muted">Strike</div><div className="text-text-primary font-medium">${formatUsdc(mkt.strikePrice)}</div></div>
-                            <div><div className="text-text-muted">Premium</div><div className="text-gold font-medium">${formatUsdc(p.account.premium)}</div></div>
-                            <div><div className="text-text-muted">Fair Value</div><div className="text-text-secondary font-medium">${fair.toFixed(2)}</div></div>
-                            <div><div className="text-text-muted">Available</div><div className="text-sol-green font-medium">{((p.account.totalSupply?.toNumber?.() || 0) - (p.account.tokensSold?.toNumber?.() || 0)).toLocaleString()}/{(p.account.totalSupply?.toNumber?.() || 0).toLocaleString()}</div></div>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs text-text-muted">Writer: {truncateAddress(p.account.writer.toBase58())}</div>
-                            {connected && publicKey?.toBase58() !== p.account.writer.toBase58() ? (
-                              <button onClick={() => setBuyModal({ position: p, market: mkt, isResale: false })}
-                                className="rounded-lg bg-sol-green/15 border border-sol-green/30 px-5 py-2 text-xs font-semibold text-sol-green hover:bg-sol-green/25 transition-colors">
-                                Buy ${formatUsdc(p.account.premium)}
-                              </button>
-                            ) : connected ? (
-                              <span className="text-xs text-text-muted">Your option</span>
-                            ) : (
-                              <span className="text-xs text-text-muted">Connect wallet</span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Secondary Market (Resale) */}
-            <div className="rounded-2xl border border-gold/20 bg-bg-surface p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <h2 className="text-lg font-semibold text-gold">Secondary Market</h2>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-gold/10 text-gold">P2P Resale</span>
-              </div>
-              <p className="text-xs text-text-muted mb-5">Supply and demand set the price. B-S fair value shown as reference.</p>
-              {resaleOptions.length === 0 ? (
-                <p className="text-text-muted text-sm">No resale listings yet. Option holders can list their tokens for resale from the Portfolio page.</p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {resaleOptions.map((p) => {
-                    const mkt = marketMap.get(p.account.market.toBase58());
-                    if (!mkt) return null;
-                    const isCall = "call" in mkt.optionType;
-                    const fair = getFairPrice(mkt);
-                    return (
-                      <div key={p.publicKey.toBase58()} className="rounded-xl border border-gold/20 bg-bg-primary p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-text-primary">{mkt.assetName}</span>
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>{isCall ? "Call" : "Put"}</span>
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-xs mb-3">
-                          <div><div className="text-text-muted">Strike</div><div className="text-text-primary font-medium">${formatUsdc(mkt.strikePrice)}</div></div>
-                          <div><div className="text-text-muted">Asking</div><div className="text-gold font-bold">${formatUsdc(p.account.resalePremium)}</div></div>
-                          <div><div className="text-text-muted">Fair Value</div><div className="text-text-secondary">${fair.toFixed(2)}</div></div>
-                          <div><div className="text-text-muted">Seller</div><div className="text-text-secondary">{truncateAddress(p.account.resaleSeller.toBase58())}</div></div>
-                        </div>
-                        {connected && publicKey?.toBase58() !== p.account.resaleSeller.toBase58() ? (
-                          <button onClick={() => setBuyModal({ position: p, market: mkt, isResale: true })}
-                            className="w-full rounded-lg bg-gold/15 border border-gold/30 py-2 text-xs font-semibold text-gold hover:bg-gold/25 transition-colors">
-                            Buy Resale ${formatUsdc(p.account.resalePremium)}
-                          </button>
-                        ) : (
-                          <div className="text-xs text-text-muted text-center py-2">Your listing</div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+          <div className="rounded-xl border border-border bg-bg-surface p-12 text-center">
+            <div className="text-text-muted animate-pulse">Loading from devnet...</div>
           </div>
+        ) : activeMarkets.length === 0 ? (
+          <div className="rounded-xl border border-border bg-bg-surface p-12 text-center">
+            <p className="text-text-muted">No active markets found. Create one on the <Link to="/markets" className="text-gold hover:underline">Markets page</Link>.</p>
+          </div>
+        ) : (
+          <>
+            {/* 2. Asset tabs */}
+            <div className="flex flex-wrap gap-2 mb-4">
+              {assets.map((asset) => (
+                <button
+                  key={asset}
+                  onClick={() => setSelectedAsset(asset)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    selectedAsset === asset
+                      ? "bg-gold/15 text-gold border border-gold/30"
+                      : "bg-bg-surface text-text-secondary border border-border hover:text-text-primary hover:border-border-light"
+                  }`}
+                >
+                  {asset}
+                </button>
+              ))}
+            </div>
+
+            {/* 3. Expiry tabs */}
+            <div className="flex flex-wrap gap-2 mb-6">
+              {expiries.map((ts) => (
+                <button
+                  key={ts}
+                  onClick={() => setSelectedExpiry(ts)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    selectedExpiry === ts
+                      ? "bg-gold/15 text-gold border border-gold/30"
+                      : "bg-bg-surface text-text-secondary border border-border hover:text-text-primary"
+                  }`}
+                >
+                  {formatExpiryShort(ts)} ({Math.round(daysUntilExpiry(ts))}d)
+                </button>
+              ))}
+            </div>
+
+            {/* 4. Spot price bar */}
+            <div className="flex items-center justify-between rounded-lg border border-border bg-bg-surface px-4 py-2 mb-6">
+              <span className="text-sm text-text-secondary">
+                Spot: <span className="text-text-primary font-medium">${spotPrice.toFixed(2)}</span>{" "}
+                <span className="text-text-muted text-xs">(estimated)</span>
+              </span>
+              <span className="text-xs text-sol-purple">Devnet — not real money</span>
+            </div>
+
+            {/* 5. CALLS / PUTS labels */}
+            <div className="flex items-center justify-between mb-2 px-2">
+              <span className="text-xs font-semibold uppercase tracking-wider px-3 py-1 rounded-full bg-sol-green/10 text-sol-green">Calls</span>
+              <span className="text-xs font-semibold uppercase tracking-wider px-3 py-1 rounded-full bg-sol-purple/10 text-sol-purple">Puts</span>
+            </div>
+
+            {/* 6. The grid table */}
+            <div className="rounded-xl border border-border bg-bg-surface overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      {/* Call columns */}
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-left">IV</th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Delta</th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Bid</th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Ask</th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Vol</th>
+                      {/* Strike */}
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-text-muted bg-bg-primary/50 text-center">Strike</th>
+                      {/* Put columns */}
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Vol</th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Bid</th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Ask</th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Delta</th>
+                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-right">IV</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} className="px-4 py-8 text-center text-text-muted">
+                          No options written yet for this market.
+                        </td>
+                      </tr>
+                    ) : (
+                      rows.map((row) => {
+                        const isAtm = row.strike === atmStrike;
+                        const callItm = row.strike < spotPrice;
+                        const putItm = row.strike > spotPrice;
+
+                        return (
+                          <tr key={row.strike} className="border-b border-border/50 hover:bg-bg-surface-hover transition-colors">
+                            {/* Call side */}
+                            <td className={`px-4 py-3 text-xs text-text-muted ${callItm ? "bg-sol-green/5" : ""}`}>{ivDisplay}</td>
+                            <td className={`px-4 py-3 text-xs text-text-muted text-right ${callItm ? "bg-sol-green/5" : ""}`}>
+                              {row.callGreeks.delta.toFixed(2)}
+                            </td>
+                            <td className={`px-4 py-3 text-text-secondary text-right ${callItm ? "bg-sol-green/5" : ""}`}>
+                              ${row.callGreeks.premium.toFixed(2)}
+                            </td>
+                            <td className={`px-4 py-3 text-right ${callItm ? "bg-sol-green/5" : ""}`}>
+                              {row.callAsk !== null ? (
+                                <button
+                                  onClick={() => row.callBestPosition && row.callMarket && setBuyModal({ position: row.callBestPosition, market: row.callMarket.account, isResale: false })}
+                                  className="cursor-pointer font-medium text-sol-green hover:text-sol-green/80 hover:underline"
+                                >
+                                  ${row.callAsk.toFixed(2)}
+                                </button>
+                              ) : (
+                                <span className="text-text-muted/50">—</span>
+                              )}
+                            </td>
+                            <td className={`px-4 py-3 text-text-muted text-right ${callItm ? "bg-sol-green/5" : ""}`}>
+                              {row.callVolume > 0 ? row.callVolume.toLocaleString() : <span className="text-text-muted/50">—</span>}
+                            </td>
+
+                            {/* Strike */}
+                            <td className={`text-center font-medium text-text-primary bg-bg-primary/30 px-4 py-3 ${isAtm ? "text-gold font-bold" : ""}`}>
+                              ${row.strike.toFixed(2)}{isAtm ? " ←" : ""}
+                            </td>
+
+                            {/* Put side */}
+                            <td className={`px-4 py-3 text-text-muted ${putItm ? "bg-sol-purple/5" : ""}`}>
+                              {row.putVolume > 0 ? row.putVolume.toLocaleString() : <span className="text-text-muted/50">—</span>}
+                            </td>
+                            <td className={`px-4 py-3 text-text-secondary ${putItm ? "bg-sol-purple/5" : ""}`}>
+                              ${row.putGreeks.premium.toFixed(2)}
+                            </td>
+                            <td className={`px-4 py-3 ${putItm ? "bg-sol-purple/5" : ""}`}>
+                              {row.putAsk !== null ? (
+                                <button
+                                  onClick={() => row.putBestPosition && row.putMarket && setBuyModal({ position: row.putBestPosition, market: row.putMarket.account, isResale: false })}
+                                  className="cursor-pointer font-medium text-sol-purple hover:text-sol-purple/80 hover:underline"
+                                >
+                                  ${row.putAsk.toFixed(2)}
+                                </button>
+                              ) : (
+                                <span className="text-text-muted/50">—</span>
+                              )}
+                            </td>
+                            <td className={`px-4 py-3 text-xs text-text-muted ${putItm ? "bg-sol-purple/5" : ""}`}>
+                              {row.putGreeks.delta.toFixed(2)}
+                            </td>
+                            <td className={`px-4 py-3 text-xs text-text-muted text-right ${putItm ? "bg-sol-purple/5" : ""}`}>{ivDisplay}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* 7. Legend */}
+            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-muted px-2">
+              <span><strong>IV</strong> — Implied Volatility</span>
+              <span><strong>Delta</strong> — Price sensitivity per $1 move</span>
+              <span><strong>Bid</strong> — Theoretical fair value (B-S)</span>
+              <span><strong>Ask</strong> — Cheapest available (click to buy)</span>
+              <span><strong>Vol</strong> — Contracts sold</span>
+            </div>
+
+            {/* 8. Link to Write page */}
+            <div className="mt-6 text-center">
+              <Link to="/write" className="text-sm text-text-secondary hover:text-gold transition-colors">
+                Want to sell options? Go to Write Options →
+              </Link>
+            </div>
+          </>
         )}
       </div>
 
       {/* Buy Confirmation Modal */}
       {buyModal && (
-        <BuyConfirmModal {...buyModal} program={program} provider={provider} publicKey={publicKey}
-          onClose={() => setBuyModal(null)} onSuccess={() => { setBuyModal(null); refetch(); }} />
+        <BuyConfirmModal
+          {...buyModal}
+          program={program}
+          provider={provider}
+          publicKey={publicKey}
+          onClose={() => setBuyModal(null)}
+          onSuccess={() => { setBuyModal(null); refetch(); }}
+        />
       )}
     </div>
   );
 };
 
 // =============================================================================
-// Buy Confirmation Modal
+// Buy Confirmation Modal (duplicated from Write.tsx for self-containment)
 // =============================================================================
 const BuyConfirmModal: FC<{
   position: PositionAccount; market: any; isResale: boolean;
@@ -242,14 +441,11 @@ const BuyConfirmModal: FC<{
       const buyerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, publicKey);
       const writerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, position.account.writer);
 
-      // Option tokens are Token-2022 — derive ATA with Token-2022 program
       const optionMint = position.account.optionMint;
       const [extraAccountMetaList] = deriveExtraAccountMetaListPda(optionMint);
       const [hookState] = deriveHookStatePda(optionMint);
       const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
 
-      // Buyer's Token-2022 ATA must exist before the program can transfer option tokens into it.
-      // Create it idempotently as a pre-instruction (no-op if it already exists).
       const buyerOptionAccount = getAssociatedTokenAddressSync(optionMint, publicKey, false, TOKEN_2022_PROGRAM_ID);
       const createBuyerAtaIx = createAssociatedTokenAccountIdempotentInstruction(
         publicKey, buyerOptionAccount, publicKey, optionMint, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -257,7 +453,6 @@ const BuyConfirmModal: FC<{
       const preIxs = [EXTRA_CU, createBuyerAtaIx];
 
       if (isResale) {
-        // buy_resale: buy from resale listing
         const sellerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, position.account.resaleSeller);
         const [resaleEscrowPda] = PublicKey.findProgramAddressSync([Buffer.from("resale_escrow"), position.publicKey.toBuffer()], program.programId);
 
@@ -272,7 +467,6 @@ const BuyConfirmModal: FC<{
         }).preInstructions(preIxs).rpc({ commitment: "confirmed" });
         showToast({ type: "success", title: "Resale purchased!", message: `Paid $${formatUsdc(price)}`, txSignature: tx });
       } else {
-        // purchase_option: buy from purchase escrow (no writer signature needed!)
         const [purchaseEscrowPda] = PublicKey.findProgramAddressSync([Buffer.from("purchase_escrow"), position.publicKey.toBuffer()], program.programId);
 
         const tx = await program.methods.purchaseOption(new BN(qty)).accountsStrict({
@@ -312,7 +506,6 @@ const BuyConfirmModal: FC<{
             <div><span className="text-text-muted">Expiry:</span> <span className="text-text-primary font-medium">{formatExpiryShort(market.expiryTimestamp)}</span></div>
           </div>
         </div>
-        {/* Quantity input */}
         <div className="mb-4">
           <label className="block text-xs font-medium text-text-secondary mb-1.5">Contracts to buy</label>
           <input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)}
@@ -320,7 +513,6 @@ const BuyConfirmModal: FC<{
             className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2.5 text-sm text-text-primary focus:border-gold/50 focus:outline-none" />
           <div className="text-xs text-text-muted mt-1">Available: {available.toLocaleString()} contracts</div>
         </div>
-
         <div className="space-y-2 mb-6">
           <div className="flex justify-between text-sm">
             <span className="text-text-secondary">Price per contract:</span>
@@ -347,124 +539,6 @@ const BuyConfirmModal: FC<{
           </button>
         </div>
       </div>
-    </div>
-  );
-};
-
-// =============================================================================
-// Write Option Panel
-// =============================================================================
-const WriteOptionPanel: FC<{
-  markets: MarketAccount[]; program: any; provider: any; publicKey: PublicKey | null;
-  connected: boolean; onSuccess: () => void; marketMap: Map<string, any>; getFairPrice: (mkt: any) => number;
-}> = ({ markets, program, provider, publicKey, connected, onSuccess, marketMap, getFairPrice }) => {
-  const [selectedMarket, setSelectedMarket] = useState("");
-  const [collateral, setCollateral] = useState("");
-  const [premium, setPremium] = useState("");
-  const [contractSize, setContractSize] = useState("10");
-  const [submitting, setSubmitting] = useState(false);
-
-  const selectedMarketData = markets.find((m) => m.publicKey.toBase58() === selectedMarket);
-  const minCollateral = useMemo(() => {
-    if (!selectedMarketData) return 0;
-    const strike = usdcToNumber(selectedMarketData.account.strikePrice);
-    const size = parseFloat(contractSize) || 0;
-    return ("call" in selectedMarketData.account.optionType) ? strike * 2 * size : strike * size;
-  }, [selectedMarketData, contractSize]);
-
-  // Auto-suggest premium via Black-Scholes
-  useEffect(() => {
-    if (!selectedMarketData) return;
-    const fair = getFairPrice(selectedMarketData.account);
-    const size = parseFloat(contractSize) || 1;
-    setPremium((fair * size).toFixed(2));
-  }, [selectedMarketData, contractSize]);
-
-  const handleWrite = async () => {
-    if (!program || !provider || !publicKey || !selectedMarketData) return;
-    setSubmitting(true);
-    try {
-      const marketPubkey = selectedMarketData.publicKey;
-      const collateralBN = toUsdcBN(parseFloat(collateral));
-      const premiumBN = toUsdcBN(parseFloat(premium));
-      const sizeBN = new BN(Math.round(parseFloat(contractSize)));
-      const createdAt = new BN(Math.floor(Date.now() / 1000));
-
-      const [protocolStatePda] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], program.programId);
-      const [positionPda] = PublicKey.findProgramAddressSync([Buffer.from("position"), marketPubkey.toBuffer(), publicKey.toBuffer(), createdAt.toArrayLike(Buffer, "le", 8)], program.programId);
-      const [escrowPda] = PublicKey.findProgramAddressSync([Buffer.from("escrow"), marketPubkey.toBuffer(), publicKey.toBuffer(), createdAt.toArrayLike(Buffer, "le", 8)], program.programId);
-      const [optionMintPda] = PublicKey.findProgramAddressSync([Buffer.from("option_mint"), positionPda.toBuffer()], program.programId);
-
-      const [purchaseEscrowPda] = PublicKey.findProgramAddressSync([Buffer.from("purchase_escrow"), positionPda.toBuffer()], program.programId);
-      const protocolState = await program.account.protocolState.fetch(protocolStatePda);
-      const writerUsdcAccount = await getAssociatedTokenAddress(protocolState.usdcMint, publicKey);
-
-      const [extraAccountMetaList] = deriveExtraAccountMetaListPda(optionMintPda);
-      const [hookState] = deriveHookStatePda(optionMintPda);
-      const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
-
-      const tx = await program.methods
-        .writeOption(collateralBN, premiumBN, sizeBN, createdAt)
-        .accountsStrict({
-          writer: publicKey, protocolState: protocolStatePda, market: marketPubkey,
-          position: positionPda, escrow: escrowPda, optionMint: optionMintPda,
-          purchaseEscrow: purchaseEscrowPda, writerUsdcAccount,
-          usdcMint: protocolState.usdcMint,
-          transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
-          systemProgram: SystemProgram.programId,
-          tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
-          rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
-        }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
-
-      showToast({ type: "success", title: "Option written!", message: `Option created. Premium: $${premium}`, txSignature: tx });
-      setCollateral(""); onSuccess();
-    } catch (err: any) {
-      showToast({ type: "error", title: "Failed to write option", message: err?.message?.slice(0, 120) });
-    } finally { setSubmitting(false); }
-  };
-
-  return (
-    <div className="rounded-2xl border border-border bg-bg-surface p-6">
-      <h2 className="text-lg font-semibold text-gold mb-5">Write Option</h2>
-      {!connected ? (
-        <p className="text-text-muted text-sm">Connect your wallet to write options.</p>
-      ) : markets.length === 0 ? (
-        <p className="text-text-muted text-sm">No active markets. Create one on Markets page.</p>
-      ) : (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">Select Market</label>
-            <select value={selectedMarket} onChange={(e) => setSelectedMarket(e.target.value)}
-              className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2.5 text-sm text-text-primary focus:border-gold/50 focus:outline-none">
-              <option value="">Choose a market...</option>
-              {markets.map((m) => (
-                <option key={m.publicKey.toBase58()} value={m.publicKey.toBase58()}>
-                  {m.account.assetName} ${formatUsdc(m.account.strikePrice)} {"call" in m.account.optionType ? "Call" : "Put"} — exp {formatExpiryShort(m.account.expiryTimestamp)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">Number of Contracts</label>
-            <input type="number" value={contractSize} onChange={(e) => setContractSize(e.target.value)} min="1" step="1"
-              className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2.5 text-sm text-text-primary focus:border-gold/50 focus:outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">Collateral (USDC) {minCollateral > 0 && <span className="text-text-muted ml-2">min: ${minCollateral.toFixed(2)}</span>}</label>
-            <input type="number" value={collateral} onChange={(e) => setCollateral(e.target.value)} placeholder={minCollateral > 0 ? minCollateral.toFixed(2) : "0.00"}
-              className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2.5 text-sm text-text-primary focus:border-gold/50 focus:outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">Premium (USDC) <span className="text-gold ml-1">B-S suggested</span></label>
-            <input type="number" value={premium} onChange={(e) => setPremium(e.target.value)}
-              className="w-full rounded-lg border border-border bg-bg-primary px-3 py-2.5 text-sm text-text-primary focus:border-gold/50 focus:outline-none" />
-          </div>
-          <button onClick={handleWrite} disabled={submitting || !selectedMarket || !collateral || !premium}
-            className="w-full rounded-xl bg-gold py-3 text-sm font-semibold text-bg-primary hover:bg-gold-dim transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-            {submitting ? "Creating contracts..." : "Write Option"}
-          </button>
-        </div>
-      )}
     </div>
   );
 };

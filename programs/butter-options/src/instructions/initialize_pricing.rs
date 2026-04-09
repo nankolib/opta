@@ -36,7 +36,7 @@ pub fn handle_initialize_pricing(ctx: Context<InitializePricing>) -> Result<()> 
     pricing.vega_usdc = 0;
     pricing.theta_usdc = 0;
     pricing.last_updated = 0;
-    pricing.update_authority = ctx.accounts.payer.key();
+    pricing.last_updater = ctx.accounts.payer.key();
     pricing.bump = ctx.bumps.pricing_data;
 
     msg!(

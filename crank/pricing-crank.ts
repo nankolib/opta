@@ -58,6 +58,9 @@ const FALLBACK_VOL_BPS = 8000; // 80% default
 // For hackathon, we pass spot_price as parameter (no Pyth account) since
 // existing markets use fake pyth_feed pubkeys. When real markets are created
 // with proper Pyth feed IDs, enable the Pyth account path.
+// TODO: Replace with live Pyth price fetching before mainnet.
+// Hardcoded prices are acceptable for devnet/hackathon only.
+// See: https://docs.pyth.network/price-feeds/use-real-time-data/solana
 const DEVNET_SPOT_PRICES: Record<string, number> = {
   SOL: 180_000_000,     // $180
   BTC: 105_000_000_000, // $105,000

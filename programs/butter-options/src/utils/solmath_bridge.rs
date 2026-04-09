@@ -43,8 +43,10 @@ pub fn vol_bps_to_scale(vol_bps: u64) -> Result<u128> {
 /// solmath gives: 11_160_000_000_000 ($11.16 at SCALE).
 /// USDC wants: 11_160_000.
 /// Divide by 10^6 (because SCALE is 10^12 and USDC is 10^6).
-pub fn scale_to_usdc(scale_value: u128) -> u64 {
-    (scale_value / 1_000_000) as u64
+pub fn scale_to_usdc(scale_value: u128) -> Result<u64> {
+    let result = scale_value / 1_000_000;
+    require!(result <= u64::MAX as u128, ButterError::MathOverflow);
+    Ok(result as u64)
 }
 
 /// Converts a Pyth price (i64 value + i32 exponent) to solmath SCALE (1e12).
@@ -89,6 +91,7 @@ pub fn pyth_price_to_usdc(price: i64, exponent: i32) -> Result<u64> {
     } else {
         price_u128 / 10u128.pow((-shift) as u32)
     };
+    require!(result <= u64::MAX as u128, ButterError::MathOverflow);
     Ok(result as u64)
 }
 
@@ -133,7 +136,7 @@ mod tests {
     #[test]
     fn test_scale_to_usdc() {
         // $11.16 at SCALE → 11_160_000 USDC units
-        let result = scale_to_usdc(11_160_000_000_000u128);
+        let result = scale_to_usdc(11_160_000_000_000u128).unwrap();
         assert_eq!(result, 11_160_000u64);
     }
 
