@@ -6,6 +6,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
+import { usePythPrices } from "../hooks/usePythPrices";
 import { showToast } from "../components/Toast";
 import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
 import { formatUsdc, formatExpiryShort, usdcToNumber, getPositionStatus, isExpired, daysUntilExpiry } from "../utils/format";
@@ -59,6 +60,10 @@ export const Portfolio: FC = () => {
       }
     })();
   }, [publicKey, program, positions]);
+
+  // Live Pyth prices
+  const assetNames = useMemo(() => [...new Set(markets.map(m => m.account.assetName as string))], [markets]);
+  const { prices: spotPrices } = usePythPrices(assetNames);
 
   const refetch = async () => {
     if (!program) return;
@@ -117,7 +122,7 @@ export const Portfolio: FC = () => {
               Living Option Tokens you hold. Exercise after settlement for USDC payout. List for resale to exit before expiry.
             </div>
             <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!}
-            program={program} provider={provider} onSuccess={refetch}
+            program={program} provider={provider} onSuccess={refetch} spotPrices={spotPrices}
             onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
           </>
         )}
@@ -125,6 +130,7 @@ export const Portfolio: FC = () => {
 
       {resaleModal && (
         <ResaleModal position={resaleModal.position} market={resaleModal.market}
+          spotPrices={spotPrices}
           onClose={() => setResaleModal(null)} onSuccess={() => { setResaleModal(null); refetch(); }}
           program={program} provider={provider} publicKey={publicKey!} />
       )}
@@ -251,8 +257,9 @@ const WrittenTab: FC<{
 const HeldTab: FC<{
   positions: PositionAccount[]; marketMap: Map<string, any>; publicKey: PublicKey;
   program: any; provider: any; onSuccess: () => void;
+  spotPrices?: Record<string, number>;
   onListForResale: (p: PositionAccount, mkt: any) => void;
-}> = ({ positions, marketMap, publicKey, program, provider, onSuccess, onListForResale }) => {
+}> = ({ positions, marketMap, publicKey, program, provider, onSuccess, spotPrices, onListForResale }) => {
   const [exercisingId, setExercisingId] = useState<string | null>(null);
   const [cancellingResaleId, setCancellingResaleId] = useState<string | null>(null);
 
@@ -383,9 +390,10 @@ const HeldTab: FC<{
               {p.account.isListedForResale && (() => {
                 const isCallR = "call" in mkt.optionType;
                 const strikeR = usdcToNumber(mkt.strikePrice);
+                const spotR = spotPrices?.[mkt.assetName] || strikeR;
                 const daysR = daysUntilExpiry(mkt.expiryTimestamp);
                 const volR = getDefaultVolatility(mkt.assetName);
-                const fairR = isCallR ? calculateCallPremium(strikeR, strikeR, daysR, volR) : calculatePutPremium(strikeR, strikeR, daysR, volR);
+                const fairR = isCallR ? calculateCallPremium(spotR, strikeR, daysR, volR) : calculatePutPremium(spotR, strikeR, daysR, volR);
                 const resaleTokens = p.account.resaleTokenAmount?.toNumber?.() || 1;
                 return (
                   <div className="flex items-center gap-3">
@@ -413,16 +421,18 @@ const HeldTab: FC<{
 // =============================================================================
 const ResaleModal: FC<{
   position: PositionAccount; market: any; program: any; provider: any; publicKey: PublicKey;
+  spotPrices?: Record<string, number>;
   onClose: () => void; onSuccess: () => void;
-}> = ({ position, market, program, provider, publicKey, onClose, onSuccess }) => {
+}> = ({ position, market, program, provider, publicKey, spotPrices, onClose, onSuccess }) => {
   const [resalePrice, setResalePrice] = useState("");
   const [listQuantity, setListQuantity] = useState("");
 
   const isCall = "call" in market.optionType;
   const strike = usdcToNumber(market.strikePrice);
+  const spot = spotPrices?.[market.assetName] || strike;
   const days = daysUntilExpiry(market.expiryTimestamp);
   const vol = getDefaultVolatility(market.assetName);
-  const suggestedPricePerToken = isCall ? calculateCallPremium(strike, strike, days, vol) : calculatePutPremium(strike, strike, days, vol);
+  const suggestedPricePerToken = isCall ? calculateCallPremium(spot, strike, days, vol) : calculatePutPremium(spot, strike, days, vol);
   const totalSupply = position.account.totalSupply?.toNumber?.() || 1;
 
   // Fetch actual token balance from chain

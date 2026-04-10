@@ -6,6 +6,7 @@ import BN from "bn.js";
 import { Link } from "react-router-dom";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
+import { usePythPrices } from "../hooks/usePythPrices";
 import { showToast } from "../components/Toast";
 import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
 import { formatUsdc, formatExpiryShort, usdcToNumber, daysUntilExpiry, isExpired, truncateAddress } from "../utils/format";
@@ -106,6 +107,10 @@ export const Trade: FC = () => {
     }
   }, [expiries]);
 
+  // Live Pyth prices
+  const assetNames = useMemo(() => [...new Set(activeMarkets.map(m => m.account.assetName as string))], [activeMarkets]);
+  const { prices: spotPrices } = usePythPrices(assetNames);
+
   // Step 4-8: Build the chain rows
   const { rows, spotPrice } = useMemo(() => {
     const selectedDay = roundToDay(selectedExpiry);
@@ -119,8 +124,9 @@ export const Trade: FC = () => {
     filtered.forEach((m) => strikeSet.add(usdcToNumber(m.account.strikePrice)));
     const strikes = Array.from(strikeSet).sort((a, b) => a - b);
 
-    // TODO: Wire live Pyth oracle price here — currently using median strike as proxy
+    // Use live Pyth price if available, otherwise fall back to median strike
     const median = strikes.length > 0 ? strikes[Math.floor(strikes.length / 2)] : 0;
+    const liveSpot = spotPrices[selectedAsset] || median;
 
     const vol = getDefaultVolatility(selectedAsset);
     const days = selectedExpiry > 0 ? Math.max(0, (selectedExpiry - Date.now() / 1000) / 86400) : 0;
@@ -131,8 +137,8 @@ export const Trade: FC = () => {
       const putMarket = filtered.find((m) => usdcToNumber(m.account.strikePrice) === strike && "put" in m.account.optionType) || null;
 
       // Greeks
-      const callGreeks = calculateCallGreeks(median, strike, days, vol);
-      const putGreeks = calculatePutGreeks(median, strike, days, vol);
+      const callGreeks = calculateCallGreeks(liveSpot, strike, days, vol);
+      const putGreeks = calculatePutGreeks(liveSpot, strike, days, vol);
 
       // Find available positions for each market
       const findBest = (market: MarketAccount | null): { best: PositionAccount | null; ask: number | null; volume: number } => {
@@ -185,8 +191,8 @@ export const Trade: FC = () => {
       };
     });
 
-    return { rows: chainRows, spotPrice: median };
-  }, [activeMarkets, positions, selectedAsset, selectedExpiry]);
+    return { rows: chainRows, spotPrice: liveSpot };
+  }, [activeMarkets, positions, selectedAsset, selectedExpiry, spotPrices]);
 
   // ATM strike (closest to spot)
   const atmStrike = useMemo(() => {
@@ -267,7 +273,7 @@ export const Trade: FC = () => {
             <div className="flex items-center justify-between rounded-lg border border-border bg-bg-surface px-4 py-2 mb-6">
               <span className="text-sm text-text-secondary">
                 Spot: <span className="text-text-primary font-medium">${spotPrice.toFixed(2)}</span>{" "}
-                <span className="text-text-muted text-xs">(estimated)</span>
+                <span className="text-text-muted text-xs">{spotPrices[selectedAsset] ? "(live — Pyth)" : "(estimated)"}</span>
               </span>
               <span className="text-xs text-sol-purple">Devnet — not real money</span>
             </div>
@@ -399,6 +405,7 @@ export const Trade: FC = () => {
       {buyModal && (
         <BuyConfirmModal
           {...buyModal}
+          spotPrices={spotPrices}
           program={program}
           provider={provider}
           publicKey={publicKey}
@@ -415,9 +422,10 @@ export const Trade: FC = () => {
 // =============================================================================
 const BuyConfirmModal: FC<{
   position: PositionAccount; market: any; isResale: boolean;
+  spotPrices?: Record<string, number>;
   program: any; provider: any; publicKey: PublicKey | null;
   onClose: () => void; onSuccess: () => void;
-}> = ({ position, market, isResale, program, provider, publicKey, onClose, onSuccess }) => {
+}> = ({ position, market, isResale, spotPrices, program, provider, publicKey, onClose, onSuccess }) => {
   const [submitting, setSubmitting] = useState(false);
   const [quantity, setQuantity] = useState("");
   const isCall = "call" in market.optionType;
@@ -429,9 +437,10 @@ const BuyConfirmModal: FC<{
   const qty = parseInt(quantity) || available;
   const totalCost = pricePerToken * qty;
   const strike = usdcToNumber(market.strikePrice);
+  const spot = spotPrices?.[market.assetName] || strike;
   const days = daysUntilExpiry(market.expiryTimestamp);
   const vol = getDefaultVolatility(market.assetName);
-  const fair = isCall ? calculateCallPremium(strike, strike, days, vol) : calculatePutPremium(strike, strike, days, vol);
+  const fair = isCall ? calculateCallPremium(spot, strike, days, vol) : calculatePutPremium(spot, strike, days, vol);
 
   const handleConfirm = async () => {
     if (!program || !provider || !publicKey) return;

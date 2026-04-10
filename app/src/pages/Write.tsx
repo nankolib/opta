@@ -5,6 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
+import { usePythPrices } from "../hooks/usePythPrices";
 import { showToast } from "../components/Toast";
 import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
 import { formatUsdc, formatExpiryShort, truncateAddress, usdcToNumber, toUsdcBN, daysUntilExpiry, isExpired } from "../utils/format";
@@ -77,12 +78,17 @@ export const Write: FC = () => {
     setMarkets(mkts as MarketAccount[]); setPositions(posns as PositionAccount[]);
   };
 
+  // Live Pyth prices
+  const assetNames = useMemo(() => [...new Set(activeMarkets.map(m => m.account.assetName as string))], [activeMarkets]);
+  const { prices: spotPrices } = usePythPrices(assetNames);
+
   const getFairPrice = (mkt: any) => {
+    const spot = spotPrices[mkt.assetName] || usdcToNumber(mkt.strikePrice);
     const strike = usdcToNumber(mkt.strikePrice);
     const days = daysUntilExpiry(mkt.expiryTimestamp);
     const vol = getDefaultVolatility(mkt.assetName);
     const isCall = "call" in mkt.optionType;
-    return isCall ? calculateCallPremium(strike, strike, days, vol) : calculatePutPremium(strike, strike, days, vol);
+    return isCall ? calculateCallPremium(spot, strike, days, vol) : calculatePutPremium(spot, strike, days, vol);
   };
 
   return (
@@ -201,7 +207,7 @@ export const Write: FC = () => {
 
       {/* Buy Confirmation Modal */}
       {buyModal && (
-        <BuyConfirmModal {...buyModal} program={program} provider={provider} publicKey={publicKey}
+        <BuyConfirmModal {...buyModal} spotPrices={spotPrices} program={program} provider={provider} publicKey={publicKey}
           onClose={() => setBuyModal(null)} onSuccess={() => { setBuyModal(null); refetch(); }} />
       )}
     </div>
@@ -213,9 +219,10 @@ export const Write: FC = () => {
 // =============================================================================
 const BuyConfirmModal: FC<{
   position: PositionAccount; market: any; isResale: boolean;
+  spotPrices?: Record<string, number>;
   program: any; provider: any; publicKey: PublicKey | null;
   onClose: () => void; onSuccess: () => void;
-}> = ({ position, market, isResale, program, provider, publicKey, onClose, onSuccess }) => {
+}> = ({ position, market, isResale, spotPrices, program, provider, publicKey, onClose, onSuccess }) => {
   const [submitting, setSubmitting] = useState(false);
   const [quantity, setQuantity] = useState("");
   const isCall = "call" in market.optionType;
@@ -227,9 +234,10 @@ const BuyConfirmModal: FC<{
   const qty = parseInt(quantity) || available;
   const totalCost = pricePerToken * qty;
   const strike = usdcToNumber(market.strikePrice);
+  const spot = spotPrices?.[market.assetName] || strike;
   const days = daysUntilExpiry(market.expiryTimestamp);
   const vol = getDefaultVolatility(market.assetName);
-  const fair = isCall ? calculateCallPremium(strike, strike, days, vol) : calculatePutPremium(strike, strike, days, vol);
+  const fair = isCall ? calculateCallPremium(spot, strike, days, vol) : calculatePutPremium(spot, strike, days, vol);
 
   const handleConfirm = async () => {
     if (!program || !provider || !publicKey) return;
