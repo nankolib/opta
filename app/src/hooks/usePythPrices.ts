@@ -40,20 +40,25 @@ export function usePythPrices(assetNames: string[]): {
     const fetchPrices = async () => {
       try {
         const params = feedEntries.map((e) => `ids[]=${e.id}`).join("&");
-        const resp = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?${params}`);
+        const resp = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?${params}&parsed=true`);
+        console.log("[Pyth] Response status:", resp.status);
         if (!resp.ok) throw new Error(`Hermes API ${resp.status}`);
         const data = await resp.json();
 
         if (cancelled) return;
 
+        console.log("[Pyth] Parsed data:", JSON.stringify(data.parsed?.map((p: any) => ({ id: p.id, price: p.price?.price, expo: p.price?.expo })), null, 2));
+        console.log("[Pyth] Feed entries we're looking for:", feedEntries.map(e => e.id));
+
         const newPrices: Record<string, number> = {};
         for (const entry of feedEntries) {
-          const parsed = data.parsed?.find((p: any) => `0x${p.id}` === entry.id);
+          const parsed = data.parsed?.find((p: any) => `0x${p.id}`.toLowerCase() === entry.id.toLowerCase());
           if (parsed?.price) {
             const price = parseInt(parsed.price.price) * Math.pow(10, parsed.price.expo);
             newPrices[entry.name] = price;
           }
         }
+        console.log("[Pyth] Final prices:", newPrices);
         setPrices(newPrices);
         setError(null);
       } catch (err: any) {
