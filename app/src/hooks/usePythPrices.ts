@@ -39,8 +39,13 @@ export function usePythPrices(assetNames: string[]): {
 
     const fetchPrices = async () => {
       try {
-        const params = feedEntries.map((e) => `ids[]=${e.id}`).join("&");
-        const resp = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?${params}&parsed=true`);
+        const url = new URL("https://hermes.pyth.network/v2/updates/price/latest");
+        for (const entry of feedEntries) {
+          url.searchParams.append("ids[]", entry.id);
+        }
+        url.searchParams.append("parsed", "true");
+        console.log("[Pyth] Fetching URL:", url.toString());
+        const resp = await fetch(url.toString());
         console.log("[Pyth] Response status:", resp.status);
         if (!resp.ok) throw new Error(`Hermes API ${resp.status}`);
         const data = await resp.json();
