@@ -1,13 +1,22 @@
 import { useState, useEffect } from "react";
 
-const PYTH_HERMES_FEED_IDS: Record<string, string> = {
-  "SOL": "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
-  "BTC": "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
-  "ETH": "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
-  "XAU": "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2",
-  "WTI": "0xc7c60099fea781c08eb7d3e3d23b58c304e4da6cb8ad9dd0ad80fa3d204bc424",
-  "AAPL": "0x49f6b65cb1de6b10eaf75e7c03ca029c306d0357e91b5311b175084a5ad55688",
-  "TSLA": "0x16dad506d7db8da01c87581c87ca897a012a153557d4d578c3b9c9e1bc0632f1",
+// Map asset names to CoinGecko IDs
+const COINGECKO_IDS: Record<string, string> = {
+  "SOL": "solana",
+  "BTC": "bitcoin",
+  "ETH": "ethereum",
+  "XAU": "gold",         // not on CoinGecko — will use hardcoded fallback
+  "WTI": "crude-oil",    // not on CoinGecko — will use hardcoded fallback
+  "AAPL": "apple",       // not on CoinGecko — will use hardcoded fallback
+  "TSLA": "tesla",       // not on CoinGecko — will use hardcoded fallback
+};
+
+// Approximate fallback prices for non-crypto assets (hackathon only)
+const STATIC_FALLBACKS: Record<string, number> = {
+  "XAU": 3200,
+  "WTI": 62,
+  "AAPL": 198,
+  "TSLA": 252,
 };
 
 export function usePythPrices(assetNames: string[]): {
@@ -26,55 +35,76 @@ export function usePythPrices(assetNames: string[]): {
       return;
     }
 
-    const feedEntries = assetNames
-      .filter((name) => PYTH_HERMES_FEED_IDS[name])
-      .map((name) => ({ name, id: PYTH_HERMES_FEED_IDS[name] }));
-
-    if (feedEntries.length === 0) {
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
 
     const fetchPrices = async () => {
-      try {
-        const url = new URL("https://hermes.pyth.network/v2/updates/price/latest");
-        for (const entry of feedEntries) {
-          url.searchParams.append("ids[]", entry.id);
-        }
-        url.searchParams.append("parsed", "true");
-        console.log("[Pyth] Fetching URL:", url.toString());
-        const resp = await fetch(url.toString());
-        console.log("[Pyth] Response status:", resp.status);
-        if (!resp.ok) throw new Error(`Hermes API ${resp.status}`);
-        const data = await resp.json();
+      const newPrices: Record<string, number> = {};
 
-        if (cancelled) return;
-
-        console.log("[Pyth] Parsed data:", JSON.stringify(data.parsed?.map((p: any) => ({ id: p.id, price: p.price?.price, expo: p.price?.expo })), null, 2));
-        console.log("[Pyth] Feed entries we're looking for:", feedEntries.map(e => e.id));
-
-        const newPrices: Record<string, number> = {};
-        for (const entry of feedEntries) {
-          const parsed = data.parsed?.find((p: any) => `0x${p.id}`.toLowerCase() === entry.id.toLowerCase());
-          if (parsed?.price) {
-            const price = parseInt(parsed.price.price) * Math.pow(10, parsed.price.expo);
-            newPrices[entry.name] = price;
+      // 1. Try CoinGecko for crypto assets (SOL, BTC, ETH)
+      const cryptoAssets = assetNames.filter(
+        (name) => ["SOL", "BTC", "ETH"].includes(name)
+      );
+      if (cryptoAssets.length > 0) {
+        try {
+          const ids = cryptoAssets
+            .map((name) => COINGECKO_IDS[name])
+            .filter(Boolean)
+            .join(",");
+          const resp = await fetch(
+            `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`
+          );
+          if (resp.ok) {
+            const data = await resp.json();
+            for (const name of cryptoAssets) {
+              const cgId = COINGECKO_IDS[name];
+              if (cgId && data[cgId]?.usd) {
+                newPrices[name] = data[cgId].usd;
+              }
+            }
+            console.log("[Prices] CoinGecko:", newPrices);
+          } else {
+            console.warn("[Prices] CoinGecko failed:", resp.status);
           }
+        } catch (err) {
+          console.warn("[Prices] CoinGecko error:", err);
         }
-        console.log("[Pyth] Final prices:", newPrices);
+      }
+
+      // 2. Fallback: Try Jupiter for SOL if CoinGecko missed it
+      if (!newPrices["SOL"] && assetNames.includes("SOL")) {
+        try {
+          const resp = await fetch(
+            "https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112"
+          );
+          if (resp.ok) {
+            const data = await resp.json();
+            const solPrice = data?.data?.["So11111111111111111111111111111111111111112"]?.price;
+            if (solPrice) {
+              newPrices["SOL"] = parseFloat(solPrice);
+              console.log("[Prices] Jupiter SOL:", newPrices["SOL"]);
+            }
+          }
+        } catch (err) {
+          console.warn("[Prices] Jupiter error:", err);
+        }
+      }
+
+      // 3. Static fallbacks for non-crypto assets (hackathon demo)
+      for (const name of assetNames) {
+        if (!newPrices[name] && STATIC_FALLBACKS[name]) {
+          newPrices[name] = STATIC_FALLBACKS[name];
+        }
+      }
+
+      if (!cancelled) {
         setPrices(newPrices);
         setError(null);
-      } catch (err: any) {
-        if (!cancelled) setError(err.message || "Failed to fetch prices");
-      } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
     };
 
     fetchPrices();
-    const interval = setInterval(fetchPrices, 10_000);
+    const interval = setInterval(fetchPrices, 30_000); // 30s to respect rate limits
 
     return () => {
       cancelled = true;
