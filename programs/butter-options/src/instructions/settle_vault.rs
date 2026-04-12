@@ -58,9 +58,11 @@ pub fn handle_settle_vault(ctx: Context<SettleVault>) -> Result<()> {
     // Cap payout at total collateral (can't pay out more than exists)
     let total_payout = std::cmp::min(total_payout, vault.total_collateral);
 
-    let collateral_remaining = vault.total_collateral
-        .checked_sub(total_payout)
-        .ok_or(ButterError::MathOverflow)?;
+    // FIX CRITICAL-01: Do NOT pre-deduct exercise payouts from collateral_remaining.
+    // collateral_remaining starts at total_collateral.
+    // exercise_from_vault will deduct each exercise payout individually.
+    // Writers get whatever remains after all exercises via withdraw_post_settlement.
+    let collateral_remaining = vault.total_collateral;
 
     // Update vault state
     let vault_key = ctx.accounts.shared_vault.key();

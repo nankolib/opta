@@ -26,6 +26,20 @@ pub fn handle_withdraw_post_settlement(ctx: Context<WithdrawPostSettlement>) -> 
     require!(writer_pos.owner == ctx.accounts.writer.key(), ButterError::NotWriter);
     require!(writer_pos.shares > 0, ButterError::InsufficientCollateral);
 
+    // FIX HIGH-01: Auto-claim any unclaimed premium before closing position
+    let total_earned = (writer_pos.shares as u128)
+        .checked_mul(vault.premium_per_share_cumulative)
+        .ok_or(ButterError::MathOverflow)?
+        .checked_div(1_000_000_000_000u128) // SCALE = 1e12
+        .ok_or(ButterError::MathOverflow)?;
+
+    let earned_since_deposit = total_earned
+        .checked_sub(writer_pos.premium_debt)
+        .unwrap_or(0);
+
+    let unclaimed_premium = earned_since_deposit
+        .saturating_sub(writer_pos.premium_claimed as u128) as u64;
+
     // Calculate writer's share of remaining collateral
     let writer_remaining = (writer_pos.shares as u128)
         .checked_mul(vault.collateral_remaining as u128)
@@ -49,6 +63,20 @@ pub fn handle_withdraw_post_settlement(ctx: Context<WithdrawPostSettlement>) -> 
         &vault_bump,
     ];
     let signer_seeds = &[vault_seeds];
+
+    // FIX HIGH-01: Transfer unclaimed premium first
+    if unclaimed_premium > 0 {
+        let premium_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.vault_usdc_account.to_account_info(),
+                to: ctx.accounts.writer_usdc_account.to_account_info(),
+                authority: ctx.accounts.shared_vault.to_account_info(),
+            },
+            signer_seeds,
+        );
+        token::transfer(premium_ctx, unclaimed_premium)?;
+    }
 
     if writer_remaining > 0 {
         let transfer_ctx = CpiContext::new_with_signer(

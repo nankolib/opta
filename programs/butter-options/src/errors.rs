@@ -150,4 +150,8 @@ pub enum ButterError {
     // FIX M-01: option type mismatch
     #[msg("Vault option type must match market option type")]
     InvalidOptionType,
+
+    // FIX MEDIUM-01: prevent premium loss on share withdrawal
+    #[msg("Claim all premium before withdrawing shares")]
+    ClaimPremiumFirst,
 }

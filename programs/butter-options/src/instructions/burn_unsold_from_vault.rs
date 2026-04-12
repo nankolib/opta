@@ -155,8 +155,18 @@ pub struct BurnUnsoldFromVault<'info> {
     pub option_mint: UncheckedAccount<'info>,
 
     /// Purchase escrow holding the unsold tokens.
-    /// CHECK: Validated by balance read and Token-2022 burn instruction.
-    #[account(mut)]
+    /// CHECK: Validated by PDA seeds and Token-2022 burn instruction.
+    // FIX LOW-01: Added PDA seed validation for purchase_escrow
+    #[account(
+        mut,
+        seeds = [
+            VAULT_PURCHASE_ESCROW_SEED,
+            shared_vault.key().as_ref(),
+            vault_mint_record.writer.as_ref(),
+            &vault_mint_record.created_at.to_le_bytes(),
+        ],
+        bump,
+    )]
     pub purchase_escrow: UncheckedAccount<'info>,
 
     /// Token-2022 program.

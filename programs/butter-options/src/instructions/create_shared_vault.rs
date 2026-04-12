@@ -22,8 +22,8 @@ use crate::events::VaultCreated;
 use crate::state::*;
 use crate::utils::epoch::is_valid_epoch_expiry;
 
-/// Minimum time before expiry for custom vaults (1 hour in seconds).
-const MIN_CUSTOM_EXPIRY_BUFFER: i64 = 3600;
+/// Minimum time before expiry for custom vaults (5 seconds — short for testing).
+const MIN_CUSTOM_EXPIRY_BUFFER: i64 = 5;
 
 pub fn handle_create_shared_vault(
     ctx: Context<CreateSharedVault>,

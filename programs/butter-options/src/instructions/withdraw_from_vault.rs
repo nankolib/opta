@@ -31,6 +31,23 @@ pub fn handle_withdraw_from_vault(
     require!(shares_to_withdraw <= writer_pos.shares, ButterError::InsufficientCollateral);
     require!(!vault.is_settled, ButterError::VaultAlreadySettled);
 
+    // FIX MEDIUM-01: Require all premium claimed before share withdrawal
+    // This prevents premium loss from debt/share mismatch
+    let total_earned = (writer_pos.shares as u128)
+        .checked_mul(vault.premium_per_share_cumulative)
+        .ok_or(ButterError::MathOverflow)?
+        .checked_div(1_000_000_000_000u128) // SCALE = 1e12
+        .ok_or(ButterError::MathOverflow)?;
+
+    let earned_since_deposit = total_earned
+        .checked_sub(writer_pos.premium_debt)
+        .unwrap_or(0);
+
+    let unclaimed = earned_since_deposit
+        .saturating_sub(writer_pos.premium_claimed as u128) as u64;
+
+    require!(unclaimed == 0, ButterError::ClaimPremiumFirst);
+
     // Calculate withdrawal amount from shares
     let withdrawal_amount = (shares_to_withdraw as u128)
         .checked_mul(vault.total_collateral as u128)
