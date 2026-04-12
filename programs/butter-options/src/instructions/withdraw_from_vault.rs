@@ -108,6 +108,7 @@ pub fn handle_withdraw_from_vault(
 
     // Update state
     let writer_key = ctx.accounts.writer.key();
+    let cumulative = ctx.accounts.shared_vault.premium_per_share_cumulative;
 
     let writer_pos = &mut ctx.accounts.writer_position;
     writer_pos.shares = writer_pos.shares
@@ -115,6 +116,17 @@ pub fn handle_withdraw_from_vault(
         .ok_or(ButterError::MathOverflow)?;
     writer_pos.deposited_collateral = writer_pos.deposited_collateral
         .saturating_sub(withdrawal_amount);
+
+    // FIX: Reset premium accounting after share reduction.
+    // The writer was forced to claim all premium before withdrawal (ClaimPremiumFirst).
+    // Now reset debt to current cumulative baseline for remaining shares,
+    // and zero claimed counter, so future premium accrues correctly.
+    writer_pos.premium_debt = (writer_pos.shares as u128)
+        .checked_mul(cumulative)
+        .ok_or(ButterError::MathOverflow)?
+        .checked_div(1_000_000_000_000u128)
+        .ok_or(ButterError::MathOverflow)?;
+    writer_pos.premium_claimed = 0;
 
     let vault = &mut ctx.accounts.shared_vault;
     vault.total_collateral = vault.total_collateral

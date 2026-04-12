@@ -970,4 +970,372 @@ describe("audit-fixes", () => {
       assert.ok(withdrawn > 0, "Writer should have withdrawn collateral after claiming premium");
     });
   });
+
+  // ==========================================================================
+  // Premium accrues correctly after partial share withdrawal
+  // ==========================================================================
+  describe("Premium accrues correctly after partial share withdrawal", () => {
+    let writer: Keypair;
+    let buyer: Keypair;
+    let writerUsdcAccount: PublicKey;
+    let buyerUsdcAccount: PublicKey;
+    let vaultPda: PublicKey;
+    let vaultUsdcPda: PublicKey;
+    let writerPosPda: PublicKey;
+    let marketPda: PublicKey;
+    let optionMintPda: PublicKey;
+    let purchaseEscrowPda: PublicKey;
+    let vaultMintRecordPda: PublicKey;
+    let extraAccountMetaList: PublicKey;
+    let hookState: PublicKey;
+    const strike = usdc(100);
+
+    before(async function () {
+      this.timeout(120_000);
+
+      writer = Keypair.generate();
+      buyer = Keypair.generate();
+
+      for (const kp of [writer, buyer]) {
+        const sig = await connection.requestAirdrop(kp.publicKey, 10 * LAMPORTS_PER_SOL);
+        await connection.confirmTransaction(sig, "confirmed");
+      }
+
+      writerUsdcAccount = await createTokenAccount(
+        connection, payer, usdcMint, writer.publicKey, undefined, undefined, TOKEN_PROGRAM_ID,
+      );
+      buyerUsdcAccount = await createTokenAccount(
+        connection, payer, usdcMint, buyer.publicKey, undefined, undefined, TOKEN_PROGRAM_ID,
+      );
+
+      await mintTo(connection, payer, usdcMint, writerUsdcAccount, payer, 100_000_000_000);
+      await mintTo(connection, payer, usdcMint, buyerUsdcAccount, payer, 100_000_000_000);
+
+      const expiry = new BN(Math.floor(Date.now() / 1000) + 3600);
+      [marketPda] = deriveMarketPda("PREM", strike, expiry, 0);
+
+      await program.methods
+        .createMarket("PREM", strike, expiry, { call: {} }, Keypair.generate().publicKey, 0)
+        .accounts({
+          admin: payer.publicKey,
+          protocolState: protocolStatePda,
+          market: marketPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([payer])
+        .rpc();
+
+      [vaultPda] = deriveSharedVaultPda(marketPda, strike, expiry, 0);
+      [vaultUsdcPda] = deriveVaultUsdcPda(vaultPda);
+
+      await program.methods
+        .createSharedVault(strike, expiry, { call: {} }, { custom: {} })
+        .accounts({
+          creator: writer.publicKey,
+          market: marketPda,
+          sharedVault: vaultPda,
+          vaultUsdcAccount: vaultUsdcPda,
+          usdcMint,
+          protocolState: protocolStatePda,
+          epochConfig: null,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([writer])
+        .rpc();
+
+      // Step 1: Writer deposits 100 USDC
+      [writerPosPda] = deriveWriterPositionPda(vaultPda, writer.publicKey);
+      await program.methods
+        .depositToVault(usdc(100))
+        .accounts({
+          writer: writer.publicKey,
+          sharedVault: vaultPda,
+          writerPosition: writerPosPda,
+          vaultUsdcAccount: vaultUsdcPda,
+          writerUsdcAccount,
+          protocolState: protocolStatePda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([writer])
+        .rpc();
+
+      // Step 2: Mint 1 option (uses $200 collateral for call at $100 strike with 2x)
+      // Actually we only have $100, so mint amount must respect collateral
+      // With $100 strike call: collateral_per_contract = $200 — can't mint any!
+      // Use a $10 strike instead to allow minting with $100 collateral
+    });
+
+    it("premium accrues correctly after partial share withdrawal", async function () {
+      this.timeout(60_000);
+
+      // We need a separate vault with parameters that let us mint with small collateral.
+      // Redesign: use $10 strike so 2x collateral = $20/contract. $100 deposit = max 5 contracts.
+      // But the market is already created with $100 strike. We need a new market.
+
+      // Create a new market with $10 strike
+      const smallStrike = usdc(10);
+      const expiry = new BN(Math.floor(Date.now() / 1000) + 3600);
+      const [mktPda] = deriveMarketPda("PRMS", smallStrike, expiry, 0);
+
+      await program.methods
+        .createMarket("PRMS", smallStrike, expiry, { call: {} }, Keypair.generate().publicKey, 0)
+        .accounts({
+          admin: payer.publicKey,
+          protocolState: protocolStatePda,
+          market: mktPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([payer])
+        .rpc();
+
+      const [vPda] = deriveSharedVaultPda(mktPda, smallStrike, expiry, 0);
+      const [vUsdcPda] = deriveVaultUsdcPda(vPda);
+
+      await program.methods
+        .createSharedVault(smallStrike, expiry, { call: {} }, { custom: {} })
+        .accounts({
+          creator: writer.publicKey,
+          market: mktPda,
+          sharedVault: vPda,
+          vaultUsdcAccount: vUsdcPda,
+          usdcMint,
+          protocolState: protocolStatePda,
+          epochConfig: null,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([writer])
+        .rpc();
+
+      // Writer deposits 100 USDC → 100,000,000 shares (1:1 with micro-USDC)
+      const [wPosPda] = deriveWriterPositionPda(vPda, writer.publicKey);
+      await program.methods
+        .depositToVault(usdc(100))
+        .accounts({
+          writer: writer.publicKey,
+          sharedVault: vPda,
+          writerPosition: wPosPda,
+          vaultUsdcAccount: vUsdcPda,
+          writerUsdcAccount,
+          protocolState: protocolStatePda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([writer])
+        .rpc();
+
+      // Mint 1 option ($10 strike, 2x = $20 collateral committed)
+      const mintCreatedAt1 = new BN(Math.floor(Date.now() / 1000));
+      const [mintPda1] = deriveVaultOptionMintPda(vPda, writer.publicKey, mintCreatedAt1);
+      const [escrowPda1] = deriveVaultPurchaseEscrowPda(vPda, writer.publicKey, mintCreatedAt1);
+      const [mintRecPda1] = deriveVaultMintRecordPda(mintPda1);
+      const [eaml1] = deriveExtraAccountMetaListPda(mintPda1);
+      const [hs1] = deriveHookStatePda(mintPda1);
+
+      {
+        const tx = new Transaction().add(EXTRA_CU);
+        const ix = await program.methods
+          .mintFromVault(new BN(1), usdc(10), mintCreatedAt1) // $10 premium
+          .accounts({
+            writer: writer.publicKey,
+            sharedVault: vPda,
+            writerPosition: wPosPda,
+            market: mktPda,
+            protocolState: protocolStatePda,
+            optionMint: mintPda1,
+            purchaseEscrow: escrowPda1,
+            vaultMintRecord: mintRecPda1,
+            transferHookProgram: HOOK_PROGRAM_ID,
+            extraAccountMetaList: eaml1,
+            hookState: hs1,
+            systemProgram: SystemProgram.programId,
+            token2022Program: TOKEN_2022_PROGRAM_ID,
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          })
+          .signers([writer])
+          .instruction();
+        tx.add(ix);
+        await provider.sendAndConfirm(tx, [writer]);
+      }
+
+      // Buyer purchases the 1 option → $10 premium (minus 0.5% fee = $9.95 to vault)
+      const buyerOptAcc1 = await createAssociatedTokenAccountIdempotent(
+        connection, payer, mintPda1, buyer.publicKey, {}, TOKEN_2022_PROGRAM_ID,
+      );
+
+      {
+        const tx = new Transaction().add(EXTRA_CU);
+        const ix = await program.methods
+          .purchaseFromVault(new BN(1), usdc(999_999))
+          .accounts({
+            buyer: buyer.publicKey,
+            sharedVault: vPda,
+            writerPosition: wPosPda,
+            vaultMintRecord: mintRecPda1,
+            protocolState: protocolStatePda,
+            market: mktPda,
+            optionMint: mintPda1,
+            purchaseEscrow: escrowPda1,
+            buyerOptionAccount: buyerOptAcc1,
+            buyerUsdcAccount,
+            vaultUsdcAccount: vUsdcPda,
+            treasury: treasuryPda,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            token2022Program: TOKEN_2022_PROGRAM_ID,
+            transferHookProgram: HOOK_PROGRAM_ID,
+            extraAccountMetaList: eaml1,
+            hookState: hs1,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([buyer])
+          .instruction();
+        tx.add(ix);
+        await provider.sendAndConfirm(tx, [buyer]);
+      }
+
+      // Step 3: Writer claims first round of premium
+      const beforeClaim1 = await getAccount(connection, writerUsdcAccount);
+      await program.methods
+        .claimPremium()
+        .accounts({
+          writer: writer.publicKey,
+          sharedVault: vPda,
+          writerPosition: wPosPda,
+          vaultUsdcAccount: vUsdcPda,
+          writerUsdcAccount,
+          protocolState: protocolStatePda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([writer])
+        .rpc();
+
+      const afterClaim1 = await getAccount(connection, writerUsdcAccount);
+      const firstClaim = Number(afterClaim1.amount) - Number(beforeClaim1.amount);
+      console.log(`    First premium claim: $${firstClaim / 1_000_000}`);
+      assert.ok(firstClaim > 0, "First claim should be > 0");
+
+      // Step 4: Writer withdraws 50% of shares (must burn unsold first to free collateral)
+      // Actually the 1 option is sold, so options_minted = 1 and committed = $20.
+      // Writer has $100 deposited, $20 committed, $80 free.
+      // Withdraw 50M shares (half of 100M) = $50 withdrawal. $50 > free($80) check passes.
+      const halfShares = usdc(50); // 50,000,000 shares
+      await program.methods
+        .withdrawFromVault(halfShares)
+        .accounts({
+          writer: writer.publicKey,
+          sharedVault: vPda,
+          writerPosition: wPosPda,
+          vaultUsdcAccount: vUsdcPda,
+          writerUsdcAccount,
+          protocolState: protocolStatePda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([writer])
+        .rpc();
+
+      // Verify shares are halved
+      const posAfterWithdraw = await program.account.writerPosition.fetch(wPosPda);
+      assert.equal(posAfterWithdraw.shares.toNumber(), halfShares.toNumber(),
+        "Writer should have 50M shares remaining");
+
+      // Step 5: Mint another option and buyer purchases → generates more premium
+      const mintCreatedAt2 = new BN(Math.floor(Date.now() / 1000) + 1);
+      const [mintPda2] = deriveVaultOptionMintPda(vPda, writer.publicKey, mintCreatedAt2);
+      const [escrowPda2] = deriveVaultPurchaseEscrowPda(vPda, writer.publicKey, mintCreatedAt2);
+      const [mintRecPda2] = deriveVaultMintRecordPda(mintPda2);
+      const [eaml2] = deriveExtraAccountMetaListPda(mintPda2);
+      const [hs2] = deriveHookStatePda(mintPda2);
+
+      {
+        const tx = new Transaction().add(EXTRA_CU);
+        const ix = await program.methods
+          .mintFromVault(new BN(1), usdc(10), mintCreatedAt2) // another $10 premium option
+          .accounts({
+            writer: writer.publicKey,
+            sharedVault: vPda,
+            writerPosition: wPosPda,
+            market: mktPda,
+            protocolState: protocolStatePda,
+            optionMint: mintPda2,
+            purchaseEscrow: escrowPda2,
+            vaultMintRecord: mintRecPda2,
+            transferHookProgram: HOOK_PROGRAM_ID,
+            extraAccountMetaList: eaml2,
+            hookState: hs2,
+            systemProgram: SystemProgram.programId,
+            token2022Program: TOKEN_2022_PROGRAM_ID,
+            rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+          })
+          .signers([writer])
+          .instruction();
+        tx.add(ix);
+        await provider.sendAndConfirm(tx, [writer]);
+      }
+
+      const buyerOptAcc2 = await createAssociatedTokenAccountIdempotent(
+        connection, payer, mintPda2, buyer.publicKey, {}, TOKEN_2022_PROGRAM_ID,
+      );
+
+      {
+        const tx = new Transaction().add(EXTRA_CU);
+        const ix = await program.methods
+          .purchaseFromVault(new BN(1), usdc(999_999))
+          .accounts({
+            buyer: buyer.publicKey,
+            sharedVault: vPda,
+            writerPosition: wPosPda,
+            vaultMintRecord: mintRecPda2,
+            protocolState: protocolStatePda,
+            market: mktPda,
+            optionMint: mintPda2,
+            purchaseEscrow: escrowPda2,
+            buyerOptionAccount: buyerOptAcc2,
+            buyerUsdcAccount,
+            vaultUsdcAccount: vUsdcPda,
+            treasury: treasuryPda,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            token2022Program: TOKEN_2022_PROGRAM_ID,
+            transferHookProgram: HOOK_PROGRAM_ID,
+            extraAccountMetaList: eaml2,
+            hookState: hs2,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([buyer])
+          .instruction();
+        tx.add(ix);
+        await provider.sendAndConfirm(tx, [buyer]);
+      }
+
+      // Step 6: Writer claims second round of premium
+      const beforeClaim2 = await getAccount(connection, writerUsdcAccount);
+      await program.methods
+        .claimPremium()
+        .accounts({
+          writer: writer.publicKey,
+          sharedVault: vPda,
+          writerPosition: wPosPda,
+          vaultUsdcAccount: vUsdcPda,
+          writerUsdcAccount,
+          protocolState: protocolStatePda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([writer])
+        .rpc();
+
+      const afterClaim2 = await getAccount(connection, writerUsdcAccount);
+      const secondClaim = Number(afterClaim2.amount) - Number(beforeClaim2.amount);
+      console.log(`    Second premium claim (after 50% withdrawal): $${secondClaim / 1_000_000}`);
+
+      // Step 7: Verify the writer gets the FULL second premium, not half.
+      // Writer is the only depositor, so they should get 100% of the new premium.
+      // Premium = $10 - 0.5% fee = $9.95 = 9,950,000 micro-USDC
+      // Without the fix, they'd get ~$4.975 (half) because stale debt/claimed would
+      // cause the accumulator math to think half was already claimed.
+      assert.ok(secondClaim >= usdc(9).toNumber(),
+        `Second claim should be ~$9.95 (full premium), got $${secondClaim / 1_000_000}. ` +
+        `Without the debt reset fix, this would be ~$4.975 (half).`);
+    });
+  });
 });
