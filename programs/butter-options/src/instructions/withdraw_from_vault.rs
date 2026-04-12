@@ -39,7 +39,13 @@ pub fn handle_withdraw_from_vault(
         .ok_or(ButterError::MathOverflow)? as u64;
 
     // Check that withdrawal doesn't breach committed collateral
-    let collateral_per_contract = vault.strike_price;
+    // FIX M-04: Match v1 collateral formula — calls require 2x strike
+    let collateral_per_contract = match vault.option_type {
+        OptionType::Call => vault.strike_price
+            .checked_mul(2)
+            .ok_or(ButterError::MathOverflow)?,
+        OptionType::Put => vault.strike_price,
+    };
     let writer_total_collateral = (writer_pos.shares as u128)
         .checked_mul(vault.total_collateral as u128)
         .ok_or(ButterError::MathOverflow)?

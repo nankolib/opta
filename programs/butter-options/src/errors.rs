@@ -138,4 +138,16 @@ pub enum ButterError {
 
     #[msg("Option is not in the money - cannot exercise")]
     OptionNotInTheMoney,
+
+    // FIX H-02: vault-mint validation
+    #[msg("Option mint does not belong to this vault")]
+    InvalidVaultMint,
+
+    // FIX M-01: vault-market parameter validation
+    #[msg("Vault expiry must match market expiry")]
+    ExpiryMismatch,
+
+    // FIX M-01: option type mismatch
+    #[msg("Vault option type must match market option type")]
+    InvalidOptionType,
 }

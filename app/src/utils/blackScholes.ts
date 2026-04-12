@@ -47,14 +47,141 @@ function calcD1D2(
   return { d1, d2 };
 }
 
+// =============================================================================
+// Volatility calculations
+// =============================================================================
+
+const MIN_VOL = 0.05;
+const MAX_VOL = 5.0;
+
+/**
+ * Calculate realized volatility from a series of prices.
+ * Uses log returns and annualizes assuming 365-day year.
+ */
+export function calculateRealizedVol(prices: number[]): number {
+  if (prices.length < 2) return MIN_VOL;
+
+  const logReturns: number[] = [];
+  for (let i = 1; i < prices.length; i++) {
+    if (prices[i] <= 0 || prices[i - 1] <= 0) continue;
+    logReturns.push(Math.log(prices[i] / prices[i - 1]));
+  }
+
+  if (logReturns.length < 1) return MIN_VOL;
+
+  const mean = logReturns.reduce((a, b) => a + b, 0) / logReturns.length;
+  const variance =
+    logReturns.length > 1
+      ? logReturns.reduce((a, r) => a + (r - mean) ** 2, 0) /
+        (logReturns.length - 1)
+      : 0;
+  const dailyVol = Math.sqrt(variance);
+  const annualizedVol = dailyVol * Math.sqrt(365);
+
+  return Math.max(MIN_VOL, Math.min(MAX_VOL, annualizedVol));
+}
+
+/**
+ * Calculate EWMA (Exponentially Weighted Moving Average) volatility.
+ * RiskMetrics model with configurable lambda (default 0.94).
+ */
+export function calculateEWMAVol(
+  prices: number[],
+  lambda: number = 0.94,
+): number {
+  if (prices.length < 2) return MIN_VOL;
+
+  const logReturns: number[] = [];
+  for (let i = 1; i < prices.length; i++) {
+    if (prices[i] <= 0 || prices[i - 1] <= 0) continue;
+    logReturns.push(Math.log(prices[i] / prices[i - 1]));
+  }
+
+  if (logReturns.length < 1) return MIN_VOL;
+
+  let variance = logReturns[0] ** 2;
+  for (let i = 1; i < logReturns.length; i++) {
+    variance = lambda * variance + (1 - lambda) * logReturns[i] ** 2;
+  }
+
+  const annualizedVol = Math.sqrt(variance) * Math.sqrt(365);
+  return Math.max(MIN_VOL, Math.min(MAX_VOL, annualizedVol));
+}
+
+/**
+ * Apply volatility smile adjustment based on moneyness and asset name.
+ * Returns adjusted volatility.
+ */
+export function applyVolSmile(
+  baseVol: number,
+  spotPrice: number,
+  strikePrice: number,
+  assetName: string,
+): number {
+  if (spotPrice <= 0 || strikePrice <= 0) return baseVol;
+
+  // Log-moneyness: negative when OTM put (strike < spot), positive when OTM call (strike > spot)
+  const logMoneyness = Math.log(strikePrice / spotPrice);
+
+  // Per-asset smile parameters: [curvature, tilt]
+  // Curvature: how much vol increases for OTM options (both sides)
+  // Tilt: negative = OTM puts (negative logMoneyness) get more vol boost
+  const lower = assetName.toLowerCase();
+  let curvature: number;
+  let tilt: number;
+
+  if (
+    ["eur", "gbp", "jpy", "usd", "eur/usd", "gbp/usd"].some((a) =>
+      lower.includes(a),
+    )
+  ) {
+    // Forex — mild smile
+    curvature = 0.3;
+    tilt = -0.05;
+  } else if (
+    ["aapl", "tsla", "nvda", "googl", "msft", "amzn", "meta"].some((a) =>
+      lower.includes(a),
+    )
+  ) {
+    // Equity — negative skew (crash protection)
+    curvature = 0.5;
+    tilt = -0.25;
+  } else if (
+    ["xau", "gold", "xag", "silver", "wti", "oil", "crude"].some((a) =>
+      lower.includes(a),
+    )
+  ) {
+    // Commodity
+    curvature = 0.6;
+    tilt = -0.1;
+  } else {
+    // Crypto (default) — strong smile, slight negative tilt
+    curvature = 0.8;
+    tilt = -0.15;
+  }
+
+  // Smile formula: vol_adj = baseVol * (1 + curvature * logMoneyness^2 + tilt * logMoneyness)
+  // OTM puts have logMoneyness < 0, so tilt < 0 means: tilt * negative = positive → vol UP
+  // OTM calls have logMoneyness > 0, so tilt < 0 means: tilt * positive = negative → vol DOWN (or less up)
+  const smileFactor = 1 + curvature * logMoneyness ** 2 + tilt * logMoneyness;
+  // Floor at 0.5x base vol, cap at MAX_VOL
+  const adjustedVol = baseVol * Math.max(0.5, smileFactor);
+  return Math.min(MAX_VOL, adjustedVol);
+}
+
+// Minimum number of historical prices for EWMA to override static vol
+const MIN_HISTORICAL_PRICES = 20;
+
 /**
  * Calculate the fair premium for a CALL option using Black-Scholes.
  *
- * @param spotPrice    - Current price of the underlying asset (USD)
- * @param strikePrice  - Strike price of the option (USD)
- * @param daysToExpiry - Time until expiry in days
- * @param volatility   - Annualized implied volatility (e.g., 0.8 for 80%)
- * @param riskFreeRate - Annualized risk-free rate (default 0 for crypto)
+ * @param spotPrice        - Current price of the underlying asset (USD)
+ * @param strikePrice      - Strike price of the option (USD)
+ * @param daysToExpiry     - Time until expiry in days
+ * @param volatility       - Annualized implied volatility (e.g., 0.8 for 80%)
+ * @param riskFreeRate     - Annualized risk-free rate (default 5%)
+ * @param historicalPrices - Optional array of historical prices for EWMA vol
+ * @param assetName        - Optional asset name for smile adjustment
  * @returns Fair premium in USD
  */
 export function calculateCallPremium(
@@ -62,12 +189,27 @@ export function calculateCallPremium(
   strikePrice: number,
   daysToExpiry: number,
   volatility: number = 0.8,
-  riskFreeRate: number = 0.05, // Must match on-chain RISK_FREE_RATE_SCALE (5%)
+  riskFreeRate: number = 0.05,
+  historicalPrices?: number[],
+  assetName?: string,
 ): number {
   if (daysToExpiry <= 0 || spotPrice <= 0 || strikePrice <= 0) return 0;
 
+  let vol = volatility;
+
+  // Use EWMA vol if enough historical data provided
+  if (historicalPrices && historicalPrices.length >= MIN_HISTORICAL_PRICES) {
+    const ewmaVol = calculateEWMAVol(historicalPrices);
+    vol = Math.max(vol, ewmaVol); // Floor at asset-class default
+  }
+
+  // Apply smile if asset name provided
+  if (assetName) {
+    vol = applyVolSmile(vol, spotPrice, strikePrice, assetName);
+  }
+
   const T = daysToExpiry / 365;
-  const { d1, d2 } = calcD1D2(spotPrice, strikePrice, T, volatility, riskFreeRate);
+  const { d1, d2 } = calcD1D2(spotPrice, strikePrice, T, vol, riskFreeRate);
 
   return (
     spotPrice * normalCDF(d1) -
@@ -83,12 +225,27 @@ export function calculatePutPremium(
   strikePrice: number,
   daysToExpiry: number,
   volatility: number = 0.8,
-  riskFreeRate: number = 0.05, // Must match on-chain RISK_FREE_RATE_SCALE (5%)
+  riskFreeRate: number = 0.05,
+  historicalPrices?: number[],
+  assetName?: string,
 ): number {
   if (daysToExpiry <= 0 || spotPrice <= 0 || strikePrice <= 0) return 0;
 
+  let vol = volatility;
+
+  // Use EWMA vol if enough historical data provided
+  if (historicalPrices && historicalPrices.length >= MIN_HISTORICAL_PRICES) {
+    const ewmaVol = calculateEWMAVol(historicalPrices);
+    vol = Math.max(vol, ewmaVol);
+  }
+
+  // Apply smile if asset name provided
+  if (assetName) {
+    vol = applyVolSmile(vol, spotPrice, strikePrice, assetName);
+  }
+
   const T = daysToExpiry / 365;
-  const { d1, d2 } = calcD1D2(spotPrice, strikePrice, T, volatility, riskFreeRate);
+  const { d1, d2 } = calcD1D2(spotPrice, strikePrice, T, vol, riskFreeRate);
 
   return (
     strikePrice * Math.exp(-riskFreeRate * T) * normalCDF(-d2) -

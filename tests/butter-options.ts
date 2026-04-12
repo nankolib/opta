@@ -1279,7 +1279,7 @@ describe("butter-options", () => {
       const resaleBuyerUsdcBefore = (await getAccount(provider.connection, writerUsdcAccount)).amount;
 
       await program.methods
-        .buyResale(new BN(10))
+        .buyResale(new BN(10), usdc(1_000)) // FIX M-03: max_premium for slippage protection
         .accountsStrict(buildBuyResaleAccounts({
           buyer: writer.publicKey,
           market: callMarketPda,

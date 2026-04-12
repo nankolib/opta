@@ -723,7 +723,7 @@ describe("shared-vaults", () => {
       assert.equal(vault.totalOptionsSold.toNumber(), 5);
       // Premium collected = 5 * $5 - 0.5% fee = $25 - $0.125 = $24.875
       // Actually: writer_share = 25_000_000 - (25_000_000 * 50 / 10000) = 25_000_000 - 125_000 = 24_875_000
-      assert.equal(vault.premiumCollected.toNumber(), 24_875_000);
+      assert.equal(vault.netPremiumCollected.toNumber(), 24_875_000);
     });
 
     it("FAIL: mint more tokens than available collateral", async () => {
@@ -1077,6 +1077,7 @@ describe("shared-vaults", () => {
             holder: buyer.publicKey,
             sharedVault: epochVaultPda,
             market: marketPda,
+            vaultMintRecord: vaultMintRecordPda, // FIX H-02: added vault-mint validation
             optionMint: optionMintPda,
             holderOptionAccount: buyerOptionAccount,
             vaultUsdcAccount: epochVaultUsdcPda,

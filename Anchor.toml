@@ -1,5 +1,5 @@
 [toolchain]
-package_manager = "yarn"
+package_manager = "npm"
 
 [features]
 resolution = true
@@ -25,4 +25,4 @@ bind_address = "127.0.0.1"
 startup_wait = 60000
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
+test = "npx ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""

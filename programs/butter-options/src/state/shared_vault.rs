@@ -74,8 +74,13 @@ pub struct SharedVault {
     pub total_options_sold: u64,
 
     /// Total premium collected in this vault (USDC, 6 decimals).
-    /// Used for proportional premium distribution to writers.
-    pub premium_collected: u64,
+    /// FIX L-04: renamed from premium_collected for clarity.
+    pub net_premium_collected: u64,
+
+    /// FIX H-01: Cumulative premium per share, scaled by 1e12.
+    /// Implements reward-per-share accumulator pattern to prevent
+    /// late-depositor premium dilution.
+    pub premium_per_share_cumulative: u128,
 
     // === Settlement ===
 

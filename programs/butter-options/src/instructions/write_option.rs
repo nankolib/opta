@@ -35,45 +35,8 @@ const MONTHS: [&str; 12] = [
     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
 ];
 
-/// Convert a unix timestamp to (month_index 0-11, day 1-31).
-/// Basic civil calendar math — no external crate needed.
-fn timestamp_to_month_day(timestamp: i64) -> (usize, u8) {
-    let total_days = timestamp / 86400;
-    let mut year = 1970i64;
-    let mut remaining = total_days;
-
-    // Walk forward year by year until we find the right year
-    loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-        if remaining < days_in_year {
-            break;
-        }
-        remaining -= days_in_year;
-        year += 1;
-    }
-
-    // Walk forward month by month to find month and day
-    let days_in_months: [i64; 12] = if is_leap_year(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 0usize;
-    for (i, &dim) in days_in_months.iter().enumerate() {
-        if remaining < dim {
-            month = i;
-            break;
-        }
-        remaining -= dim;
-    }
-
-    (month, remaining as u8 + 1) // 0-indexed month, 1-indexed day
-}
-
-fn is_leap_year(y: i64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
-}
+// FIX I-04: Use shared time utilities instead of duplicated code
+use crate::utils::time::timestamp_to_month_day;
 
 // =============================================================================
 // Handler

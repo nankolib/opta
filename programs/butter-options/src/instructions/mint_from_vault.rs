@@ -30,43 +30,8 @@ const MONTHS: [&str; 12] = [
     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
 ];
 
-/// Convert unix timestamp to (month_index 0-11, day 1-31).
-/// Duplicated from write_option.rs — keeps both paths self-contained.
-fn timestamp_to_month_day(timestamp: i64) -> (usize, u8) {
-    let total_days = timestamp / 86400;
-    let mut year = 1970i64;
-    let mut remaining = total_days;
-
-    loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
-        if remaining < days_in_year {
-            break;
-        }
-        remaining -= days_in_year;
-        year += 1;
-    }
-
-    let days_in_months: [i64; 12] = if is_leap_year(year) {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 0usize;
-    for (i, &dim) in days_in_months.iter().enumerate() {
-        if remaining < dim {
-            month = i;
-            break;
-        }
-        remaining -= dim;
-    }
-
-    (month, remaining as u8 + 1)
-}
-
-fn is_leap_year(y: i64) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
-}
+// FIX I-04: Use shared time utilities instead of duplicated code
+use crate::utils::time::timestamp_to_month_day;
 
 pub fn handle_mint_from_vault(
     ctx: Context<MintFromVault>,
@@ -92,10 +57,15 @@ pub fn handle_mint_from_vault(
     // =========================================================================
     // Calculate writer's available collateral
     //
-    // Each option contract requires strike_price USDC as collateral.
+    // FIX M-04: Match v1 collateral formula — calls require 2x strike.
     // The writer can only mint options backed by their free (uncommitted) share.
     // =========================================================================
-    let collateral_per_contract = vault.strike_price;
+    let collateral_per_contract = match vault.option_type {
+        OptionType::Call => vault.strike_price
+            .checked_mul(2)
+            .ok_or(ButterError::MathOverflow)?,
+        OptionType::Put => vault.strike_price,
+    };
 
     let total_collateral_needed = quantity
         .checked_mul(collateral_per_contract)
@@ -267,7 +237,7 @@ pub fn handle_mint_from_vault(
     )?;
 
     // Additional metadata fields (same as write_option + vault reference)
-    let collateral_per_token = vault.strike_price;
+    let collateral_per_token = collateral_per_contract;
 
     let additional_fields: Vec<(&str, String)> = vec![
         ("asset_name", market.asset_name.clone()),

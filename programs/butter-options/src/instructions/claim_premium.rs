@@ -26,17 +26,22 @@ pub fn handle_claim_premium(ctx: Context<ClaimPremium>) -> Result<()> {
     // Validation
     require!(writer_pos.owner == ctx.accounts.writer.key(), ButterError::NotWriter);
 
-    // Calculate writer's proportional share of all premium collected
-    let writer_premium_share = (writer_pos.shares as u128)
-        .checked_mul(vault.premium_collected as u128)
+    // FIX H-01: Use reward-per-share accumulator instead of proportional share.
+    // total_earned = shares * cumulative / SCALE
+    let total_earned = (writer_pos.shares as u128)
+        .checked_mul(vault.premium_per_share_cumulative)
         .ok_or(ButterError::MathOverflow)?
-        .checked_div(vault.total_shares as u128)
-        .ok_or(ButterError::MathOverflow)? as u64;
-
-    // How much they haven't claimed yet
-    let claimable = writer_premium_share
-        .checked_sub(writer_pos.premium_claimed)
+        .checked_div(1_000_000_000_000) // SCALE = 1e12
         .ok_or(ButterError::MathOverflow)?;
+
+    // Subtract the debt (premium earned before this writer deposited)
+    let earned_since_deposit = total_earned
+        .checked_sub(writer_pos.premium_debt)
+        .unwrap_or(0);
+
+    // Subtract what's already been claimed
+    let claimable = earned_since_deposit
+        .saturating_sub(writer_pos.premium_claimed as u128) as u64;
 
     require!(claimable > 0, ButterError::NothingToClaim);
 

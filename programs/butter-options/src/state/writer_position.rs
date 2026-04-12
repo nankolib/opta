@@ -36,6 +36,10 @@ pub struct WriterPosition {
     /// Prevents double-claiming.
     pub premium_claimed: u64,
 
+    /// FIX H-01: Snapshot of premium_per_share_cumulative at deposit time.
+    /// Used in reward-per-share accumulator to prevent late-depositor dilution.
+    pub premium_debt: u128,
+
     /// Total option tokens this writer has minted from their vault share.
     /// Used to calculate committed collateral (can't withdraw what's backing active options).
     pub options_minted: u64,

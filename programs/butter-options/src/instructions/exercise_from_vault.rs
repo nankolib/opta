@@ -158,8 +158,15 @@ pub struct ExerciseFromVault<'info> {
     #[account(constraint = market.key() == shared_vault.market)]
     pub market: Account<'info, OptionsMarket>,
 
+    // FIX H-02: validate option_mint belongs to vault via VaultMint record
+    #[account(
+        constraint = vault_mint_record.vault == shared_vault.key() @ ButterError::InvalidVaultMint,
+        constraint = vault_mint_record.option_mint == option_mint.key() @ ButterError::InvalidVaultMint,
+    )]
+    pub vault_mint_record: Account<'info, VaultMint>,
+
     /// The Token-2022 option mint.
-    /// CHECK: Validated by the Token-2022 burn instruction.
+    /// CHECK: Validated by the Token-2022 burn instruction + vault_mint_record constraint.
     #[account(mut)]
     pub option_mint: UncheckedAccount<'info>,
 

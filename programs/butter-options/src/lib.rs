@@ -94,8 +94,9 @@ pub mod butter_options {
     }
 
     /// Buy tokens from a resale listing. amount is how many to buy (partial fills).
-    pub fn buy_resale(ctx: Context<BuyResale>, amount: u64) -> Result<()> {
-        instructions::buy_resale::handle_buy_resale(ctx, amount)
+    /// FIX M-03: added max_premium for slippage protection.
+    pub fn buy_resale(ctx: Context<BuyResale>, amount: u64, max_premium: u64) -> Result<()> {
+        instructions::buy_resale::handle_buy_resale(ctx, amount, max_premium)
     }
 
     /// Cancel a resale listing. Returns tokens to seller.

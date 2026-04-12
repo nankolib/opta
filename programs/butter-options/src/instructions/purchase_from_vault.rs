@@ -153,9 +153,21 @@ pub fn handle_purchase_from_vault(
     vault.total_options_sold = vault.total_options_sold
         .checked_add(quantity)
         .ok_or(ButterError::MathOverflow)?;
-    vault.premium_collected = vault.premium_collected
+    vault.net_premium_collected = vault.net_premium_collected
         .checked_add(writer_share)
         .ok_or(ButterError::MathOverflow)?;
+
+    // FIX H-01: Update cumulative premium per share (reward-per-share accumulator)
+    if vault.total_shares > 0 {
+        let premium_increment = (writer_share as u128)
+            .checked_mul(1_000_000_000_000) // 1e12 scale factor
+            .ok_or(ButterError::MathOverflow)?
+            .checked_div(vault.total_shares as u128)
+            .ok_or(ButterError::MathOverflow)?;
+        vault.premium_per_share_cumulative = vault.premium_per_share_cumulative
+            .checked_add(premium_increment)
+            .ok_or(ButterError::MathOverflow)?;
+    }
 
     // Update protocol volume
     let protocol = &mut ctx.accounts.protocol_state;
@@ -226,7 +238,17 @@ pub struct PurchaseFromVault<'info> {
 
     /// Purchase escrow holding unsold tokens (Token-2022 account).
     /// CHECK: Validated by PDA seeds; balance read from raw data.
-    #[account(mut)]
+    // FIX L-03: Added PDA seed validation for purchase_escrow
+    #[account(
+        mut,
+        seeds = [
+            VAULT_PURCHASE_ESCROW_SEED,
+            shared_vault.key().as_ref(),
+            vault_mint_record.writer.as_ref(),
+            &vault_mint_record.created_at.to_le_bytes(),
+        ],
+        bump,
+    )]
     pub purchase_escrow: UncheckedAccount<'info>,
 
     /// Buyer's option token account (Token-2022). Frontend creates ATA before calling.

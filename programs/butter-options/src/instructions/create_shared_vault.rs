@@ -66,8 +66,11 @@ pub fn handle_create_shared_vault(
         }
     }
 
-    // Validate option type matches the market's option type
-    // (The PDA seeds already enforce market match via the market key)
+    // FIX M-01: Validate vault parameters match the market's parameters
+    let market = &ctx.accounts.market;
+    require!(strike_price == market.strike_price, ButterError::InvalidStrikePrice);
+    require!(option_type as u8 == market.option_type as u8, ButterError::InvalidOptionType);
+    require!(expiry == market.expiry_timestamp, ButterError::ExpiryMismatch);
 
     let vault = &mut ctx.accounts.shared_vault;
     vault.market = ctx.accounts.market.key();
@@ -80,7 +83,8 @@ pub fn handle_create_shared_vault(
     vault.vault_usdc_account = ctx.accounts.vault_usdc_account.key();
     vault.total_options_minted = 0;
     vault.total_options_sold = 0;
-    vault.premium_collected = 0;
+    vault.net_premium_collected = 0;
+    vault.premium_per_share_cumulative = 0; // FIX H-01
     vault.is_settled = false;
     vault.settlement_price = 0;
     vault.collateral_remaining = 0;

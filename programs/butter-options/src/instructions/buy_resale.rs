@@ -20,7 +20,7 @@ use crate::events::OptionResold;
 use crate::state::*;
 use super::initialize_protocol::TREASURY_SEED;
 
-pub fn handle_buy_resale(ctx: Context<BuyResale>, amount: u64) -> Result<()> {
+pub fn handle_buy_resale(ctx: Context<BuyResale>, amount: u64, max_premium: u64) -> Result<()> {
     let position = &ctx.accounts.position;
 
     let clock = Clock::get()?;
@@ -44,6 +44,12 @@ pub fn handle_buy_resale(ctx: Context<BuyResale>, amount: u64) -> Result<()> {
     let proportional_price = resale_premium
         .checked_mul(amount).ok_or(ButterError::MathOverflow)?
         .checked_div(resale_total).ok_or(ButterError::MathOverflow)?;
+
+    // FIX M-02: prevent dust purchases where premium rounds to zero
+    require!(proportional_price > 0, ButterError::PremiumTooLow);
+
+    // FIX M-03: slippage protection — buyer won't pay more than max_premium
+    require!(proportional_price <= max_premium, ButterError::SlippageExceeded);
 
     let fee_bps = ctx.accounts.protocol_state.fee_bps as u64;
     let fee = proportional_price

@@ -78,11 +78,25 @@ pub fn handle_deposit_to_vault(
         position.owner = writer_key;
         position.vault = vault_key;
         position.premium_claimed = 0;
+        position.premium_debt = 0;
         position.options_minted = 0;
         position.options_sold = 0;
         position.deposited_at = clock.unix_timestamp;
         position.bump = ctx.bumps.writer_position;
     }
+
+    // FIX H-01: Set premium_debt for new shares so depositor isn't entitled
+    // to premium accumulated before this deposit.
+    // For existing positions: add debt for the new shares only.
+    let additional_debt = (shares as u128)
+        .checked_mul(vault.premium_per_share_cumulative)
+        .ok_or(ButterError::MathOverflow)?
+        .checked_div(1_000_000_000_000)
+        .ok_or(ButterError::MathOverflow)?;
+    position.premium_debt = position.premium_debt
+        .checked_add(additional_debt)
+        .ok_or(ButterError::MathOverflow)?;
+
     position.shares = position.shares
         .checked_add(shares)
         .ok_or(ButterError::MathOverflow)?;
