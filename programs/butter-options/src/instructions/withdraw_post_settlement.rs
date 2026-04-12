@@ -112,6 +112,25 @@ pub fn handle_withdraw_post_settlement(ctx: Context<WithdrawPostSettlement>) -> 
     let is_last_writer = vault.total_shares == 0;
 
     if is_last_writer {
+        // FIX: Sweep premium rounding dust before closing vault USDC account.
+        // Multi-writer accumulator truncation can leave < 1 cent of dust.
+        ctx.accounts.vault_usdc_account.reload()?;
+        let dust = ctx.accounts.vault_usdc_account.amount;
+        if dust > 0 {
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.vault_usdc_account.to_account_info(),
+                        to: ctx.accounts.writer_usdc_account.to_account_info(),
+                        authority: ctx.accounts.shared_vault.to_account_info(),
+                    },
+                    signer_seeds,
+                ),
+                dust,
+            )?;
+        }
+
         let close_usdc_ctx = CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
             CloseAccount {

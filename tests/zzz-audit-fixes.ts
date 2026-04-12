@@ -27,6 +27,7 @@ import {
   getAccount,
   getAssociatedTokenAddressSync,
   createAssociatedTokenAccountIdempotent,
+  transfer as splTransfer,
 } from "@solana/spl-token";
 import { assert } from "chai";
 import BN from "bn.js";
@@ -1336,6 +1337,113 @@ describe("audit-fixes", () => {
       assert.ok(secondClaim >= usdc(9).toNumber(),
         `Second claim should be ~$9.95 (full premium), got $${secondClaim / 1_000_000}. ` +
         `Without the debt reset fix, this would be ~$4.975 (half).`);
+    });
+  });
+
+  // ==========================================================================
+  // Last writer withdrawal succeeds with premium rounding dust
+  // ==========================================================================
+  describe("Last writer withdrawal succeeds with premium rounding dust", () => {
+    let ctx: Awaited<ReturnType<typeof setupVaultScenario>>;
+    const strike = usdc(100);
+
+    before(async function () {
+      this.timeout(120_000);
+
+      // Set up a single-writer vault with options purchased
+      ctx = await setupVaultScenario({
+        assetName: "DUST",
+        strike,
+        expirySeconds: 10,
+        optionType: { call: {} },
+        optionTypeIndex: 0,
+        depositAmount: usdc(1000),
+        mintQuantity: 1,
+        premiumPerContract: usdc(5),
+        buyQuantity: 1,
+      });
+
+      // Claim premium so the vault holds only collateral + any rounding remainder
+      await program.methods
+        .claimPremium()
+        .accounts({
+          writer: ctx.writer.publicKey,
+          sharedVault: ctx.vaultPda,
+          writerPosition: ctx.writerPosPda,
+          vaultUsdcAccount: ctx.vaultUsdcPda,
+          writerUsdcAccount: ctx.writerUsdcAccount,
+          protocolState: protocolStatePda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([ctx.writer])
+        .rpc();
+
+      // Inject dust: transfer 3 micro-USDC directly into the vault USDC account.
+      // This simulates multi-writer accumulator truncation leaving rounding dust.
+      // (In production, dust comes from integer division across multiple writers.)
+      // Anyone can send tokens to a token account — no authority needed on the destination.
+      const payerUsdcAccount = await createTokenAccount(
+        connection, payer, usdcMint, payer.publicKey, undefined, undefined, TOKEN_PROGRAM_ID,
+      );
+      await mintTo(connection, payer, usdcMint, payerUsdcAccount, payer, 100);
+      await splTransfer(
+        connection, payer, payerUsdcAccount, ctx.vaultUsdcPda, payer, 3,
+        undefined, undefined, TOKEN_PROGRAM_ID,
+      );
+
+      console.log("    Waiting 12s for DUST market expiry...");
+      await sleep(12_000);
+
+      // Settle market OTM so all collateral returns
+      await program.methods
+        .settleMarket(usdc(50))
+        .accounts({
+          admin: payer.publicKey,
+          protocolState: protocolStatePda,
+          market: ctx.marketPda,
+        })
+        .signers([payer])
+        .rpc();
+
+      await program.methods
+        .settleVault()
+        .accounts({
+          authority: payer.publicKey,
+          sharedVault: ctx.vaultPda,
+          market: ctx.marketPda,
+        })
+        .signers([payer])
+        .rpc();
+    });
+
+    it("last writer withdrawal succeeds — dust swept, vault USDC account closed", async function () {
+      this.timeout(30_000);
+
+      // Verify there IS dust in the vault before withdrawal
+      const vaultUsdcBefore = await getAccount(connection, ctx.vaultUsdcPda);
+      console.log(`    Vault USDC balance before last writer withdrawal: ${vaultUsdcBefore.amount}`);
+
+      // Without the dust sweep fix, this would revert because close_account
+      // requires exact zero balance, but 3 micro-USDC of dust remains.
+      await program.methods
+        .withdrawPostSettlement()
+        .accounts({
+          writer: ctx.writer.publicKey,
+          sharedVault: ctx.vaultPda,
+          writerPosition: ctx.writerPosPda,
+          vaultUsdcAccount: ctx.vaultUsdcPda,
+          writerUsdcAccount: ctx.writerUsdcAccount,
+          protocolState: protocolStatePda,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([ctx.writer])
+        .rpc();
+
+      // Vault USDC account should be closed — dust sweep prevented close_account revert
+      const vaultUsdcInfo = await connection.getAccountInfo(ctx.vaultUsdcPda);
+      assert.isNull(vaultUsdcInfo,
+        "Vault USDC account should be closed — dust sweep prevents close_account revert");
     });
   });
 });
