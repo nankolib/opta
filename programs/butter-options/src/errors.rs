@@ -101,4 +101,41 @@ pub enum ButterError {
     // Math errors
     #[msg("Arithmetic overflow")]
     MathOverflow,
+
+    // =========================================================================
+    // Shared Vault errors (v2 liquidity system)
+    // =========================================================================
+
+    #[msg("Custom vaults only allow the original creator to deposit")]
+    CustomVaultSingleWriter,
+
+    #[msg("Vault has been settled, no more deposits allowed")]
+    VaultAlreadySettled,
+
+    #[msg("Vault expiry has passed")]
+    VaultExpired,
+
+    #[msg("Invalid epoch expiry - must fall on configured day and hour")]
+    InvalidEpochExpiry,
+
+    #[msg("Insufficient free collateral in writer's vault position")]
+    InsufficientVaultCollateral,
+
+    #[msg("Collateral is committed to active options and cannot be withdrawn")]
+    CollateralCommitted,
+
+    #[msg("No unsold tokens to burn")]
+    NoTokensToBurn,
+
+    #[msg("Nothing to claim - all premium already withdrawn")]
+    NothingToClaim,
+
+    #[msg("Premium exceeds buyer's maximum (slippage protection)")]
+    SlippageExceeded,
+
+    #[msg("Vault not yet settled")]
+    VaultNotSettled,
+
+    #[msg("Option is not in the money - cannot exercise")]
+    OptionNotInTheMoney,
 }

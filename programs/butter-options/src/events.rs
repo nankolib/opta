@@ -71,3 +71,91 @@ pub struct ResaleCancelled {
     pub position: Pubkey,
     pub seller: Pubkey,
 }
+
+// =============================================================================
+// Shared Vault events (v2 liquidity system)
+// =============================================================================
+
+#[event]
+pub struct VaultCreated {
+    pub vault: Pubkey,
+    pub market: Pubkey,
+    pub vault_type: u8,
+    pub strike_price: u64,
+    pub expiry: i64,
+    pub option_type: u8,
+    pub creator: Pubkey,
+}
+
+#[event]
+pub struct VaultDeposited {
+    pub vault: Pubkey,
+    pub writer: Pubkey,
+    pub amount: u64,
+    pub shares: u64,
+    pub total_collateral: u64,
+}
+
+#[event]
+pub struct VaultMinted {
+    pub vault: Pubkey,
+    pub writer: Pubkey,
+    pub mint: Pubkey,
+    pub quantity: u64,
+    pub premium_per_contract: u64,
+}
+
+#[event]
+pub struct VaultPurchased {
+    pub vault: Pubkey,
+    pub buyer: Pubkey,
+    pub mint: Pubkey,
+    pub quantity: u64,
+    pub total_premium: u64,
+}
+
+#[event]
+pub struct VaultBurnUnsold {
+    pub vault: Pubkey,
+    pub writer: Pubkey,
+    pub mint: Pubkey,
+    pub burned: u64,
+}
+
+#[event]
+pub struct VaultWithdrawn {
+    pub vault: Pubkey,
+    pub writer: Pubkey,
+    pub amount: u64,
+    pub shares: u64,
+}
+
+#[event]
+pub struct PremiumClaimed {
+    pub vault: Pubkey,
+    pub writer: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct VaultSettled {
+    pub vault: Pubkey,
+    pub settlement_price: u64,
+    pub total_payout: u64,
+    pub collateral_remaining: u64,
+}
+
+#[event]
+pub struct VaultExercised {
+    pub vault: Pubkey,
+    pub holder: Pubkey,
+    pub quantity: u64,
+    pub payout: u64,
+}
+
+#[event]
+pub struct VaultPostSettlementWithdraw {
+    pub vault: Pubkey,
+    pub writer: Pubkey,
+    pub amount: u64,
+}
