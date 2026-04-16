@@ -5,19 +5,15 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
-    // Polyfills needed for Solana wallet adapter libraries
-    "process.env": {},
     global: "globalThis",
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      define: { global: "globalThis" },
-    },
+    "process.env": "{}",
   },
   resolve: {
     alias: {
-      // Node.js polyfills for browser
       buffer: "buffer",
+      process: "process/browser",
+      stream: "stream-browserify",
+      util: "util",
     },
   },
 });
