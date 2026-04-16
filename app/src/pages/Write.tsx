@@ -1,19 +1,150 @@
 import { FC, useEffect, useState, useMemo } from "react";
-import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram, ComputeBudgetProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
 import { usePythPrices } from "../hooks/usePythPrices";
+import { useVaults } from "../hooks/useVaults";
 import { showToast } from "../components/Toast";
-import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
+import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, USE_V2_VAULTS, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
 import { formatUsdc, formatExpiryShort, truncateAddress, usdcToNumber, toUsdcBN, daysUntilExpiry, isExpired } from "../utils/format";
 import { calculateCallPremium, calculatePutPremium, getDefaultVolatility } from "../utils/blackScholes";
+import { VaultBrowser } from "../components/write/VaultBrowser";
+import { DepositModal } from "../components/write/DepositModal";
+import { CreateCustomVault } from "../components/write/CreateCustomVault";
+import { MintFromVault } from "../components/write/MintFromVault";
 
 interface MarketAccount { publicKey: PublicKey; account: any; }
 interface PositionAccount { publicKey: PublicKey; account: any; }
 
+// =============================================================================
+// V2 Write Flow — shared vault system
+// =============================================================================
+type WriteScreen = "choose" | "browse-vaults" | "create-custom" | "deposit-modal" | "mint";
+
+const WriteV2: FC<{ program: any; publicKey: PublicKey | null; connected: boolean; markets: MarketAccount[] }> = ({ program, publicKey, connected, markets }) => {
+  const { vaults, myPositions, isLoading, refetch: refetchVaults } = useVaults();
+  const [screen, setScreen] = useState<WriteScreen>("choose");
+  const [selectedVaultKey, setSelectedVaultKey] = useState<PublicKey | null>(null);
+
+  // Build market lookup for display
+  const marketMap = useMemo(() => {
+    const map = new Map<string, any>();
+    markets.forEach((m) => map.set(m.publicKey.toBase58(), m.account));
+    return map;
+  }, [markets]);
+
+  const selectedVault = selectedVaultKey ? vaults.find((v) => v.publicKey.equals(selectedVaultKey)) ?? null : null;
+  const selectedMarket = selectedVault ? marketMap.get((selectedVault.account.market as PublicKey).toBase58()) : null;
+  const selectedMyPosition = selectedVaultKey ? myPositions.find((wp) => (wp.account.vault as PublicKey).equals(selectedVaultKey)) ?? null : null;
+
+  const handleDepositClick = (vaultKey: PublicKey) => {
+    setSelectedVaultKey(vaultKey);
+    setScreen("deposit-modal");
+  };
+
+  const handleDepositSuccess = (vaultKey: PublicKey) => {
+    setSelectedVaultKey(vaultKey);
+    refetchVaults();
+    setScreen("mint");
+  };
+
+  const handleCreateSuccess = (vaultKey: PublicKey) => {
+    setSelectedVaultKey(vaultKey);
+    refetchVaults();
+    setScreen("mint");
+  };
+
+  if (!connected || !publicKey) {
+    return (
+      <div className="rounded-2xl border border-border bg-bg-surface p-12 text-center">
+        <p className="text-text-muted text-sm">Connect your wallet to write options.</p>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-border bg-bg-surface p-12 text-center">
+        <div className="text-text-muted animate-pulse">Loading vaults from devnet...</div>
+      </div>
+    );
+  }
+
+  // Screen routing
+  if (screen === "browse-vaults") {
+    return <VaultBrowser vaults={vaults} markets={markets} myPositions={myPositions} onDeposit={handleDepositClick} onBack={() => setScreen("choose")} onRefresh={refetchVaults} />;
+  }
+
+  if (screen === "create-custom") {
+    return <CreateCustomVault markets={markets} program={program} publicKey={publicKey} onBack={() => setScreen("choose")} onSuccess={handleCreateSuccess} />;
+  }
+
+  if (screen === "deposit-modal" && selectedVault && selectedMarket) {
+    return (
+      <DepositModal
+        vault={selectedVault}
+        market={selectedMarket}
+        myPosition={selectedMyPosition}
+        program={program}
+        publicKey={publicKey}
+        onClose={() => setScreen("browse-vaults")}
+        onSuccess={handleDepositSuccess}
+      />
+    );
+  }
+
+  if (screen === "mint" && selectedVault && selectedMarket) {
+    return (
+      <MintFromVault
+        vault={selectedVault}
+        market={selectedMarket}
+        writerPosition={selectedMyPosition}
+        program={program}
+        publicKey={publicKey}
+        onBack={() => setScreen("choose")}
+        onRefetch={refetchVaults}
+      />
+    );
+  }
+
+  // Screen 1 — Choose Your Path
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Join Epoch Pool */}
+      <button onClick={() => setScreen("browse-vaults")}
+        className="group rounded-2xl border border-border bg-bg-surface p-8 text-left hover:border-sol-purple/40 hover:bg-bg-surface-hover transition-all">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sol-purple/10 border border-sol-purple/20">
+            <span className="text-sol-purple text-lg">&#x2693;</span>
+          </div>
+          <h3 className="text-lg font-semibold text-text-primary group-hover:text-sol-purple transition-colors">Join Epoch Pool</h3>
+        </div>
+        <p className="text-sm text-text-secondary">Deposit into an existing Friday-expiry vault alongside other writers. Shared liquidity, proportional returns.</p>
+        <div className="mt-4 text-xs text-text-muted">{vaults.filter(v => "epoch" in v.account.vaultType && !v.account.isSettled).length} active epoch vaults</div>
+      </button>
+
+      {/* Create Custom Option */}
+      <button onClick={() => setScreen("create-custom")}
+        className="group rounded-2xl border border-border bg-bg-surface p-8 text-left hover:border-gold/40 hover:bg-bg-surface-hover transition-all">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gold/10 border border-gold/20">
+            <span className="text-gold text-lg">&#x2726;</span>
+          </div>
+          <h3 className="text-lg font-semibold text-text-primary group-hover:text-gold transition-colors">Create Custom Option</h3>
+        </div>
+        <p className="text-sm text-text-secondary">Create your own vault with any expiry. Full control over strike, collateral, and timing.</p>
+        <div className="mt-4 text-xs text-text-muted">Single-writer vault, custom parameters</div>
+      </button>
+    </div>
+  );
+};
+
+// =============================================================================
+// Main Write Page — switches between v1 and v2 via feature flag
+// =============================================================================
 export const Write: FC = () => {
   const { program, provider } = useProgram();
   const { publicKey, connected } = useWallet();
@@ -105,57 +236,61 @@ export const Write: FC = () => {
           <div className="rounded-xl border border-border bg-bg-surface p-12 text-center"><div className="text-text-muted animate-pulse">Loading from devnet...</div></div>
         ) : (
           <div className="space-y-8">
-            {/* Write + Primary Options */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <WriteOptionPanel markets={activeMarkets} program={program} provider={provider} publicKey={publicKey} connected={connected} onSuccess={refetch} marketMap={marketMap} getFairPrice={getFairPrice} />
+            {/* V2 vault flow or V1 isolated escrow */}
+            {USE_V2_VAULTS ? (
+              <WriteV2 program={program} publicKey={publicKey} connected={connected} markets={markets} />
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <WriteOptionPanelV1 markets={activeMarkets} program={program} provider={provider} publicKey={publicKey} connected={connected} onSuccess={refetch} marketMap={marketMap} getFairPrice={getFairPrice} />
 
-              {/* Available Options */}
-              <div className="rounded-2xl border border-border bg-bg-surface p-6">
-                <h2 className="text-lg font-semibold text-sol-green mb-5">Available Options</h2>
-                {primaryOptions.length === 0 ? (
-                  <p className="text-text-muted text-sm">No options available for purchase.</p>
-                ) : (
-                  <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                    {primaryOptions.map((p) => {
-                      const mkt = marketMap.get(p.account.market.toBase58());
-                      if (!mkt) return null;
-                      const isCall = "call" in mkt.optionType;
-                      const fair = getFairPrice(mkt);
-                      return (
-                        <div key={p.publicKey.toBase58()} className="rounded-xl border border-border bg-bg-primary p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-text-primary">{mkt.assetName}</span>
-                              <span className={`text-xs px-2 py-0.5 rounded-full ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>{isCall ? "Call" : "Put"}</span>
+                {/* Available Options */}
+                <div className="rounded-2xl border border-border bg-bg-surface p-6">
+                  <h2 className="text-lg font-semibold text-sol-green mb-5">Available Options</h2>
+                  {primaryOptions.length === 0 ? (
+                    <p className="text-text-muted text-sm">No options available for purchase.</p>
+                  ) : (
+                    <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                      {primaryOptions.map((p) => {
+                        const mkt = marketMap.get(p.account.market.toBase58());
+                        if (!mkt) return null;
+                        const isCall = "call" in mkt.optionType;
+                        const fair = getFairPrice(mkt);
+                        return (
+                          <div key={p.publicKey.toBase58()} className="rounded-xl border border-border bg-bg-primary p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold text-text-primary">{mkt.assetName}</span>
+                                <span className={`text-xs px-2 py-0.5 rounded-full ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>{isCall ? "Call" : "Put"}</span>
+                              </div>
+                              <span className="text-xs text-text-muted">Exp: {formatExpiryShort(mkt.expiryTimestamp)}</span>
                             </div>
-                            <span className="text-xs text-text-muted">Exp: {formatExpiryShort(mkt.expiryTimestamp)}</span>
+                            <div className="grid grid-cols-4 gap-2 text-xs mb-3">
+                              <div><div className="text-text-muted">Strike</div><div className="text-text-primary font-medium">${formatUsdc(mkt.strikePrice)}</div></div>
+                              <div><div className="text-text-muted">Premium</div><div className="text-gold font-medium">${formatUsdc(p.account.premium)}</div></div>
+                              <div><div className="text-text-muted">Fair Value</div><div className="text-text-secondary font-medium">${fair.toFixed(2)}</div></div>
+                              <div><div className="text-text-muted">Available</div><div className="text-sol-green font-medium">{((p.account.totalSupply?.toNumber?.() || 0) - (p.account.tokensSold?.toNumber?.() || 0)).toLocaleString()}/{(p.account.totalSupply?.toNumber?.() || 0).toLocaleString()}</div></div>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <div className="text-xs text-text-muted">Writer: {truncateAddress(p.account.writer.toBase58())}</div>
+                              {connected && publicKey?.toBase58() !== p.account.writer.toBase58() ? (
+                                <button onClick={() => setBuyModal({ position: p, market: mkt, isResale: false })}
+                                  className="rounded-lg bg-sol-green/15 border border-sol-green/30 px-5 py-2 text-xs font-semibold text-sol-green hover:bg-sol-green/25 transition-colors">
+                                  Buy ${formatUsdc(p.account.premium)}
+                                </button>
+                              ) : connected ? (
+                                <span className="text-xs text-text-muted">Your option</span>
+                              ) : (
+                                <span className="text-xs text-text-muted">Connect wallet</span>
+                              )}
+                            </div>
                           </div>
-                          <div className="grid grid-cols-4 gap-2 text-xs mb-3">
-                            <div><div className="text-text-muted">Strike</div><div className="text-text-primary font-medium">${formatUsdc(mkt.strikePrice)}</div></div>
-                            <div><div className="text-text-muted">Premium</div><div className="text-gold font-medium">${formatUsdc(p.account.premium)}</div></div>
-                            <div><div className="text-text-muted">Fair Value</div><div className="text-text-secondary font-medium">${fair.toFixed(2)}</div></div>
-                            <div><div className="text-text-muted">Available</div><div className="text-sol-green font-medium">{((p.account.totalSupply?.toNumber?.() || 0) - (p.account.tokensSold?.toNumber?.() || 0)).toLocaleString()}/{(p.account.totalSupply?.toNumber?.() || 0).toLocaleString()}</div></div>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <div className="text-xs text-text-muted">Writer: {truncateAddress(p.account.writer.toBase58())}</div>
-                            {connected && publicKey?.toBase58() !== p.account.writer.toBase58() ? (
-                              <button onClick={() => setBuyModal({ position: p, market: mkt, isResale: false })}
-                                className="rounded-lg bg-sol-green/15 border border-sol-green/30 px-5 py-2 text-xs font-semibold text-sol-green hover:bg-sol-green/25 transition-colors">
-                                Buy ${formatUsdc(p.account.premium)}
-                              </button>
-                            ) : connected ? (
-                              <span className="text-xs text-text-muted">Your option</span>
-                            ) : (
-                              <span className="text-xs text-text-muted">Connect wallet</span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Secondary Market (Resale) */}
             <div className="rounded-2xl border border-gold/20 bg-bg-surface p-6">
@@ -276,7 +411,7 @@ const BuyConfirmModal: FC<{
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
           transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
           systemProgram: SystemProgram.programId,
-          rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
+          rent: SYSVAR_RENT_PUBKEY,
         }).preInstructions(preIxs).rpc({ commitment: "confirmed" });
         showToast({ type: "success", title: "Resale purchased!", message: `Paid $${formatUsdc(price)}`, txSignature: tx });
       } else {
@@ -291,7 +426,7 @@ const BuyConfirmModal: FC<{
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
           transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
           systemProgram: SystemProgram.programId,
-          rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
+          rent: SYSVAR_RENT_PUBKEY,
         }).preInstructions(preIxs).rpc({ commitment: "confirmed" });
         showToast({ type: "success", title: "Option purchased!", message: `Paid $${formatUsdc(price)} USDC`, txSignature: tx });
       }
@@ -362,7 +497,7 @@ const BuyConfirmModal: FC<{
 // =============================================================================
 // Write Option Panel
 // =============================================================================
-const WriteOptionPanel: FC<{
+const WriteOptionPanelV1: FC<{
   markets: MarketAccount[]; program: any; provider: any; publicKey: PublicKey | null;
   connected: boolean; onSuccess: () => void; marketMap: Map<string, any>; getFairPrice: (mkt: any) => number;
 }> = ({ markets, program, provider, publicKey, connected, onSuccess, marketMap, getFairPrice }) => {
@@ -421,7 +556,7 @@ const WriteOptionPanel: FC<{
           transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
-          rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
+          rent: SYSVAR_RENT_PUBKEY,
         }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
 
       showToast({ type: "success", title: "Option written!", message: `Option created. Premium: $${premium}`, txSignature: tx });

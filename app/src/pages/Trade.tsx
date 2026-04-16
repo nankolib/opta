@@ -1,17 +1,19 @@
 import { FC, useEffect, useState, useMemo } from "react";
-import { PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram, ComputeBudgetProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { Link } from "react-router-dom";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
+import { useVaults } from "../hooks/useVaults";
 import { usePythPrices } from "../hooks/usePythPrices";
 import { showToast } from "../components/Toast";
-import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
+import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, USE_V2_VAULTS, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
 import { formatUsdc, formatExpiryShort, usdcToNumber, daysUntilExpiry, isExpired, truncateAddress } from "../utils/format";
 import { calculateCallGreeks, calculatePutGreeks, calculateCallPremium, calculatePutPremium, getDefaultVolatility } from "../utils/blackScholes";
 import type { Greeks } from "../utils/blackScholes";
+import { BuyVaultModal } from "../components/trade/BuyVaultModal";
 
 interface MarketAccount { publicKey: PublicKey; account: any; }
 interface PositionAccount { publicKey: PublicKey; account: any; }
@@ -28,6 +30,9 @@ interface ChainRow {
   putAsk: number | null;
   callVolume: number;
   putVolume: number;
+  // V2 vault mint references for the best ask
+  callBestVaultMint?: { vaultMint: any; vault: any; market: any } | null;
+  putBestVaultMint?: { vaultMint: any; vault: any; market: any } | null;
 }
 
 export const Trade: FC = () => {
@@ -39,6 +44,10 @@ export const Trade: FC = () => {
   const [selectedAsset, setSelectedAsset] = useState<string>("");
   const [selectedExpiry, setSelectedExpiry] = useState<number>(0);
   const [buyModal, setBuyModal] = useState<{ position: PositionAccount; market: any; isResale: boolean } | null>(null);
+
+  // V2 vault state
+  const { vaults, vaultMints, isLoading: vaultsLoading, refetch: refetchVaults } = useVaults();
+  const [buyVaultModal, setBuyVaultModal] = useState<{ vaultMint: any; vault: any; market: any } | null>(null);
 
   useEffect(() => {
     if (!program) return;
@@ -73,11 +82,18 @@ export const Trade: FC = () => {
     return Array.from(map.values());
   }, [markets]);
 
-  // Step 2: Unique asset names → asset tabs
+  // Step 2: Unique asset names → asset tabs (include v2 vault assets)
   const assets = useMemo(() => {
     const names = new Set(activeMarkets.map((m) => m.account.assetName as string));
+    if (USE_V2_VAULTS) {
+      for (const v of vaults) {
+        if (v.account.isSettled) continue;
+        const mkt = markets.find((m) => m.publicKey.equals(v.account.market as PublicKey));
+        if (mkt) names.add(mkt.account.assetName as string);
+      }
+    }
     return Array.from(names).sort();
-  }, [activeMarkets]);
+  }, [activeMarkets, vaults, markets]);
 
   // Auto-select first asset
   useEffect(() => {
@@ -97,8 +113,19 @@ export const Trade: FC = () => {
       const rounded = roundToDay(t);
       if (!dayMap.has(rounded)) dayMap.set(rounded, t);
     }
+    // Include vault expiries
+    if (USE_V2_VAULTS) {
+      for (const v of vaults) {
+        if (v.account.isSettled) continue;
+        const mkt = markets.find((m) => m.publicKey.equals(v.account.market as PublicKey));
+        if (!mkt || mkt.account.assetName !== selectedAsset) continue;
+        const t = typeof v.account.expiry === "number" ? v.account.expiry : v.account.expiry.toNumber();
+        const rounded = roundToDay(t);
+        if (!dayMap.has(rounded)) dayMap.set(rounded, t);
+      }
+    }
     return Array.from(dayMap.values()).sort((a, b) => a - b);
-  }, [activeMarkets, selectedAsset]);
+  }, [activeMarkets, selectedAsset, vaults, markets]);
 
   // Auto-select first expiry
   useEffect(() => {
@@ -119,9 +146,20 @@ export const Trade: FC = () => {
       return m.account.assetName === selectedAsset && roundToDay(t) === selectedDay;
     });
 
-    // Collect all strikes
+    // Collect all strikes (from markets + v2 vaults)
     const strikeSet = new Set<number>();
     filtered.forEach((m) => strikeSet.add(usdcToNumber(m.account.strikePrice)));
+    if (USE_V2_VAULTS) {
+      for (const v of vaults) {
+        if (v.account.isSettled) continue;
+        const vExpiry = typeof v.account.expiry === "number" ? v.account.expiry : v.account.expiry.toNumber();
+        if (roundToDay(vExpiry) !== selectedDay) continue;
+        const mkt = markets.find((m) => m.publicKey.equals(v.account.market as PublicKey));
+        if (mkt?.account.assetName === selectedAsset) {
+          strikeSet.add(usdcToNumber(v.account.strikePrice));
+        }
+      }
+    }
     const strikes = Array.from(strikeSet).sort((a, b) => a - b);
 
     // Use live Pyth price if available, otherwise fall back to median strike
@@ -176,23 +214,67 @@ export const Trade: FC = () => {
       const callResult = findBest(callMarket);
       const putResult = findBest(putMarket);
 
+      // V2: overlay vault mint data if available and cheaper
+      let callBestVaultMint: ChainRow["callBestVaultMint"] = null;
+      let putBestVaultMint: ChainRow["putBestVaultMint"] = null;
+      let callAsk = callResult.ask;
+      let putAsk = putResult.ask;
+      let callVolume = callResult.volume;
+      let putVolume = putResult.volume;
+
+      if (USE_V2_VAULTS) {
+        // Find vault mints matching this strike+type from active vaults
+        for (const vm of vaultMints) {
+          const parentVault = vaults.find((v) => v.publicKey.equals(vm.account.vault as PublicKey));
+          if (!parentVault || parentVault.account.isSettled) continue;
+          const vExpiry = typeof parentVault.account.expiry === "number" ? parentVault.account.expiry : parentVault.account.expiry.toNumber();
+          if (roundToDay(vExpiry) !== selectedDay) continue;
+          const vStrike = usdcToNumber(parentVault.account.strikePrice);
+          if (vStrike !== strike) continue;
+          const parentMkt = markets.find((m) => m.publicKey.equals(parentVault.account.market as PublicKey));
+          if (!parentMkt || parentMkt.account.assetName !== selectedAsset) continue;
+
+          const vIsCall = "call" in parentVault.account.optionType;
+          const unsold = (vm.account.quantityMinted?.toNumber?.() || 0) - (vm.account.quantitySold?.toNumber?.() || 0);
+          if (unsold <= 0) continue;
+          const price = usdcToNumber(vm.account.premiumPerContract);
+          const sold = vm.account.quantitySold?.toNumber?.() || 0;
+
+          if (vIsCall) {
+            callVolume += sold;
+            if (callAsk === null || price < callAsk) {
+              callAsk = price;
+              callBestVaultMint = { vaultMint: vm, vault: parentVault, market: parentMkt?.account };
+            }
+          } else {
+            putVolume += sold;
+            if (putAsk === null || price < putAsk) {
+              putAsk = price;
+              putBestVaultMint = { vaultMint: vm, vault: parentVault, market: parentMkt?.account };
+            }
+          }
+        }
+      }
+
       return {
         strike,
         callMarket,
         putMarket,
         callGreeks,
         putGreeks,
-        callBestPosition: callResult.best,
-        putBestPosition: putResult.best,
-        callAsk: callResult.ask,
-        putAsk: putResult.ask,
-        callVolume: callResult.volume,
-        putVolume: putResult.volume,
+        callBestPosition: callBestVaultMint ? null : callResult.best,
+        putBestPosition: putBestVaultMint ? null : putResult.best,
+        callAsk,
+        putAsk,
+        callVolume,
+        putVolume,
+        callBestVaultMint,
+        putBestVaultMint,
       };
     });
 
     return { rows: chainRows, spotPrice: liveSpot };
-  }, [activeMarkets, positions, selectedAsset, selectedExpiry, spotPrices]);
+  }, [activeMarkets, positions, selectedAsset, selectedExpiry, spotPrices, vaults, vaultMints]);
 
   // ATM strike (closest to spot)
   const atmStrike = useMemo(() => {
@@ -208,8 +290,6 @@ export const Trade: FC = () => {
     }
     return closest;
   }, [rows, spotPrice]);
-
-  const ivDisplay = `${(getDefaultVolatility(selectedAsset) * 100).toFixed(0)}%`;
 
   const refetch = async () => {
     if (!program) return;
@@ -278,6 +358,12 @@ export const Trade: FC = () => {
               <span className="text-xs text-sol-purple">Devnet — not real money</span>
             </div>
 
+            {!publicKey && (
+              <div className="rounded-lg border border-gold/20 bg-gold/5 px-4 py-2 mb-4 text-xs text-text-secondary text-center">
+                Connect your wallet to buy options. Click any Ask price to purchase.
+              </div>
+            )}
+
             {/* 5. CALLS / PUTS labels */}
             <div className="flex items-center justify-between mb-2 px-2">
               <span className="text-xs font-semibold uppercase tracking-wider px-3 py-1 rounded-full bg-sol-green/10 text-sol-green">Calls</span>
@@ -291,26 +377,28 @@ export const Trade: FC = () => {
                   <thead>
                     <tr className="border-b border-border">
                       {/* Call columns */}
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-left">IV</th>
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Delta</th>
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Bid</th>
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Ask</th>
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Vol</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Delta</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Gamma</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Theta</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Vega</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Fair</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-green/70 text-right">Ask</th>
                       {/* Strike */}
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-text-muted bg-bg-primary/50 text-center">Strike</th>
+                      <th className="px-3 py-3 text-xs font-medium uppercase tracking-wider text-text-muted bg-bg-primary/50 text-center">Strike</th>
                       {/* Put columns */}
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Vol</th>
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Bid</th>
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Ask</th>
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Delta</th>
-                      <th className="px-4 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-right">IV</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Ask</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Fair</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Vega</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Theta</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Gamma</th>
+                      <th className="px-2 py-3 text-xs font-medium uppercase tracking-wider text-sol-purple/70 text-left">Delta</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="px-4 py-8 text-center text-text-muted">
-                          No options written yet for this market.
+                        <td colSpan={13} className="px-4 py-8 text-center text-text-muted">
+                          No options available for this market yet. <a href="/write" className="text-gold hover:underline">Write some options</a>.
                         </td>
                       </tr>
                     ) : (
@@ -322,57 +410,43 @@ export const Trade: FC = () => {
                         return (
                           <tr key={row.strike} className="border-b border-border/50 hover:bg-bg-surface-hover transition-colors">
                             {/* Call side */}
-                            <td className={`px-4 py-3 text-xs text-text-muted ${callItm ? "bg-sol-green/5" : ""}`}>{ivDisplay}</td>
-                            <td className={`px-4 py-3 text-xs text-text-muted text-right ${callItm ? "bg-sol-green/5" : ""}`}>
-                              {row.callGreeks.delta.toFixed(2)}
+                            <td className={`px-2 py-2.5 text-xs text-right ${callItm ? "bg-sol-green/5" : ""}`}>
+                              <span style={{ color: `rgba(74,222,128,${Math.abs(row.callGreeks.delta)})` }}>{row.callGreeks.delta.toFixed(2)}</span>
                             </td>
-                            <td className={`px-4 py-3 text-text-secondary text-right ${callItm ? "bg-sol-green/5" : ""}`}>
-                              ${row.callGreeks.premium.toFixed(2)}
+                            <td className={`px-2 py-2.5 text-xs text-text-muted text-right ${callItm ? "bg-sol-green/5" : ""}`}>{row.callGreeks.gamma.toFixed(4)}</td>
+                            <td className={`px-2 py-2.5 text-xs text-right ${callItm ? "bg-sol-green/5" : ""}`}>
+                              <span className="text-loss">{row.callGreeks.theta < 0 ? row.callGreeks.theta.toFixed(2) : `-${row.callGreeks.theta.toFixed(2)}`}</span>
                             </td>
-                            <td className={`px-4 py-3 text-right ${callItm ? "bg-sol-green/5" : ""}`}>
+                            <td className={`px-2 py-2.5 text-xs text-text-muted text-right ${callItm ? "bg-sol-green/5" : ""}`}>{row.callGreeks.vega.toFixed(2)}</td>
+                            <td className={`px-2 py-2.5 text-text-secondary text-right text-xs ${callItm ? "bg-sol-green/5" : ""}`}>${row.callGreeks.premium.toFixed(2)}</td>
+                            <td className={`px-2 py-2.5 text-right ${callItm ? "bg-sol-green/5" : ""}`}>
                               {row.callAsk !== null ? (
-                                <button
-                                  onClick={() => row.callBestPosition && row.callMarket && setBuyModal({ position: row.callBestPosition, market: row.callMarket.account, isResale: false })}
-                                  className="cursor-pointer font-medium text-sol-green hover:text-sol-green/80 hover:underline"
-                                >
-                                  ${row.callAsk.toFixed(2)}
-                                </button>
-                              ) : (
-                                <span className="text-text-muted/50">—</span>
-                              )}
-                            </td>
-                            <td className={`px-4 py-3 text-text-muted text-right ${callItm ? "bg-sol-green/5" : ""}`}>
-                              {row.callVolume > 0 ? row.callVolume.toLocaleString() : <span className="text-text-muted/50">—</span>}
+                                <button onClick={() => { if (row.callBestVaultMint) setBuyVaultModal(row.callBestVaultMint); else if (row.callBestPosition && row.callMarket) setBuyModal({ position: row.callBestPosition, market: row.callMarket.account, isResale: false }); }}
+                                  className="cursor-pointer text-xs font-medium text-sol-green hover:text-sol-green/80 hover:underline">${row.callAsk.toFixed(2)}</button>
+                              ) : <span className="text-text-muted/50 text-xs">—</span>}
                             </td>
 
                             {/* Strike */}
-                            <td className={`text-center font-medium text-text-primary bg-bg-primary/30 px-4 py-3 ${isAtm ? "text-gold font-bold" : ""}`}>
-                              ${row.strike.toFixed(2)}{isAtm ? " ←" : ""}
+                            <td className={`text-center font-medium text-text-primary bg-bg-primary/30 px-3 py-2.5 text-sm ${isAtm ? "text-gold font-bold" : ""}`}>
+                              ${row.strike % 1 === 0 ? row.strike.toLocaleString() : row.strike.toFixed(2)}{isAtm ? " ←" : ""}
                             </td>
 
                             {/* Put side */}
-                            <td className={`px-4 py-3 text-text-muted ${putItm ? "bg-sol-purple/5" : ""}`}>
-                              {row.putVolume > 0 ? row.putVolume.toLocaleString() : <span className="text-text-muted/50">—</span>}
-                            </td>
-                            <td className={`px-4 py-3 text-text-secondary ${putItm ? "bg-sol-purple/5" : ""}`}>
-                              ${row.putGreeks.premium.toFixed(2)}
-                            </td>
-                            <td className={`px-4 py-3 ${putItm ? "bg-sol-purple/5" : ""}`}>
+                            <td className={`px-2 py-2.5 ${putItm ? "bg-sol-purple/5" : ""}`}>
                               {row.putAsk !== null ? (
-                                <button
-                                  onClick={() => row.putBestPosition && row.putMarket && setBuyModal({ position: row.putBestPosition, market: row.putMarket.account, isResale: false })}
-                                  className="cursor-pointer font-medium text-sol-purple hover:text-sol-purple/80 hover:underline"
-                                >
-                                  ${row.putAsk.toFixed(2)}
-                                </button>
-                              ) : (
-                                <span className="text-text-muted/50">—</span>
-                              )}
+                                <button onClick={() => { if (row.putBestVaultMint) setBuyVaultModal(row.putBestVaultMint); else if (row.putBestPosition && row.putMarket) setBuyModal({ position: row.putBestPosition, market: row.putMarket.account, isResale: false }); }}
+                                  className="cursor-pointer text-xs font-medium text-sol-purple hover:text-sol-purple/80 hover:underline">${row.putAsk.toFixed(2)}</button>
+                              ) : <span className="text-text-muted/50 text-xs">—</span>}
                             </td>
-                            <td className={`px-4 py-3 text-xs text-text-muted ${putItm ? "bg-sol-purple/5" : ""}`}>
-                              {row.putGreeks.delta.toFixed(2)}
+                            <td className={`px-2 py-2.5 text-text-secondary text-xs ${putItm ? "bg-sol-purple/5" : ""}`}>${row.putGreeks.premium.toFixed(2)}</td>
+                            <td className={`px-2 py-2.5 text-xs text-text-muted ${putItm ? "bg-sol-purple/5" : ""}`}>{row.putGreeks.vega.toFixed(2)}</td>
+                            <td className={`px-2 py-2.5 text-xs ${putItm ? "bg-sol-purple/5" : ""}`}>
+                              <span className="text-loss">{row.putGreeks.theta < 0 ? row.putGreeks.theta.toFixed(2) : `-${row.putGreeks.theta.toFixed(2)}`}</span>
                             </td>
-                            <td className={`px-4 py-3 text-xs text-text-muted text-right ${putItm ? "bg-sol-purple/5" : ""}`}>{ivDisplay}</td>
+                            <td className={`px-2 py-2.5 text-xs text-text-muted ${putItm ? "bg-sol-purple/5" : ""}`}>{row.putGreeks.gamma.toFixed(4)}</td>
+                            <td className={`px-2 py-2.5 text-xs ${putItm ? "bg-sol-purple/5" : ""}`}>
+                              <span style={{ color: `rgba(192,132,252,${Math.abs(row.putGreeks.delta)})` }}>{row.putGreeks.delta.toFixed(2)}</span>
+                            </td>
                           </tr>
                         );
                       })
@@ -384,11 +458,12 @@ export const Trade: FC = () => {
 
             {/* 7. Legend */}
             <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-xs text-text-muted px-2">
-              <span><strong>IV</strong> — Implied Volatility</span>
               <span><strong>Delta</strong> — Price sensitivity per $1 move</span>
-              <span><strong>Bid</strong> — Theoretical fair value (B-S)</span>
+              <span><strong>Gamma</strong> — Delta change rate</span>
+              <span><strong>Theta</strong> — Daily time decay (USD)</span>
+              <span><strong>Vega</strong> — Sensitivity to 1% IV change</span>
+              <span><strong>Fair</strong> — B-S theoretical value</span>
               <span><strong>Ask</strong> — Cheapest available (click to buy)</span>
-              <span><strong>Vol</strong> — Contracts sold</span>
             </div>
 
             {/* 8. Link to Write page */}
@@ -401,7 +476,7 @@ export const Trade: FC = () => {
         )}
       </div>
 
-      {/* Buy Confirmation Modal */}
+      {/* Buy Confirmation Modal (v1) */}
       {buyModal && (
         <BuyConfirmModal
           {...buyModal}
@@ -411,6 +486,20 @@ export const Trade: FC = () => {
           publicKey={publicKey}
           onClose={() => setBuyModal(null)}
           onSuccess={() => { setBuyModal(null); refetch(); }}
+        />
+      )}
+
+      {/* Buy Vault Modal (v2) */}
+      {buyVaultModal && publicKey && (
+        <BuyVaultModal
+          vaultMint={buyVaultModal.vaultMint}
+          vault={buyVaultModal.vault}
+          market={buyVaultModal.market}
+          spotPrice={spotPrices[buyVaultModal.market?.assetName] || 0}
+          program={program}
+          publicKey={publicKey}
+          onClose={() => setBuyVaultModal(null)}
+          onSuccess={() => { setBuyVaultModal(null); refetch(); refetchVaults(); }}
         />
       )}
     </div>
@@ -475,7 +564,7 @@ const BuyConfirmModal: FC<{
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
           transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
           systemProgram: SystemProgram.programId,
-          rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
+          rent: SYSVAR_RENT_PUBKEY,
         }).preInstructions(preIxs).rpc({ commitment: "confirmed" });
         showToast({ type: "success", title: "Resale purchased!", message: `Paid $${formatUsdc(price)}`, txSignature: tx });
       } else {
@@ -489,7 +578,7 @@ const BuyConfirmModal: FC<{
           tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
           transferHookProgram: TRANSFER_HOOK_PROGRAM_ID, extraAccountMetaList, hookState,
           systemProgram: SystemProgram.programId,
-          rent: new PublicKey("SysvarRent111111111111111111111111111111111"),
+          rent: SYSVAR_RENT_PUBKEY,
         }).preInstructions(preIxs).rpc({ commitment: "confirmed" });
         showToast({ type: "success", title: "Option purchased!", message: `Paid $${formatUsdc(price)} USDC`, txSignature: tx });
       }

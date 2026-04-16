@@ -17,11 +17,20 @@ const DISCRIMINATORS: Record<string, number[]> = {
   optionsMarket: [67, 30, 90, 36, 130, 219, 166, 8],
   optionPosition: [212, 247, 167, 73, 56, 224, 204, 102],
   protocolState: [33, 51, 173, 134, 35, 140, 195, 248],
+  // V2 vault accounts
+  sharedVault: [195, 36, 66, 128, 41, 62, 161, 142],
+  writerPosition: [195, 252, 56, 77, 221, 13, 8, 69],
+  vaultMint: [219, 139, 146, 175, 62, 90, 224, 254],
+  epochConfig: [190, 66, 87, 197, 214, 153, 144, 193],
 };
+
+export type AccountName =
+  | "optionsMarket" | "optionPosition" | "protocolState"
+  | "sharedVault" | "writerPosition" | "vaultMint" | "epochConfig";
 
 export async function safeFetchAll<T>(
   program: Program<any>,
-  accountName: "optionsMarket" | "optionPosition" | "protocolState",
+  accountName: AccountName,
 ): Promise<{ publicKey: PublicKey; account: T }[]> {
   const discriminator = DISCRIMINATORS[accountName];
   if (!discriminator) throw new Error(`Unknown account: ${accountName}`);

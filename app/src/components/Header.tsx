@@ -1,8 +1,17 @@
-import { FC, useState } from "react";
+import { FC, useState, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { Keypair, Transaction } from "@solana/web3.js";
+import {
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountInstruction,
+  createTransferInstruction,
+  getAccount,
+} from "@solana/spl-token";
 import { showToast } from "./Toast";
+import { DEVNET_FAUCET_KEYPAIR, DEVNET_USDC_MINT } from "../utils/constants";
 
 /**
  * Header — persistent navigation bar across all pages.
@@ -16,9 +25,11 @@ import { showToast } from "./Toast";
  */
 export const Header: FC = () => {
   const location = useLocation();
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, sendTransaction } = useWallet();
   const { connection } = useConnection();
   const [airdropping, setAirdropping] = useState(false);
+  const [mintingUsdc, setMintingUsdc] = useState(false);
+  const isDevnet = useMemo(() => connection.rpcEndpoint.includes("devnet"), [connection]);
 
   const navLinks = [
     { path: "/markets", label: "Markets" },
@@ -30,7 +41,6 @@ export const Header: FC = () => {
 
   const isActive = (path: string) => location.pathname === path;
 
-  // TODO: Add devnet USDC mint faucet endpoint
   const handleAirdrop = async () => {
     if (!publicKey || !connection) return;
     setAirdropping(true);
@@ -42,6 +52,52 @@ export const Header: FC = () => {
       showToast({ type: "error", title: "Airdrop failed", message: "Devnet may be rate-limited. Try again in a minute." });
     } finally {
       setAirdropping(false);
+    }
+  };
+
+  const handleUsdcFaucet = async () => {
+    if (!publicKey || !connection || !DEVNET_FAUCET_KEYPAIR || !DEVNET_USDC_MINT) {
+      showToast({ type: "error", title: "Faucet not configured", message: "Run: npx ts-node scripts/setup-faucet.ts" });
+      return;
+    }
+    setMintingUsdc(true);
+    try {
+      const faucet = Keypair.fromSecretKey(DEVNET_FAUCET_KEYPAIR);
+      const faucetAta = getAssociatedTokenAddressSync(DEVNET_USDC_MINT, faucet.publicKey, false, TOKEN_PROGRAM_ID);
+      const userAta = getAssociatedTokenAddressSync(DEVNET_USDC_MINT, publicKey, false, TOKEN_PROGRAM_ID);
+      const amount = 10_000_000_000; // 10,000 USDC
+
+      const tx = new Transaction();
+
+      // Create user's ATA if it doesn't exist
+      const userAtaInfo = await connection.getAccountInfo(userAta);
+      if (!userAtaInfo) {
+        tx.add(createAssociatedTokenAccountInstruction(
+          publicKey, userAta, publicKey, DEVNET_USDC_MINT, TOKEN_PROGRAM_ID,
+        ));
+      }
+
+      // Transfer USDC from faucet to user
+      tx.add(createTransferInstruction(
+        faucetAta, userAta, faucet.publicKey, amount, [], TOKEN_PROGRAM_ID,
+      ));
+
+      tx.feePayer = publicKey;
+      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+      tx.partialSign(faucet);
+
+      // Send via wallet adapter — works with any wallet (Phantom, Solflare, etc.)
+      const sig = await sendTransaction(tx, connection);
+      await connection.confirmTransaction(sig, "confirmed");
+
+      const balance = await getAccount(connection, userAta);
+      const usdcBalance = (Number(balance.amount) / 1_000_000).toLocaleString();
+      showToast({ type: "success", title: "Got 10,000 USDC!", message: `Your balance: $${usdcBalance} USDC` });
+    } catch (err: any) {
+      console.error("USDC faucet error:", err);
+      showToast({ type: "error", title: "USDC faucet failed", message: err.message || "Check console for details." });
+    } finally {
+      setMintingUsdc(false);
     }
   };
 
@@ -88,15 +144,24 @@ export const Header: FC = () => {
             <span className="text-xs font-medium text-sol-purple">Devnet</span>
           </div>
 
-          {/* Get Test SOL — only visible when wallet is connected */}
-          {connected && (
-            <button
-              onClick={handleAirdrop}
-              disabled={airdropping}
-              className="rounded-lg bg-bg-surface border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-border-light transition-colors disabled:opacity-50"
-            >
-              {airdropping ? "Sending..." : "Get Test SOL"}
-            </button>
+          {/* Get Test SOL + USDC — only visible when wallet connected on devnet */}
+          {connected && isDevnet && (
+            <>
+              <button
+                onClick={handleAirdrop}
+                disabled={airdropping}
+                className="rounded-lg bg-bg-surface border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-border-light transition-colors disabled:opacity-50"
+              >
+                {airdropping ? "Sending..." : "Get Test SOL"}
+              </button>
+              <button
+                onClick={handleUsdcFaucet}
+                disabled={mintingUsdc}
+                className="rounded-lg bg-bg-surface border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary hover:border-border-light transition-colors disabled:opacity-50"
+              >
+                {mintingUsdc ? "Sending..." : "Get Test USDC"}
+              </button>
+            </>
           )}
 
           {/* Wallet connect button — styled to match our theme */}

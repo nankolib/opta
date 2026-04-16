@@ -6,11 +6,17 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
+import { useVaults } from "../hooks/useVaults";
 import { usePythPrices } from "../hooks/usePythPrices";
 import { showToast } from "../components/Toast";
-import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
+import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, USE_V2_VAULTS, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
 import { formatUsdc, formatExpiryShort, usdcToNumber, getPositionStatus, isExpired, daysUntilExpiry } from "../utils/format";
 import { calculateCallPremium, calculatePutPremium, getDefaultVolatility } from "../utils/blackScholes";
+import { VaultPositions } from "../components/portfolio/VaultPositions";
+import { AdminTools } from "../components/portfolio/AdminTools";
+import { useTokenMetadata } from "../hooks/useTokenMetadata";
+import { decodeError } from "../utils/errorDecoder";
+import { V2TokenHoldings } from "../components/portfolio/V2TokenHoldings";
 
 interface PositionAccount { publicKey: PublicKey; account: any; }
 interface MarketAccount { publicKey: PublicKey; account: any; }
@@ -21,8 +27,24 @@ export const Portfolio: FC = () => {
   const [positions, setPositions] = useState<PositionAccount[]>([]);
   const [markets, setMarkets] = useState<MarketAccount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"written" | "held">("written");
+  const [activeTab, setActiveTab] = useState<"written" | "held" | "vaults">(USE_V2_VAULTS ? "vaults" : "written");
   const [resaleModal, setResaleModal] = useState<{ position: PositionAccount; market: any } | null>(null);
+
+  // V2 vault data
+  const { vaults, myPositions: myVaultPositions, vaultMints, isLoading: vaultsLoading, refetch: refetchVaults, getUnclaimedPremium } = useVaults();
+
+  // Check if wallet is admin
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    if (!program || !publicKey) return;
+    (async () => {
+      try {
+        const [protocolStatePda] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], program.programId);
+        const ps = await program.account.protocolState.fetch(protocolStatePda);
+        setIsAdmin(ps.admin.equals(publicKey));
+      } catch { setIsAdmin(false); }
+    })();
+  }, [program, publicKey]);
 
   useEffect(() => {
     if (!program || !publicKey) { setLoading(false); return; }
@@ -69,6 +91,7 @@ export const Portfolio: FC = () => {
     if (!program) return;
     const [posns, mkts] = await Promise.all([safeFetchAll(program, "optionPosition"), safeFetchAll(program, "optionsMarket")]);
     setPositions(posns as PositionAccount[]); setMarkets(mkts as MarketAccount[]);
+    refetchVaults();
   };
 
   if (!connected) {
@@ -97,6 +120,12 @@ export const Portfolio: FC = () => {
         </div>
 
         <div className="flex items-center gap-2 mb-6">
+          {USE_V2_VAULTS && (
+            <button onClick={() => setActiveTab("vaults")}
+              className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === "vaults" ? "bg-sol-purple/15 text-sol-purple border border-sol-purple/30" : "bg-bg-surface text-text-secondary border border-border"}`}>
+              Vault Positions ({myVaultPositions.length})
+            </button>
+          )}
           <button onClick={() => setActiveTab("written")}
             className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === "written" ? "bg-gold/15 text-gold border border-gold/30" : "bg-bg-surface text-text-secondary border border-border"}`}>
             Written ({writtenPositions.length})
@@ -107,8 +136,29 @@ export const Portfolio: FC = () => {
           </button>
         </div>
 
-        {loading ? (
+        {loading || vaultsLoading ? (
           <div className="rounded-xl border border-border bg-bg-surface p-12 text-center"><div className="text-text-muted animate-pulse">Loading...</div></div>
+        ) : activeTab === "vaults" ? (
+          <>
+            <div className="rounded-xl border border-border bg-bg-surface/50 p-3 mb-4 text-xs text-text-muted">
+              Your shared vault positions. Claim premium, burn unsold tokens, settle after expiry, or withdraw remaining collateral.
+            </div>
+            <VaultPositions
+              vaults={vaults}
+              myPositions={myVaultPositions}
+              vaultMints={vaultMints}
+              markets={markets}
+              program={program}
+              publicKey={publicKey!}
+              getUnclaimedPremium={getUnclaimedPremium}
+              onRefetch={refetch}
+            />
+            {isAdmin && (
+              <div className="mt-6">
+                <AdminTools markets={markets} program={program} publicKey={publicKey!} onRefetch={refetch} />
+              </div>
+            )}
+          </>
         ) : activeTab === "written" ? (
           <>
             <div className="rounded-xl border border-border bg-bg-surface/50 p-3 mb-4 text-xs text-text-muted">
@@ -121,9 +171,21 @@ export const Portfolio: FC = () => {
             <div className="rounded-xl border border-border bg-bg-surface/50 p-3 mb-4 text-xs text-text-muted">
               Living Option Tokens you hold. Exercise after settlement for USDC payout. List for resale to exit before expiry.
             </div>
-            <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!}
-            program={program} provider={provider} onSuccess={refetch} spotPrices={spotPrices}
-            onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
+            {USE_V2_VAULTS && (
+              <div className="mb-6">
+                <h3 className="text-sm font-semibold text-sol-purple mb-3">Vault Options (v2)</h3>
+                <V2TokenHoldings vaults={vaults} vaultMints={vaultMints} markets={markets}
+                  program={program} publicKey={publicKey!} onRefetch={refetch} />
+              </div>
+            )}
+            {heldPositions.length > 0 && (
+              <div>
+                {USE_V2_VAULTS && <h3 className="text-sm font-semibold text-gold mb-3">Direct Options (v1)</h3>}
+                <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!}
+                  program={program} provider={provider} onSuccess={refetch} spotPrices={spotPrices}
+                  onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
+              </div>
+            )}
           </>
         )}
       </div>
@@ -167,7 +229,7 @@ const WrittenTab: FC<{
       showToast({ type: "success", title: "Cancelled!", message: "Tokens burned, collateral returned.", txSignature: tx });
       onSuccess();
     } catch (err: any) {
-      showToast({ type: "error", title: "Cancel failed", message: err?.message?.slice(0, 100) });
+      showToast({ type: "error", title: "Cancel failed", message: decodeError(err) });
     } finally { setCancellingId(null); }
   };
 
@@ -192,7 +254,7 @@ const WrittenTab: FC<{
       showToast({ type: "success", title: "Expired!", message: `Position expired — $${collateral} USDC collateral returned.`, txSignature: tx });
       onSuccess();
     } catch (err: any) {
-      showToast({ type: "error", title: "Expire failed", message: err?.message?.slice(0, 120) });
+      showToast({ type: "error", title: "Expire failed", message: decodeError(err) });
     } finally { setExpiringId(null); }
   };
 
@@ -263,6 +325,10 @@ const HeldTab: FC<{
   const [exercisingId, setExercisingId] = useState<string | null>(null);
   const [cancellingResaleId, setCancellingResaleId] = useState<string | null>(null);
 
+  // Fetch Token-2022 metadata for held tokens
+  const mintKeys = useMemo(() => positions.map((p) => p.account.optionMint as PublicKey), [positions]);
+  const tokenMetadata = useTokenMetadata(mintKeys);
+
   const handleCancelResale = async (p: PositionAccount) => {
     if (!program || !provider || !publicKey) return;
     setCancellingResaleId(p.publicKey.toBase58());
@@ -284,12 +350,7 @@ const HeldTab: FC<{
       showToast({ type: "success", title: "Listing cancelled", message: "Tokens returned to wallet.", txSignature: tx });
       onSuccess();
     } catch (err: any) {
-      const msg = err?.message || err?.toString() || "Unknown error";
-      if (msg.includes("User rejected")) {
-        showToast({ type: "error", title: "Transaction cancelled", message: "You rejected the transaction in your wallet." });
-      } else {
-        showToast({ type: "error", title: "Cancel listing failed", message: msg.slice(0, 120) });
-      }
+      showToast({ type: "error", title: "Cancel listing failed", message: decodeError(err) });
     } finally { setCancellingResaleId(null); }
   };
 
@@ -328,10 +389,10 @@ const HeldTab: FC<{
         writerUsdcAccount, writer: p.account.writer,
         tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
       }).preInstructions([EXTRA_CU]).rpc({ commitment: "confirmed" });
-      showToast({ type: "success", title: "Exercised!", message: `Exercised ${tokensToExercise} contracts — received $${totalPayout} USDC payout`, txSignature: tx });
+      showToast({ type: "success", title: "Exercised!", message: `${tokensToExercise} tokens burned. Received $${totalPayout} USDC payout.`, txSignature: tx });
       onSuccess();
     } catch (err: any) {
-      showToast({ type: "error", title: "Exercise failed", message: err?.message?.slice(0, 120) });
+      showToast({ type: "error", title: "Exercise failed", message: decodeError(err) });
     } finally { setExercisingId(null); }
   };
   if (positions.length === 0) return <div className="rounded-xl border border-border bg-bg-surface p-12 text-center"><div className="text-text-muted">No active positions.</div></div>;
@@ -354,21 +415,34 @@ const HeldTab: FC<{
           pnlDisplay = pnl > 0 ? `+$${pnl.toFixed(2)}/contract` : "$0 (OTM)";
         }
 
+        const meta = tokenMetadata.get(p.account.optionMint.toBase58());
+
         return (
-          <div key={p.publicKey.toBase58()} className="rounded-xl border border-border bg-bg-surface p-5">
-            <div className="flex items-center justify-between mb-3">
+          <div key={p.publicKey.toBase58()} className={`rounded-xl border border-border bg-bg-surface p-5 transition-opacity ${exercisingId === p.publicKey.toBase58() ? "opacity-60" : ""}`}>
+            <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-text-primary">{mkt.assetName}</span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>{isCall ? "Call" : "Put"}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-gold/10 text-gold">SPL Token</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gold/10 text-gold">Living Token</span>
               </div>
               {settled ? <span className="text-xs text-gold">Settled @ ${formatUsdc(mkt.settlementPrice)}</span>
                 : expired ? <span className="text-xs text-text-muted">Expired</span>
                 : <span className="text-xs text-sol-green">Active — {formatExpiryShort(mkt.expiryTimestamp)}</span>}
             </div>
+            {meta && (
+              <div className="mb-3">
+                <span className="text-xs font-mono text-gold">{meta.symbol}</span>
+                <span className="text-xs text-text-muted ml-2">{meta.name}</span>
+              </div>
+            )}
+            {!meta && (
+              <div className="mb-3">
+                <span className="text-xs font-mono text-text-muted">{p.account.optionMint.toBase58().slice(0, 16)}...</span>
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-4 text-xs">
               <div><div className="text-text-muted">Strike</div><div className="text-text-primary font-medium">${formatUsdc(mkt.strikePrice)}</div></div>
-              <div><div className="text-text-muted">Mint</div><div className="text-text-primary font-mono text-[10px]">{p.account.optionMint.toBase58().slice(0, 12)}...</div></div>
+              <div><div className="text-text-muted">Expiry</div><div className="text-text-primary font-medium">{formatExpiryShort(mkt.expiryTimestamp)}</div></div>
               <div><div className="text-text-muted">PnL</div><div className={`font-medium ${pnlDisplay.startsWith("+") ? "text-sol-green" : "text-text-muted"}`}>{pnlDisplay}</div></div>
             </div>
             <div className="mt-4 pt-3 border-t border-border/50 flex gap-2">
@@ -381,7 +455,7 @@ const HeldTab: FC<{
               {settled && itm && (
                 <button onClick={() => handleExercise(p, mkt)} disabled={exercisingId === p.publicKey.toBase58()}
                   className="rounded-lg bg-sol-green/15 border border-sol-green/30 px-4 py-1.5 text-xs font-semibold text-sol-green hover:bg-sol-green/25 transition-colors disabled:opacity-50">
-                  {exercisingId === p.publicKey.toBase58() ? "Exercising..." : "Exercise"}
+                  {exercisingId === p.publicKey.toBase58() ? "Burning tokens & claiming payout..." : "Exercise & Burn"}
                 </button>
               )}
               {settled && !itm && (
