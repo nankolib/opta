@@ -6,7 +6,7 @@ import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
 import { usePythPrices } from "../hooks/usePythPrices";
-import { useVaults } from "../hooks/useVaults";
+import { useVaults, isEpochVault } from "../hooks/useVaults";
 import { showToast } from "../components/Toast";
 import { TOKEN_2022_PROGRAM_ID, TRANSFER_HOOK_PROGRAM_ID, USE_V2_VAULTS, deriveExtraAccountMetaListPda, deriveHookStatePda } from "../utils/constants";
 import { formatUsdc, formatExpiryShort, truncateAddress, usdcToNumber, toUsdcBN, daysUntilExpiry, isExpired } from "../utils/format";
@@ -147,7 +147,7 @@ const WriteV2: FC<{ program: any; publicKey: PublicKey | null; connected: boolea
           <h3 className="text-lg font-semibold text-text-primary group-hover:text-sol-purple transition-colors">Join Epoch Pool</h3>
         </div>
         <p className="text-sm text-text-secondary">Deposit into an existing Friday-expiry vault alongside other writers. Shared liquidity, proportional returns.</p>
-        <div className="mt-4 text-xs text-text-muted">{vaults.filter(v => "epoch" in v.account.vaultType && !v.account.isSettled).length} active epoch vaults</div>
+        <div className="mt-4 text-xs text-text-muted">{vaults.filter(v => isEpochVault(v) && !v.account.isSettled).length} active epoch vaults</div>
       </button>
 
       {/* Create Custom Option */}

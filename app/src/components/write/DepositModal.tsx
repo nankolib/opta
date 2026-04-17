@@ -6,6 +6,7 @@ import { formatUsdc, usdcToNumber, toUsdcBN, formatExpiry } from "../../utils/fo
 import { showToast } from "../Toast";
 import { decodeError } from "../../utils/errorDecoder";
 import { deriveWriterPosition, deriveVaultUsdc } from "../../hooks/useAccounts";
+import { isEpochVault } from "../../hooks/useVaults";
 
 interface DepositModalProps {
   vault: { publicKey: PublicKey; account: any };
@@ -80,7 +81,7 @@ export const DepositModal: FC<DepositModalProps> = ({ vault, market, myPosition,
             <span className={`text-xs px-2 py-0.5 rounded-full ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>
               {isCall ? "Call" : "Put"}
             </span>
-            {"epoch" in v.vaultType && <span className="text-xs px-2 py-0.5 rounded-full bg-sol-purple/10 text-sol-purple">Epoch</span>}
+            {isEpochVault(vault) && <span className="text-xs px-2 py-0.5 rounded-full bg-sol-purple/10 text-sol-purple">Epoch</span>}
           </div>
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div><span className="text-text-muted">Strike:</span> <span className="text-text-primary font-medium">${formatUsdc(v.strikePrice)}</span></div>

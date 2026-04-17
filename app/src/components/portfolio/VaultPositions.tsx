@@ -6,6 +6,7 @@ import { formatUsdc, usdcToNumber, formatExpiry, toUsdcBN } from "../../utils/fo
 import { showToast } from "../Toast";
 import { decodeError } from "../../utils/errorDecoder";
 import { deriveWriterPosition, deriveVaultPurchaseEscrow } from "../../hooks/useAccounts";
+import { isEpochVault } from "../../hooks/useVaults";
 
 interface VaultPositionsProps {
   vaults: { publicKey: PublicKey; account: any }[];
@@ -232,7 +233,7 @@ export const VaultPositions: FC<VaultPositionsProps> = ({
                 <span className={`text-xs px-2 py-0.5 rounded-full ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>
                   {isCall ? "Call" : "Put"}
                 </span>
-                {"epoch" in v.vaultType && <span className="text-xs px-2 py-0.5 rounded-full bg-sol-purple/10 text-sol-purple">Epoch</span>}
+                {isEpochVault(vault) && <span className="text-xs px-2 py-0.5 rounded-full bg-sol-purple/10 text-sol-purple">Epoch</span>}
               </div>
               <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
                 status === "Active" ? "bg-sol-green/10 text-sol-green" :

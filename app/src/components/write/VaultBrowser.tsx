@@ -1,6 +1,7 @@
 import { FC, useState, useMemo } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { formatUsdc, formatExpiry, usdcToNumber } from "../../utils/format";
+import { filterVaults } from "../../utils/vaultFilters";
 
 interface VaultBrowserProps {
   vaults: { publicKey: PublicKey; account: any }[];
@@ -22,10 +23,11 @@ export const VaultBrowser: FC<VaultBrowserProps> = ({ vaults, markets, myPositio
     return map;
   }, [markets]);
 
-  // Only show epoch vaults that aren't settled
-  const epochVaults = useMemo(() =>
-    vaults.filter((v) => v.account.vaultType && "epoch" in v.account.vaultType && !v.account.isSettled),
-  [vaults]);
+  // Only show epoch vaults that aren't settled — uses shared filter util (handles all Anchor enum formats)
+  const epochVaults = useMemo(
+    () => filterVaults(vaults, markets, { epochOnly: true, activeOnly: true }),
+    [vaults, markets],
+  );
 
   // Get unique asset names from markets linked to vaults
   const assetNames = useMemo(() => {

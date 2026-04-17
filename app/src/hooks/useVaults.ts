@@ -9,6 +9,31 @@ import { USE_V2_VAULTS } from "../utils/constants";
 // Precision multiplier matching Rust's 1e12 for premium_per_share_cumulative
 const PRECISION = new BN("1000000000000");
 
+/**
+ * Detect if a vault is an Epoch vault. Handles all possible Anchor enum serialization formats:
+ *   - object with lowercase key: { epoch: {} }
+ *   - object with PascalCase key: { Epoch: {} }
+ *   - numeric discriminator: 0 (Epoch is first variant)
+ *   - string: "epoch" / "Epoch"
+ * Exported so other modules can use the same check.
+ */
+export function isEpochVault(vault: any): boolean {
+  const vt = vault?.account?.vaultType ?? vault?.vaultType;
+  if (!vt) return false;
+  if (typeof vt === "object") {
+    return "epoch" in vt || "Epoch" in vt;
+  }
+  if (typeof vt === "number") return vt === 0;
+  if (typeof vt === "string") return vt.toLowerCase() === "epoch";
+  return false;
+}
+
+export function isCustomVault(vault: any): boolean {
+  const vt = vault?.account?.vaultType ?? vault?.vaultType;
+  if (!vt) return false;
+  return !isEpochVault(vault);
+}
+
 interface VaultAccount {
   publicKey: PublicKey;
   account: any;
@@ -91,9 +116,9 @@ export function useVaults() {
     [vaultMints],
   );
 
-  // Helper: is this vault an epoch vault?
-  const isEpochVault = useCallback(
-    (vault: any) => vault.vaultType && "epoch" in vault.vaultType,
+  // Helper: is this vault an epoch vault? Wraps the robust exported helper.
+  const isEpochVaultHelper = useCallback(
+    (vault: any) => isEpochVault(vault.account ? vault : { account: vault }),
     [],
   );
 
@@ -125,7 +150,7 @@ export function useVaults() {
     getVaultsForMarket,
     getMyPosition,
     getMintsForVault,
-    isEpochVault,
+    isEpochVault: isEpochVaultHelper,
     getUnclaimedPremium,
   };
 }
