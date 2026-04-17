@@ -16,10 +16,11 @@ interface VaultPositionsProps {
   publicKey: PublicKey;
   getUnclaimedPremium: (vault: any, position: any) => BN;
   onRefetch: () => void;
+  onMint?: (vaultKey: PublicKey) => void;
 }
 
 export const VaultPositions: FC<VaultPositionsProps> = ({
-  vaults, myPositions, vaultMints, markets, program, publicKey, getUnclaimedPremium, onRefetch,
+  vaults, myPositions, vaultMints, markets, program, publicKey, getUnclaimedPremium, onRefetch, onMint,
 }) => {
   const [actionId, setActionId] = useState<string | null>(null);
 
@@ -247,15 +248,45 @@ export const VaultPositions: FC<VaultPositionsProps> = ({
               <div><div className="text-text-muted">Your Shares</div><div className="text-gold font-medium">{myShares.toLocaleString()} ({pct}%)</div></div>
               <div><div className="text-text-muted">Deposited</div><div className="text-text-primary font-medium">${deposited.toLocaleString()}</div></div>
             </div>
-            <div className="grid grid-cols-4 gap-3 text-xs">
+            <div className="grid grid-cols-4 gap-3 text-xs" title="Living Option Tokens created from your collateral. Sold contracts lock collateral until settlement.">
               <div><div className="text-text-muted">Minted</div><div className="text-text-primary font-medium">{minted} contracts</div></div>
               <div><div className="text-text-muted">Sold</div><div className="text-text-primary font-medium">{sold} contracts</div></div>
               <div><div className="text-text-muted">Unclaimed Premium</div><div className="text-gold font-bold">${unclaimedNum.toFixed(2)}</div></div>
               <div><div className="text-text-muted">Vault Total</div><div className="text-text-primary font-medium">${formatUsdc(v.totalCollateral)}</div></div>
             </div>
 
+            {/* Collateral breakdown — shows what's locked vs free */}
+            {(() => {
+              const collPerContract = isCall ? usdcToNumber(v.strikePrice) * 2 : usdcToNumber(v.strikePrice);
+              const backingSold = sold * collPerContract;
+              const backingUnsold = (minted - sold) * collPerContract;
+              const freeToWithdraw = Math.max(0, deposited - backingSold - backingUnsold);
+              return (
+                <div className="mt-3 p-3 rounded-lg bg-bg-primary/50 border border-border/30 text-xs space-y-1">
+                  <div className="text-text-muted font-medium mb-1">Collateral Breakdown</div>
+                  <div className="flex justify-between"><span className="text-text-muted">Deposited:</span><span className="text-text-primary">${deposited.toFixed(2)}</span></div>
+                  <div className="flex justify-between"><span className="text-text-muted">Backing sold contracts:</span><span className="text-text-secondary">${backingSold.toFixed(2)} {sold > 0 && `(locked — ${sold} sold)`}</span></div>
+                  <div className="flex justify-between"><span className="text-text-muted">Backing unsold contracts:</span><span className="text-text-secondary">${backingUnsold.toFixed(2)} {minted - sold > 0 && "(burn to free)"}</span></div>
+                  <div className="flex justify-between pt-1 border-t border-border/30"><span className="text-text-secondary font-medium">Free to withdraw:</span><span className="text-sol-green font-bold">${freeToWithdraw.toFixed(2)}</span></div>
+                </div>
+              );
+            })()}
+
             {/* Actions */}
             <div className="mt-4 pt-3 border-t border-border/50 flex flex-wrap gap-2">
+              {/* Mint options — before settlement, when nothing minted yet */}
+              {status === "Active" && minted === 0 && myShares > 0 && onMint && (
+                <button onClick={() => onMint(vault.publicKey)}
+                  className="rounded-lg bg-gold/15 border border-gold/30 px-4 py-1.5 text-xs font-semibold text-gold hover:bg-gold/25 transition-colors">
+                  Mint Options
+                </button>
+              )}
+
+              {/* Info message when minted but nothing sold yet */}
+              {status === "Active" && minted > 0 && sold === 0 && (
+                <span className="text-xs text-text-muted py-1.5">Minted {minted} contracts — available for purchase on Trade page</span>
+              )}
+
               {/* Claim premium — available anytime there's unclaimed premium */}
               {unclaimedNum > 0 && (
                 <button onClick={() => handleClaimPremium(vault)} disabled={actionId !== null}
@@ -267,21 +298,32 @@ export const VaultPositions: FC<VaultPositionsProps> = ({
               {/* Burn unsold — before settlement, if writer has unsold mints */}
               {status !== "Settled" && myVaultMints.length > 0 && myVaultMints.map((vm) => {
                 const unsold = (vm.account.quantityMinted?.toNumber?.() || 0) - (vm.account.quantitySold?.toNumber?.() || 0);
+                const collPerContract = isCall ? usdcToNumber(v.strikePrice) * 2 : usdcToNumber(v.strikePrice);
+                const freed = unsold * collPerContract;
                 return (
                   <button key={vm.publicKey.toBase58()} onClick={() => handleBurnUnsold(vault, vm)} disabled={actionId !== null}
-                    className="rounded-lg bg-bg-primary border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50">
-                    {actionId === "burn-" + vm.publicKey.toBase58() ? "Burning..." : `Burn ${unsold} Unsold`}
+                    className="rounded-lg bg-bg-primary border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+                    title={`Burn ${unsold} unsold contracts to free $${freed.toFixed(2)} collateral`}>
+                    {actionId === "burn-" + vm.publicKey.toBase58() ? "Burning..." : `Burn ${unsold} Unsold → Free $${freed.toFixed(0)}`}
                   </button>
                 );
               })}
 
-              {/* Withdraw shares — before settlement, if writer has free shares */}
-              {status !== "Settled" && myShares > 0 && (
-                <button onClick={() => handleWithdrawShares(vault, myShares)} disabled={actionId !== null}
-                  className="rounded-lg bg-blue-500/10 border border-blue-500/30 px-3 py-1.5 text-xs font-medium text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-50">
-                  {actionId === "wshr-" + vault.publicKey.toBase58() ? "Withdrawing..." : "Withdraw Shares"}
-                </button>
-              )}
+              {/* Withdraw collateral — before settlement, only if there's free collateral */}
+              {status !== "Settled" && myShares > 0 && (() => {
+                const collPerContract = isCall ? usdcToNumber(v.strikePrice) * 2 : usdcToNumber(v.strikePrice);
+                const backingSold = sold * collPerContract;
+                const backingUnsold = (minted - sold) * collPerContract;
+                const freeToWithdraw = Math.max(0, deposited - backingSold - backingUnsold);
+                const canWithdraw = freeToWithdraw > 0;
+                return (
+                  <button onClick={() => handleWithdrawShares(vault, myShares)} disabled={actionId !== null || !canWithdraw}
+                    className="rounded-lg bg-blue-500/10 border border-blue-500/30 px-3 py-1.5 text-xs font-medium text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={canWithdraw ? `Withdraw $${freeToWithdraw.toFixed(2)} free USDC` : "All collateral is backing minted contracts. Burn unsold tokens first."}>
+                    {actionId === "wshr-" + vault.publicKey.toBase58() ? "Withdrawing..." : canWithdraw ? `Withdraw $${freeToWithdraw.toFixed(0)} Collateral` : "Withdraw Collateral"}
+                  </button>
+                );
+              })()}
 
               {/* Settle vault — after expiry, before settlement, if market is settled */}
               {status === "Expired" && !v.isSettled && marketSettled && (

@@ -9,9 +9,10 @@ interface VaultBrowserProps {
   onDeposit: (vaultKey: PublicKey) => void;
   onBack: () => void;
   onRefresh?: () => void;
+  onCreateEpoch?: () => void;
 }
 
-export const VaultBrowser: FC<VaultBrowserProps> = ({ vaults, markets, myPositions, onDeposit, onBack, onRefresh }) => {
+export const VaultBrowser: FC<VaultBrowserProps> = ({ vaults, markets, myPositions, onDeposit, onBack, onRefresh, onCreateEpoch }) => {
   const [assetFilter, setAssetFilter] = useState("all");
 
   // Build market lookup
@@ -56,11 +57,19 @@ export const VaultBrowser: FC<VaultBrowserProps> = ({ vaults, markets, myPositio
             <button onClick={onRefresh} className="text-xs text-text-muted hover:text-text-primary transition-colors">&#x21bb; Refresh</button>
           )}
         </div>
-        <select value={assetFilter} onChange={(e) => setAssetFilter(e.target.value)}
-          className="rounded-lg border border-border bg-bg-primary px-3 py-1.5 text-sm text-text-primary focus:border-gold/50 focus:outline-none">
-          <option value="all">All assets</option>
-          {assetNames.map((a) => <option key={a} value={a}>{a}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          {onCreateEpoch && (
+            <button onClick={onCreateEpoch}
+              className="rounded-lg bg-gold/15 border border-gold/30 px-4 py-1.5 text-xs font-semibold text-gold hover:bg-gold/25 transition-colors">
+              + Create Epoch Vault
+            </button>
+          )}
+          <select value={assetFilter} onChange={(e) => setAssetFilter(e.target.value)}
+            className="rounded-lg border border-border bg-bg-primary px-3 py-1.5 text-sm text-text-primary focus:border-gold/50 focus:outline-none">
+            <option value="all">All assets</option>
+            {assetNames.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
       </div>
 
       {filtered.length === 0 ? (

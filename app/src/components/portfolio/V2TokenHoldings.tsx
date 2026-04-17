@@ -14,6 +14,7 @@ interface V2TokenHoldingsProps {
   program: any;
   publicKey: PublicKey;
   onRefetch: () => void;
+  hasV1Tokens?: boolean;
 }
 
 interface HeldV2Token {
@@ -24,7 +25,7 @@ interface HeldV2Token {
   balance: number;
 }
 
-export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, markets, program, publicKey, onRefetch }) => {
+export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, markets, program, publicKey, onRefetch, hasV1Tokens }) => {
   const [holdings, setHoldings] = useState<HeldV2Token[]>([]);
   const [loading, setLoading] = useState(true);
   const [exercisingId, setExercisingId] = useState<string | null>(null);
@@ -121,12 +122,16 @@ export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, 
     }
   };
 
-  if (loading) return <div className="text-text-muted text-sm animate-pulse py-4">Scanning wallet for vault option tokens...</div>;
+  if (loading) return <div className="text-text-muted text-sm animate-pulse py-4">Scanning wallet for option tokens...</div>;
 
   if (holdings.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-bg-surface p-8 text-center">
-        <p className="text-text-muted text-sm">No vault option tokens found. Visit the <a href="/trade" className="text-gold hover:underline">Trade page</a> to buy options.</p>
+        <p className="text-text-muted text-sm">
+          {hasV1Tokens
+            ? "Vault options will appear here after purchasing from the Trade page."
+            : <>No option tokens yet. Visit the <a href="/trade" className="text-gold hover:underline">Trade page</a> to buy options.</>}
+        </p>
       </div>
     );
   }

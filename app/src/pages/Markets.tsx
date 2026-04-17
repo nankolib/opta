@@ -1,11 +1,16 @@
 import { FC, useEffect, useState, useMemo } from "react";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { Link } from "react-router-dom";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
+import { useVaults } from "../hooks/useVaults";
+import { usePythPrices } from "../hooks/usePythPrices";
 import { showToast } from "../components/Toast";
-import { formatUsdc, formatExpiry, getMarketStatus, truncateAddress, toUsdcBN } from "../utils/format";
+import { formatUsdc, formatExpiry, getMarketStatus, truncateAddress, toUsdcBN, usdcToNumber, daysUntilExpiry } from "../utils/format";
+import { calculateCallGreeks, calculatePutGreeks, getDefaultVolatility } from "../utils/blackScholes";
+import { USE_V2_VAULTS } from "../utils/constants";
 
 interface MarketAccount {
   publicKey: PublicKey;
@@ -23,11 +28,15 @@ interface MarketAccount {
 
 export const Markets: FC = () => {
   const { program } = useProgram();
-  const { publicKey, connected } = useWallet();
+  const { connected } = useWallet();
   const [markets, setMarkets] = useState<MarketAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+
+  const { vaults } = useVaults();
 
   useEffect(() => {
     if (!program) return;
@@ -52,14 +61,53 @@ export const Markets: FC = () => {
     return Array.from(map.values());
   }, [markets]);
 
+  // When USE_V2_VAULTS is true, only show markets that have at least one active vault
+  const vaultMarketKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const v of vaults) {
+      set.add((v.account.market as PublicKey).toBase58());
+    }
+    return set;
+  }, [vaults]);
+
+  // Count vaults + total collateral per market
+  const vaultStatsByMarket = useMemo(() => {
+    const stats = new Map<string, { count: number; totalCollateral: number }>();
+    for (const v of vaults) {
+      const key = (v.account.market as PublicKey).toBase58();
+      const existing = stats.get(key) ?? { count: 0, totalCollateral: 0 };
+      existing.count += 1;
+      existing.totalCollateral += usdcToNumber(v.account.totalCollateral);
+      stats.set(key, existing);
+    }
+    return stats;
+  }, [vaults]);
+
+  const v2FilteredMarkets = useMemo(() => {
+    if (!USE_V2_VAULTS) return dedupedMarkets;
+    return dedupedMarkets.filter((m) => vaultMarketKeys.has(m.publicKey.toBase58()));
+  }, [dedupedMarkets, vaultMarketKeys]);
+
   const assetNames = useMemo(() => {
-    return [...new Set(dedupedMarkets.map((m) => m.account.assetName))].sort();
-  }, [dedupedMarkets]);
+    return [...new Set(v2FilteredMarkets.map((m) => m.account.assetName))].sort();
+  }, [v2FilteredMarkets]);
 
   const filteredMarkets = useMemo(() => {
-    if (filter === "All") return dedupedMarkets;
-    return dedupedMarkets.filter((m) => m.account.assetName === filter);
-  }, [dedupedMarkets, filter]);
+    let result = v2FilteredMarkets;
+    if (filter !== "All") result = result.filter((m) => m.account.assetName === filter);
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toUpperCase();
+      result = result.filter((m) => m.account.assetName.includes(q));
+    }
+    // Sort by asset name, then strike ascending
+    result = [...result].sort((a, b) => {
+      if (a.account.assetName !== b.account.assetName) return a.account.assetName.localeCompare(b.account.assetName);
+      return a.account.strikePrice.cmp(b.account.strikePrice);
+    });
+    return result;
+  }, [v2FilteredMarkets, filter, searchQuery]);
+
+  const { prices: spotPrices } = usePythPrices(assetNames);
 
   const refetchMarkets = async () => {
     if (!program) return;
@@ -70,7 +118,7 @@ export const Markets: FC = () => {
   return (
     <div className="min-h-screen bg-bg-primary pt-24 px-4 pb-12">
       <div className="mx-auto max-w-6xl">
-        {/* Header — always visible */}
+        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-text-primary">Markets</h1>
@@ -85,11 +133,22 @@ export const Markets: FC = () => {
         </div>
 
         <div className="rounded-xl border border-gold/20 bg-gold/5 p-4 mb-6">
-          <p className="text-sm text-text-secondary">Create options on any Pyth-priced asset — crypto, commodities, equities, forex, tokenized funds. Each market uses asset-class-aware pricing.</p>
+          <p className="text-sm text-text-secondary">
+            {USE_V2_VAULTS
+              ? "Showing markets with active vaults. Create options on any Pyth-priced asset — crypto, commodities, equities, forex, tokenized funds."
+              : "Create options on any Pyth-priced asset. Each market uses asset-class-aware pricing."}
+          </p>
+        </div>
+
+        {/* Search */}
+        <div className="mb-4">
+          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by asset name (e.g. SOL, BTC, AAPL)..."
+            className="w-full rounded-lg border border-border bg-bg-surface px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted focus:border-gold/50 focus:outline-none" />
         </div>
 
         {/* Filter tabs */}
-        <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2">
+        <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2">
           {["All", ...assetNames].map((name) => (
             <button key={name} onClick={() => setFilter(name)}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
@@ -98,6 +157,10 @@ export const Markets: FC = () => {
           ))}
         </div>
 
+        {!loading && (
+          <div className="mb-3 text-xs text-text-muted">Showing {filteredMarkets.length} market{filteredMarkets.length !== 1 ? "s" : ""}</div>
+        )}
+
         {/* Markets table */}
         {loading ? (
           <div className="rounded-xl border border-border bg-bg-surface p-12 text-center">
@@ -105,8 +168,10 @@ export const Markets: FC = () => {
           </div>
         ) : filteredMarkets.length === 0 ? (
           <div className="rounded-xl border border-border bg-bg-surface p-12 text-center">
-            <div className="text-text-muted text-lg mb-2">No markets created yet</div>
-            <p className="text-text-secondary text-sm">{connected ? 'Click "Create Market" to create the first options market.' : "Connect your wallet to create a market."}</p>
+            <div className="text-text-muted text-lg mb-2">No markets with vaults yet</div>
+            <p className="text-text-secondary text-sm">
+              {connected ? <>Click "Create Market" above, then <Link to="/write" className="text-gold hover:underline">create a vault</Link> for it.</> : "Connect your wallet to create a market."}
+            </p>
           </div>
         ) : (
           <div className="rounded-xl border border-border bg-bg-surface overflow-hidden">
@@ -117,44 +182,104 @@ export const Markets: FC = () => {
                   <th className="px-6 py-3 text-xs font-medium uppercase tracking-wider text-text-muted">Type</th>
                   <th className="px-6 py-3 text-xs font-medium uppercase tracking-wider text-text-muted">Strike</th>
                   <th className="px-6 py-3 text-xs font-medium uppercase tracking-wider text-text-muted">Expiry</th>
+                  <th className="px-6 py-3 text-xs font-medium uppercase tracking-wider text-text-muted">Vaults</th>
                   <th className="px-6 py-3 text-xs font-medium uppercase tracking-wider text-text-muted">Status</th>
-                  <th className="px-6 py-3 text-xs font-medium uppercase tracking-wider text-text-muted">Oracle</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredMarkets.map((m) => {
                   const status = getMarketStatus(m.account);
                   const isCall = "call" in m.account.optionType;
+                  const key = m.publicKey.toBase58();
+                  const isExpanded = expandedKey === key;
+                  const stats = vaultStatsByMarket.get(key);
+                  const spot = spotPrices[m.account.assetName] ?? 0;
+                  const strike = usdcToNumber(m.account.strikePrice);
+                  const days = daysUntilExpiry(m.account.expiryTimestamp);
+                  const vol = getDefaultVolatility(m.account.assetName);
+                  const greeks = spot > 0 && isCall
+                    ? calculateCallGreeks(spot, strike, days, vol)
+                    : spot > 0 ? calculatePutGreeks(spot, strike, days, vol) : null;
+
                   return (
-                    <tr key={m.publicKey.toBase58()} className="border-b border-border/50 hover:bg-bg-surface-hover transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gold/10 text-gold font-bold text-xs">{m.account.assetName.slice(0, 3)}</div>
-                          <span className="text-sm font-medium text-text-primary">{m.account.assetName}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>{isCall ? "Call" : "Put"}</span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-text-primary">${formatUsdc(m.account.strikePrice)}</td>
-                      <td className="px-6 py-4 text-sm text-text-secondary">{formatExpiry(m.account.expiryTimestamp)}</td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${status === "Active" ? "text-sol-green" : status === "Settled" ? "text-gold" : "text-text-muted"}`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${status === "Active" ? "bg-sol-green" : status === "Settled" ? "bg-gold" : "bg-text-muted"}`} />
-                          {status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-xs text-text-muted font-mono">{truncateAddress(m.account.pythFeed.toBase58())}</td>
-                    </tr>
+                    <>
+                      <tr key={key} onClick={() => setExpandedKey(isExpanded ? null : key)}
+                        className="border-b border-border/50 hover:bg-bg-surface-hover transition-colors cursor-pointer">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gold/10 text-gold font-bold text-xs">{m.account.assetName.slice(0, 3)}</div>
+                            <span className="text-sm font-medium text-text-primary">{m.account.assetName}</span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>{isCall ? "Call" : "Put"}</span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-text-primary">${formatUsdc(m.account.strikePrice)}</td>
+                        <td className="px-6 py-4 text-sm text-text-secondary">{formatExpiry(m.account.expiryTimestamp)}</td>
+                        <td className="px-6 py-4 text-sm text-text-secondary">
+                          {stats ? <span className="text-gold">{stats.count} · ${stats.totalCollateral.toLocaleString()}</span> : "—"}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${status === "Active" ? "text-sol-green" : status === "Settled" ? "text-gold" : "text-text-muted"}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${status === "Active" ? "bg-sol-green" : status === "Settled" ? "bg-gold" : "bg-text-muted"}`} />
+                            {status}
+                          </span>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-bg-primary/30">
+                          <td colSpan={6} className="px-6 py-5">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                              <div>
+                                <div className="text-text-muted mb-1">Spot Price</div>
+                                <div className="text-text-primary font-medium">{spot > 0 ? `$${spot.toFixed(2)}` : "—"}</div>
+                              </div>
+                              <div>
+                                <div className="text-text-muted mb-1">B-S Fair Value</div>
+                                <div className="text-gold font-medium">{greeks ? `$${greeks.premium.toFixed(2)}` : "—"}</div>
+                              </div>
+                              <div>
+                                <div className="text-text-muted mb-1">Delta / Gamma</div>
+                                <div className="text-text-primary">{greeks ? `${greeks.delta.toFixed(2)} / ${greeks.gamma.toFixed(4)}` : "—"}</div>
+                              </div>
+                              <div>
+                                <div className="text-text-muted mb-1">Theta / Vega</div>
+                                <div className="text-text-primary">{greeks ? `${greeks.theta.toFixed(2)} / ${greeks.vega.toFixed(2)}` : "—"}</div>
+                              </div>
+                              <div>
+                                <div className="text-text-muted mb-1">Active Vaults</div>
+                                <div className="text-text-primary font-medium">{stats?.count ?? 0}</div>
+                              </div>
+                              <div>
+                                <div className="text-text-muted mb-1">Total Pooled</div>
+                                <div className="text-text-primary font-medium">${(stats?.totalCollateral ?? 0).toLocaleString()}</div>
+                              </div>
+                              <div>
+                                <div className="text-text-muted mb-1">Oracle</div>
+                                <div className="text-text-muted font-mono">{truncateAddress(m.account.pythFeed.toBase58())}</div>
+                              </div>
+                              <div>
+                                <div className="text-text-muted mb-1">Days to Expiry</div>
+                                <div className="text-text-primary font-medium">{days.toFixed(1)}d</div>
+                              </div>
+                            </div>
+                            <div className="mt-4 flex gap-3">
+                              <Link to="/trade" className="rounded-lg bg-sol-green/10 border border-sol-green/30 px-4 py-1.5 text-xs font-medium text-sol-green hover:bg-sol-green/20 transition-colors">
+                                Trade {m.account.assetName}
+                              </Link>
+                              <Link to="/write" className="rounded-lg bg-gold/10 border border-gold/30 px-4 py-1.5 text-xs font-medium text-gold hover:bg-gold/20 transition-colors">
+                                Write a Vault
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   );
                 })}
               </tbody>
             </table>
           </div>
-        )}
-
-        {!loading && dedupedMarkets.length > 0 && (
-          <div className="mt-4 text-sm text-text-muted">{filteredMarkets.length} market{filteredMarkets.length !== 1 ? "s" : ""}{filter !== "All" ? ` (${filter})` : ""}</div>
         )}
       </div>
 

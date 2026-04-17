@@ -17,6 +17,7 @@ import { AdminTools } from "../components/portfolio/AdminTools";
 import { useTokenMetadata } from "../hooks/useTokenMetadata";
 import { decodeError } from "../utils/errorDecoder";
 import { V2TokenHoldings } from "../components/portfolio/V2TokenHoldings";
+import { useNavigate } from "react-router-dom";
 
 interface PositionAccount { publicKey: PublicKey; account: any; }
 interface MarketAccount { publicKey: PublicKey; account: any; }
@@ -29,6 +30,8 @@ export const Portfolio: FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"written" | "held" | "vaults">(USE_V2_VAULTS ? "vaults" : "written");
   const [resaleModal, setResaleModal] = useState<{ position: PositionAccount; market: any } | null>(null);
+
+  const navigate = useNavigate();
 
   // V2 vault data
   const { vaults, myPositions: myVaultPositions, vaultMints, isLoading: vaultsLoading, refetch: refetchVaults, getUnclaimedPremium } = useVaults();
@@ -152,6 +155,7 @@ export const Portfolio: FC = () => {
               publicKey={publicKey!}
               getUnclaimedPremium={getUnclaimedPremium}
               onRefetch={refetch}
+              onMint={(vaultKey) => navigate("/write", { state: { mintVault: vaultKey.toBase58() } })}
             />
             {isAdmin && (
               <div className="mt-6">
@@ -173,14 +177,15 @@ export const Portfolio: FC = () => {
             </div>
             {USE_V2_VAULTS && (
               <div className="mb-6">
-                <h3 className="text-sm font-semibold text-sol-purple mb-3">Vault Options (v2)</h3>
+                <h3 className="text-sm font-semibold text-sol-purple mb-3">Vault Options</h3>
                 <V2TokenHoldings vaults={vaults} vaultMints={vaultMints} markets={markets}
-                  program={program} publicKey={publicKey!} onRefetch={refetch} />
+                  program={program} publicKey={publicKey!} onRefetch={refetch}
+                  hasV1Tokens={heldPositions.length > 0} />
               </div>
             )}
             {heldPositions.length > 0 && (
               <div>
-                {USE_V2_VAULTS && <h3 className="text-sm font-semibold text-gold mb-3">Direct Options (v1)</h3>}
+                {USE_V2_VAULTS && <h3 className="text-sm font-semibold text-gold mb-3">Direct Options</h3>}
                 <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!}
                   program={program} provider={provider} onSuccess={refetch} spotPrices={spotPrices}
                   onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />

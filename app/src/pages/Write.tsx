@@ -14,7 +14,9 @@ import { calculateCallPremium, calculatePutPremium, getDefaultVolatility } from 
 import { VaultBrowser } from "../components/write/VaultBrowser";
 import { DepositModal } from "../components/write/DepositModal";
 import { CreateCustomVault } from "../components/write/CreateCustomVault";
+import { CreateEpochVault } from "../components/write/CreateEpochVault";
 import { MintFromVault } from "../components/write/MintFromVault";
+import { useLocation } from "react-router-dom";
 
 interface MarketAccount { publicKey: PublicKey; account: any; }
 interface PositionAccount { publicKey: PublicKey; account: any; }
@@ -22,12 +24,27 @@ interface PositionAccount { publicKey: PublicKey; account: any; }
 // =============================================================================
 // V2 Write Flow — shared vault system
 // =============================================================================
-type WriteScreen = "choose" | "browse-vaults" | "create-custom" | "deposit-modal" | "mint";
+type WriteScreen = "choose" | "browse-vaults" | "create-custom" | "create-epoch" | "deposit-modal" | "mint";
 
 const WriteV2: FC<{ program: any; publicKey: PublicKey | null; connected: boolean; markets: MarketAccount[] }> = ({ program, publicKey, connected, markets }) => {
-  const { vaults, myPositions, isLoading, refetch: refetchVaults } = useVaults();
+  const { vaults, myPositions, epochConfig, isLoading, refetch: refetchVaults } = useVaults();
   const [screen, setScreen] = useState<WriteScreen>("choose");
   const [selectedVaultKey, setSelectedVaultKey] = useState<PublicKey | null>(null);
+  const location = useLocation();
+
+  // Accept navigation from Portfolio's "Mint Options" button
+  useEffect(() => {
+    const mintVault = (location.state as any)?.mintVault;
+    if (mintVault && vaults.length > 0) {
+      try {
+        const vaultKey = new PublicKey(mintVault);
+        setSelectedVaultKey(vaultKey);
+        setScreen("mint");
+        // Clear the state so refresh doesn't re-trigger
+        window.history.replaceState({}, "");
+      } catch { /* bad pubkey */ }
+    }
+  }, [location.state, vaults.length]);
 
   // Build market lookup for display
   const marketMap = useMemo(() => {
@@ -75,11 +92,18 @@ const WriteV2: FC<{ program: any; publicKey: PublicKey | null; connected: boolea
 
   // Screen routing
   if (screen === "browse-vaults") {
-    return <VaultBrowser vaults={vaults} markets={markets} myPositions={myPositions} onDeposit={handleDepositClick} onBack={() => setScreen("choose")} onRefresh={refetchVaults} />;
+    return <VaultBrowser vaults={vaults} markets={markets} myPositions={myPositions}
+      onDeposit={handleDepositClick} onBack={() => setScreen("choose")} onRefresh={refetchVaults}
+      onCreateEpoch={() => setScreen("create-epoch")} />;
   }
 
   if (screen === "create-custom") {
     return <CreateCustomVault markets={markets} program={program} publicKey={publicKey} onBack={() => setScreen("choose")} onSuccess={handleCreateSuccess} />;
+  }
+
+  if (screen === "create-epoch") {
+    return <CreateEpochVault markets={markets} epochConfig={epochConfig} program={program}
+      publicKey={publicKey} onBack={() => setScreen("browse-vaults")} onSuccess={handleCreateSuccess} />;
   }
 
   if (screen === "deposit-modal" && selectedVault && selectedMarket) {
