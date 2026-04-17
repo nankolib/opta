@@ -82,17 +82,19 @@ export const Trade: FC = () => {
     return Array.from(map.values());
   }, [markets]);
 
-  // Step 2: Unique asset names → asset tabs (include v2 vault assets)
+  // Step 2: Unique asset names → asset tabs
+  // When v2 flag is on, ONLY show assets that have active SharedVaults (mirrors Markets.tsx filter).
   const assets = useMemo(() => {
-    const names = new Set(activeMarkets.map((m) => m.account.assetName as string));
     if (USE_V2_VAULTS) {
+      const names = new Set<string>();
       for (const v of vaults) {
         if (v.account.isSettled) continue;
         const mkt = markets.find((m) => m.publicKey.equals(v.account.market as PublicKey));
         if (mkt) names.add(mkt.account.assetName as string);
       }
+      return Array.from(names).sort();
     }
-    return Array.from(names).sort();
+    return Array.from(new Set(activeMarkets.map((m) => m.account.assetName as string))).sort();
   }, [activeMarkets, vaults, markets]);
 
   // Auto-select first asset
@@ -106,20 +108,21 @@ export const Trade: FC = () => {
   // Round to nearest day to avoid duplicate tabs from timestamps seconds apart
   const roundToDay = (ts: number) => Math.floor(ts / 86400) * 86400;
   const expiries = useMemo(() => {
-    const assetMarkets = activeMarkets.filter((m) => m.account.assetName === selectedAsset);
     const dayMap = new Map<number, number>(); // rounded → first actual timestamp
-    for (const m of assetMarkets) {
-      const t = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
-      const rounded = roundToDay(t);
-      if (!dayMap.has(rounded)) dayMap.set(rounded, t);
-    }
-    // Include vault expiries
     if (USE_V2_VAULTS) {
+      // v2-only: expiries come from SharedVaults for the selected asset
       for (const v of vaults) {
         if (v.account.isSettled) continue;
         const mkt = markets.find((m) => m.publicKey.equals(v.account.market as PublicKey));
         if (!mkt || mkt.account.assetName !== selectedAsset) continue;
         const t = typeof v.account.expiry === "number" ? v.account.expiry : v.account.expiry.toNumber();
+        const rounded = roundToDay(t);
+        if (!dayMap.has(rounded)) dayMap.set(rounded, t);
+      }
+    } else {
+      const assetMarkets = activeMarkets.filter((m) => m.account.assetName === selectedAsset);
+      for (const m of assetMarkets) {
+        const t = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
         const rounded = roundToDay(t);
         if (!dayMap.has(rounded)) dayMap.set(rounded, t);
       }
@@ -141,14 +144,15 @@ export const Trade: FC = () => {
   // Step 4-8: Build the chain rows
   const { rows, spotPrice } = useMemo(() => {
     const selectedDay = roundToDay(selectedExpiry);
-    const filtered = activeMarkets.filter((m) => {
+
+    // When v2 flag is on, v1 markets/positions are ignored entirely.
+    const filtered = USE_V2_VAULTS ? [] : activeMarkets.filter((m) => {
       const t = typeof m.account.expiryTimestamp === "number" ? m.account.expiryTimestamp : m.account.expiryTimestamp.toNumber();
       return m.account.assetName === selectedAsset && roundToDay(t) === selectedDay;
     });
 
-    // Collect all strikes (from markets + v2 vaults)
+    // Collect strikes: v2-only from SharedVaults, v1-only from markets
     const strikeSet = new Set<number>();
-    filtered.forEach((m) => strikeSet.add(usdcToNumber(m.account.strikePrice)));
     if (USE_V2_VAULTS) {
       for (const v of vaults) {
         if (v.account.isSettled) continue;
@@ -159,6 +163,8 @@ export const Trade: FC = () => {
           strikeSet.add(usdcToNumber(v.account.strikePrice));
         }
       }
+    } else {
+      filtered.forEach((m) => strikeSet.add(usdcToNumber(m.account.strikePrice)));
     }
     const strikes = Array.from(strikeSet).sort((a, b) => a - b);
 
@@ -211,10 +217,11 @@ export const Trade: FC = () => {
         return { best: bestPos, ask: bestPos ? bestPrice : null, volume };
       };
 
-      const callResult = findBest(callMarket);
-      const putResult = findBest(putMarket);
+      // v1 best-position lookup is skipped when v2 flag is on
+      const callResult = USE_V2_VAULTS ? { best: null, ask: null, volume: 0 } : findBest(callMarket);
+      const putResult = USE_V2_VAULTS ? { best: null, ask: null, volume: 0 } : findBest(putMarket);
 
-      // V2: overlay vault mint data if available and cheaper
+      // Start with v1 results (empty when v2 flag is on)
       let callBestVaultMint: ChainRow["callBestVaultMint"] = null;
       let putBestVaultMint: ChainRow["putBestVaultMint"] = null;
       let callAsk = callResult.ask;
