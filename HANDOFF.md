@@ -174,7 +174,6 @@ Author throughout: **nankolib** (single-developer project, built with Claude Cod
 - **Settlement** is admin-only (not permissionless) — documented as a hackathon shortcut
 - **Hardcoded devnet price map** in crank bot ([crank/bot.ts:40](crank/bot.ts#L40)) — SOL $195, BTC $105k, ETH $3,600, XAU $3,100
 - **Buffer polyfill** — had to write a manual `app/src/polyfills.ts` because `vite-plugin-node-polyfills` broke on Vite 8 (per memory `feedback_buffer_polyfill.md`)
-- **Two app copies** exist: `butter_options/app/` (active) and `butter_options_app/` (stale copy). **Always edit the one inside `butter_options/`** (memory: `feedback_app_path.md`)
 
 ### Incomplete for mainnet
 - Permissionless settlement via Pyth oracle
@@ -211,7 +210,6 @@ Based on recent commit momentum and open TODOs:
 1. **Demo / submission polish** — most recent commits (`5393429`, `67c0d0c`) are pre-demo cleanup. Hackathon judging is the near-term gate.
 2. **Live Pyth fetching in crank** — remove hardcoded price map before any mainnet talk.
 3. **Permissionless settlement** — swap `settle_market` parameter for a Pyth oracle read.
-4. **Consolidate app directories** — resolve the `butter_options/app/` vs `butter_options_app/` confusion (see §11).
 
 No explicit blockers flagged in docs right now. The project is in "demo-ready, waiting for hackathon verdict" mode.
 
@@ -220,7 +218,6 @@ No explicit blockers flagged in docs right now. The project is in "demo-ready, w
 ## 11. Gotchas for a New Claude / Engineer
 
 ### Environment
-- **Edit in `butter_options/app/`, NOT `butter_options_app/`.** There are two copies; the second is stale. (memory: `feedback_app_path.md`)
 - **All Solana scripts run from WSL**, not Windows. Keypair lives at `/home/nanko/.config/solana/id.json`. (memory: `feedback_wsl_scripts.md`)
 - **Before `anchor deploy`, sync WSL `.so` files** — otherwise you'll overwrite devnet with stale binaries. (memory: `feedback_wsl_deploy.md`)
 - **Devnet clock skew:** add 30–60s buffer when waiting for expiry in test scripts. (memory: `feedback_devnet_clock_skew.md`)
@@ -258,4 +255,4 @@ Start with `MEMORY.md` index. Key ones: `project_butter_options.md`, `project_v2
 - **Stage:** devnet + Vercel, hackathon-ready for Colosseum Frontier (April 2026). Not mainnet.
 - **Test state:** 99/99 last reported; 5 Rust audit rounds + 2 frontend audits, 18 findings fixed, 0 open.
 - **Only remaining mainnet blockers:** permissionless Pyth-oracle settlement and replacing the hardcoded devnet price map in the crank bot.
-- **Biggest gotcha:** there are two app folders — always edit `butter_options/app/`, never `butter_options_app/`; and import `polyfills.ts` first in `main.tsx` or Buffer breaks on Vercel builds.
+- **Biggest gotcha:** import `polyfills.ts` first in `main.tsx` or Buffer breaks on Vercel builds (`vite-plugin-node-polyfills` is broken on Vite 8).
