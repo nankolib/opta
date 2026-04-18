@@ -1,6 +1,6 @@
 # Butter Options — Engineer Handoff
 
-> Generated 2026-04-18 by `handoff-scribe` (Claude Code session). This document is the project seed context — drop it into a fresh Claude chat to bring any instance up to speed without re-explanation. Current HEAD at last update: `55cfcf3`.
+> Generated 2026-04-18 by `handoff-scribe` (Claude Code session). This document is the project seed context — drop it into a fresh Claude chat to bring any instance up to speed without re-explanation. For current HEAD, run `git log -1 --oneline`; this doc does not try to self-reference its own commit.
 
 ---
 
