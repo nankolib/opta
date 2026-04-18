@@ -1,6 +1,30 @@
 # Butter Options — Engineer Handoff
 
-> Generated 2026-04-18 by `handoff-scribe`. Snapshot of project state for a fresh engineer.
+> Generated 2026-04-18 by `handoff-scribe` (Claude Code session). This document is the project seed context — drop it into a fresh Claude chat to bring any instance up to speed without re-explanation. Current HEAD at last update: `55cfcf3`.
+
+---
+
+## How to use this document
+
+This document is the **seed context** for Butter Options. If you're a fresh Claude session starting work on this project:
+
+1. **Read this doc end-to-end before answering.** Skimming misses the gotchas and norms.
+2. **Check personal memory files** at `C:\Users\pc\.claude\projects\d--claude-everything-butter-options\memory\`. `MEMORY.md` is the index. These persist across sessions and carry the user's accumulated preferences, feedback, and lessons — always consult them before starting work.
+3. **Verify before citing.** Line numbers and file paths drift. Before acting on a reference in this doc, confirm it still matches the current tree.
+
+If the user's live intent conflicts with this doc, follow the user. The doc is a snapshot; the user is real-time.
+
+---
+
+## Working with the user
+
+- **Non-developer by background.** The user is learning the stack through our sessions — treat them as a smart generalist who's newer to Solana/TypeScript specifics than to high-level software thinking. Explain in plain English with analogies, but don't over-baby; match their demonstrated level in a given conversation. Example: "a PDA is like a permanent mailbox address the program can always find" beats "program-derived address seeded from X."
+- **Solo project, Claude-paired.** This project has no other engineers. Every change — code, tests, docs — has flowed through a Claude session. Assume the code you're reading came from a previous Claude instance, not from the user typing.
+- **Windows + WSL.** User is on Windows 10 with WSL2 for Solana tooling. Bash commands run in Windows git-bash by default; anything Solana-related (`anchor`, `solana`, `cargo`) MUST run via `wsl -- bash -lc "..."`. Keypair at `/home/nanko/.config/solana/id.json`. The user doesn't know what WSL is internally — just give the exact command to run.
+- **Terminal preference: PowerShell.** When asking the user to run shell commands themselves (not Claude running them), prefer simple PowerShell one-liners. No piping gymnastics.
+- **"Contracts" not "tokens" in UI copy.** Option tokens are called "contracts" throughout the frontend. Match that convention in any user-facing string you write.
+- **Direct action over circling.** When there's a clear best path, take it and say so. Don't manufacture multi-option proposals just for ceremony — but do propose alternatives when there's genuine ambiguity.
+- **Approve-then-apply for risky work.** For deletions, force-pushes, large rewrites, or anything irreversible, propose the plan first and wait for approval. Apply only after green-light; verify after applying.
 
 ---
 
@@ -25,6 +49,7 @@
 **Last 20 commits:**
 
 ```
+55cfcf3 docs: final handoff polish — line-number fixes, recent-wins entry, refreshed commit log
 ff08458 docs: add layered devnet-only safety warnings to constants.ts and Header.tsx
 9610f23 docs: correct test count to 95/95 in HANDOFF and README (verified on commit 9316bb5)
 9316bb5 docs: remove stale dual-app-folder warnings from HANDOFF.md (folder deleted)
@@ -44,7 +69,6 @@ f2a69c9 feat: shared vault liquidity system — 11 new instructions, router SDK,
 4a2dfaf fix: switch from Pyth Hermes to CoinGecko + Jupiter for live spot prices
 0435ecf fix: use URL API for Pyth Hermes request to fix param encoding
 5602da5 fix: add parsed=true param, debug logging, and case-insensitive ID match to Pyth hook
-4aaf9b7 fix: use live Pyth spot prices for B-S pricing instead of strike
 ```
 
 Author throughout: **nankolib** (single-developer project, built with Claude Code).
@@ -146,7 +170,7 @@ Author throughout: **nankolib** (single-developer project, built with Claude Cod
 ## 6. Current State — What Works
 
 - All **24 instructions** deployed and tested on devnet
-- **95 tests across 6 suites — 95/95 passing, 0 failing, 0 pending** (verified 2026-04-18 on commit `9316bb5`). Breakdown: `butter-options.ts` (36), `shared-vaults.ts` (23), `pricing.ts` (19), `zzz-audit-fixes.ts` (12), `poc-C1-expire-before-settle.ts` (3), `token2022-smoke.ts` (2). Mocha runtime ~3 min; full wall clock including rebuild ~5 min.
+- **95 tests across 6 suites — 95/95 passing, 0 failing, 0 pending** (verified 2026-04-18 on commit `ff08458` — the last code-bearing commit; subsequent work has been markdown-only). Breakdown: `butter-options.ts` (36), `shared-vaults.ts` (23), `pricing.ts` (19), `zzz-audit-fixes.ts` (12), `poc-C1-expire-before-settle.ts` (3), `token2022-smoke.ts` (2). Mocha runtime ~3 min; full wall clock including rebuild ~5 min.
 - **Full frontend** live on Vercel: Trade (Deribit-style chain), Write, Portfolio, Markets, Docs
 - **On-chain Black-Scholes** pricing + 5 Greeks via solmath (~50K CU)
 - **Live spot prices** via CoinGecko + Jupiter, with static fallbacks
@@ -198,7 +222,7 @@ Author throughout: **nankolib** (single-developer project, built with Claude Cod
 
 ## 9. External Dependencies & People
 
-- **Contributors:** only `nankolib` (Nanko) in git log. Per memory: non-developer biz/strategy person building entirely via Claude Code.
+- **Contributors:** only `nankolib` (Nanko). See "Working with the user" at the top of this doc for collaboration context.
 - **External services:** Pyth (on-chain), CoinGecko + Jupiter (UI spot), Vercel (hosting), GitHub (source), Solana devnet RPC (`clusterApiUrl("devnet")`)
 - **Deadlines:** **Colosseum Frontier Hackathon — April 2026** (README line 133). Demo-ready state per latest commits. Today is 2026-04-18.
 
@@ -227,11 +251,6 @@ No explicit blockers flagged in docs right now. The project is in "demo-ready, w
 - **Buffer polyfill must be imported first** in `main.tsx` via `app/src/polyfills.ts` — separate file, not `vite-plugin-node-polyfills`. (memory: `feedback_buffer_polyfill.md`)
 - **800K CU compute-budget bump** needed for anything touching Token-2022 extensions + transfer hook.
 - **Token-2022 ATA creation must be idempotent** in the frontend. (memory: `feedback_token2022_frontend.md`)
-
-### Language / UX
-- **Say "contracts", not "tokens"** in UI copy. (memory: `feedback_coding_style.md`)
-- **Simple PowerShell instructions only** — the user runs Windows and isn't a dev.
-- **Don't circle around a task** — user prefers direct action.
 
 ### Code org
 - **PDA seeds are string constants** repeated in both Rust and TS — if you rename one, rename both ([app/src/utils/constants.ts:45-61](app/src/utils/constants.ts#L45-L61) mirrors the Rust seeds).
