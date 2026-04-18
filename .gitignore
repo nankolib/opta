@@ -29,3 +29,6 @@ id.json
 
 # Archives
 files.zip
+
+# Team coordination board (local only)
+TODO.md
