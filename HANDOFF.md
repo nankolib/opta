@@ -146,7 +146,7 @@ Author throughout: **nankolib** (single-developer project, built with Claude Cod
 ## 6. Current State — What Works
 
 - All **24 instructions** deployed and tested on devnet
-- **99 tests** across 6 suites (per CLAUDE.md + README). Suite breakdown: `butter-options.ts` (37), `pricing.ts` (19), `shared-vaults.ts` (24), `zzz-audit-fixes.ts` (13), `poc-C1-expire-before-settle.ts` (4), `token2022-smoke.ts` (2). Last reported state: **99/99 passing**. Also referenced as 93/93 in an earlier CLAUDE.md snapshot — numbers diverge because test files grew after that note. Run `anchor test` to re-confirm.
+- **95 tests across 6 suites — 95/95 passing, 0 failing, 0 pending** (verified 2026-04-18 on commit `9316bb5`). Breakdown: `butter-options.ts` (36), `shared-vaults.ts` (23), `pricing.ts` (19), `zzz-audit-fixes.ts` (12), `poc-C1-expire-before-settle.ts` (3), `token2022-smoke.ts` (2). Mocha runtime ~3 min; full wall clock including rebuild ~5 min.
 - **Full frontend** live on Vercel: Trade (Deribit-style chain), Write, Portfolio, Markets, Docs
 - **On-chain Black-Scholes** pricing + 5 Greeks via solmath (~50K CU)
 - **Live spot prices** via CoinGecko + Jupiter, with static fallbacks
@@ -253,6 +253,6 @@ Start with `MEMORY.md` index. Key ones: `project_butter_options.md`, `project_v2
 
 - **Butter Options** = permissionless any-asset options on Solana using Token-2022 "living" option tokens; 2 programs, 24 instructions, full Deribit-style frontend.
 - **Stage:** devnet + Vercel, hackathon-ready for Colosseum Frontier (April 2026). Not mainnet.
-- **Test state:** 99/99 last reported; 5 Rust audit rounds + 2 frontend audits, 18 findings fixed, 0 open.
+- **Test state:** 95/95 passing (verified 2026-04-18 on commit `9316bb5`); 5 Rust audit rounds + 2 frontend audits, 18 findings fixed, 0 open.
 - **Only remaining mainnet blockers:** permissionless Pyth-oracle settlement and replacing the hardcoded devnet price map in the crank bot.
 - **Biggest gotcha:** import `polyfills.ts` first in `main.tsx` or Buffer breaks on Vercel builds (`vite-plugin-node-polyfills` is broken on Vite 8).

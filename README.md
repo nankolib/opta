@@ -25,7 +25,7 @@ Butter Options is a permissionless, any-asset options protocol on Solana featuri
 | Oracle | Pyth Network |
 | Pricing | solmath on-chain Black-Scholes with 5 Greeks |
 | Settlement | European-style, USDC-only |
-| Tests | 99 passing across 6 test suites |
+| Tests | 95 passing across 6 test suites |
 | Security | 5 audit rounds, 18 findings fixed, 0 remaining |
 
 ## Instructions (24)
@@ -92,15 +92,15 @@ Live spot prices via CoinGecko/Jupiter with static fallbacks for non-crypto asse
 
 ## Tests
 
-99 test cases across 6 files:
+95 test cases across 6 files:
 
 | Suite | Tests | Coverage |
 |-------|-------|----------|
-| `butter-options.ts` | 37 | Core lifecycle: write, purchase, exercise, expire, cancel, resale |
+| `butter-options.ts` | 36 | Core lifecycle: write, purchase, exercise, expire, cancel, resale |
 | `pricing.ts` | 19 | On-chain B-S, Greeks, Pyth oracle, parameter mode |
-| `shared-vaults.ts` | 24 | Vault deposit, mint, purchase, settle, exercise, withdraw |
-| `zzz-audit-fixes.ts` | 13 | All audit finding regressions |
-| `poc-C1-expire-before-settle.ts` | 4 | Exploit PoC (blocked) |
+| `shared-vaults.ts` | 23 | Vault deposit, mint, purchase, settle, exercise, withdraw |
+| `zzz-audit-fixes.ts` | 12 | All audit finding regressions |
+| `poc-C1-expire-before-settle.ts` | 3 | Exploit PoC (blocked) |
 | `token2022-smoke.ts` | 2 | Token-2022 extension verification |
 
 ## Security
