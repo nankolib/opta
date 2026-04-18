@@ -62,6 +62,13 @@ export const Header: FC = () => {
     }
     setMintingUsdc(true);
     try {
+      // ------------------------------------------------------------------
+      // ⚠️  Loads a PUBLICLY EXPOSED devnet keypair from constants.ts.
+      //     Must never execute on a mainnet build. If this code reaches
+      //     mainnet with the faucet button intact, any wallet funded with
+      //     this seed is drained in seconds. See DEVNET_FAUCET_KEYPAIR in
+      //     app/src/utils/constants.ts for the full pre-mainnet checklist.
+      // ------------------------------------------------------------------
       const faucet = Keypair.fromSecretKey(DEVNET_FAUCET_KEYPAIR);
       const faucetAta = getAssociatedTokenAddressSync(DEVNET_USDC_MINT, faucet.publicKey, false, TOKEN_PROGRAM_ID);
       const userAta = getAssociatedTokenAddressSync(DEVNET_USDC_MINT, publicKey, false, TOKEN_PROGRAM_ID);

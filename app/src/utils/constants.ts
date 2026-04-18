@@ -1,12 +1,42 @@
+// ============================================================================
+// ⚠️  DEVNET / LOCALNET ONLY — NOT SAFE FOR MAINNET
+// ============================================================================
+//
+// Every address, program ID, and keypair in this file is a devnet artifact.
+// Nothing here has been deployed, audited, or secured for mainnet use.
+//
+// STRUCTURAL RISK — cluster choice lives in a DIFFERENT file:
+//   app/src/contexts/WalletContext.tsx:24   →   clusterApiUrl("devnet")
+// Flipping that single line to "mainnet-beta" without also updating this
+// file will silently point the app at mainnet while still using devnet
+// addresses and a publicly-known signing key. In that state, any wallet
+// funded with DEVNET_FAUCET_KEYPAIR is drained within seconds of deploy.
+//
+// BEFORE ANY MAINNET BUILD — REQUIRED CHANGES:
+//   [ ] Deploy both Anchor programs to mainnet; replace PROGRAM_ID and
+//       TRANSFER_HOOK_PROGRAM_ID below with the mainnet addresses.
+//   [ ] Replace DEVNET_USDC_MINT with Circle's real USDC mint
+//       (EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v).
+//   [ ] DELETE DEVNET_FAUCET_KEYPAIR entirely, then delete its only caller
+//       in app/src/components/Header.tsx (the "Get devnet USDC" button).
+//   [ ] Change app/src/contexts/WalletContext.tsx:24 to mainnet-beta and
+//       swap the public RPC for a paid provider (Helius / Triton / QuickNode).
+//   [ ] Re-run the full `anchor test` suite against the mainnet deployment.
+// ============================================================================
+
 import { PublicKey } from "@solana/web3.js";
 import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 
 export { TOKEN_2022_PROGRAM_ID };
 
+// Devnet deployment only (per Anchor.toml). No mainnet address exists yet.
+// See file header for pre-mainnet checklist.
 export const PROGRAM_ID = new PublicKey(
   "CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq",
 );
 
+// Devnet deployment only (per Anchor.toml). No mainnet address exists yet.
+// See file header for pre-mainnet checklist.
 export const TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
   "83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG",
 );
@@ -34,14 +64,32 @@ export const EPOCH_CONFIG_SEED = "epoch_config";
 // When false, UI uses v1 isolated escrow flows.
 export const USE_V2_VAULTS = true;
 
-// Devnet-only faucet wallet — has USDC to distribute to test users.
-// DO NOT use on mainnet. This keypair is public and has no real value.
+// ============================================================================
+// ⚠️  CRITICAL — FULL PRIVATE KEY, DO NOT SHIP TO MAINNET
+// ============================================================================
+// This is a complete 64-byte secret key (32-byte seed + 32-byte public key).
+// Anyone who reads the public repo on GitHub or downloads the Vercel bundle
+// controls this wallet. On devnet that wallet holds faucet USDC with zero
+// monetary value — purely for "Get devnet USDC" demo convenience.
+//
+// If this constant survives into a mainnet build, any wallet funded with
+// this seed with real assets is drained by automated key-scanners within seconds.
+//
+// Before any mainnet build:
+//   [ ] Delete this constant entirely.
+//   [ ] Delete its only caller in app/src/components/Header.tsx
+//       (the handleUsdcFaucet function and its "Get devnet USDC" button).
+// ============================================================================
 export const DEVNET_FAUCET_KEYPAIR = Uint8Array.from([
   190, 228, 179, 16, 84, 86, 220, 167, 58, 26, 230, 109, 55, 214, 31, 68,
   44, 125, 100, 199, 2, 66, 159, 161, 128, 189, 95, 122, 246, 177, 174, 144,
   179, 209, 250, 69, 129, 154, 48, 172, 136, 163, 58, 36, 243, 181, 200, 211,
   13, 245, 237, 45, 41, 30, 221, 12, 131, 243, 51, 64, 92, 218, 20, 129,
 ]);
+
+// Mock USDC mint used for devnet testing — NOT Circle's real USDC.
+// Real mainnet USDC is at EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v.
+// Mainnet builds must swap this constant before shipping.
 export const DEVNET_USDC_MINT = new PublicKey("AytU5HUQRew9VdUdrzQuZvZ7s14pHLiYjAF5WqdK3oxL");
 
 // Transfer hook PDA helpers
