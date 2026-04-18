@@ -25,6 +25,10 @@
 **Last 20 commits:**
 
 ```
+ff08458 docs: add layered devnet-only safety warnings to constants.ts and Header.tsx
+9610f23 docs: correct test count to 95/95 in HANDOFF and README (verified on commit 9316bb5)
+9316bb5 docs: remove stale dual-app-folder warnings from HANDOFF.md (folder deleted)
+2fd73b8 docs: add HANDOFF.md for project continuity + ignore local TODO.md
 67c0d0c fix: unified vault filtering across all pages, token metadata verified on-chain
 5661d94 fix: Trade page filtered to v2 vault data only, synced with Markets page
 5393429 feat: pre-demo cleanup — filtered markets, collateral breakdown, epoch vault creation, fresh seed script
@@ -41,10 +45,6 @@ f2a69c9 feat: shared vault liquidity system — 11 new instructions, router SDK,
 0435ecf fix: use URL API for Pyth Hermes request to fix param encoding
 5602da5 fix: add parsed=true param, debug logging, and case-insensitive ID match to Pyth hook
 4aaf9b7 fix: use live Pyth spot prices for B-S pricing instead of strike
-318f58e 9-asset options chain: seed + expiry fix + per-asset IV
-3785c6d Deribit-style options chain + Greeks + devnet seeder
-a0267d4 Phase D: Pyth on-chain integration + pricing crank
-e0d1b38 Phase C: on-chain pricing via solmath (A+C hybrid)
 ```
 
 Author throughout: **nankolib** (single-developer project, built with Claude Code).
@@ -111,7 +111,7 @@ Author throughout: **nankolib** (single-developer project, built with Claude Cod
 - Pages: `Landing`, `Markets`, `Trade`, `Write`, `Portfolio`, `DocsPage` ([app/src/App.tsx](app/src/App.tsx))
 - Hooks: `useProgram`, `useAccounts`, `useFetchAccounts`, `useVaults`, `useTokenMetadata`, `usePythPrices`
 - Utils: `blackScholes.ts`, `constants.ts`, `errorDecoder.ts`, `format.ts`, `tokenMetadata.ts`, `vaultFilters.ts`
-- Feature flag: `USE_V2_VAULTS = true` in [app/src/utils/constants.ts:35](app/src/utils/constants.ts#L35)
+- Feature flag: `USE_V2_VAULTS = true` in [app/src/utils/constants.ts:65](app/src/utils/constants.ts#L65)
 
 ### Data flow — user buys an option (V2 vault path)
 1. User lands on `/trade`, UI loads live spot prices via `usePythPrices` (CoinGecko/Jupiter)
@@ -137,7 +137,7 @@ Author throughout: **nankolib** (single-developer project, built with Claude Cod
 | Frontend | **Vercel**, root dir set to `app/`, SPA rewrite via `vercel.json` (exact URL: check user memory / Vercel dashboard — not hard-coded in repo) |
 | Crank bot | Run manually via `npx ts-node crank/bot.ts` (devnet-only hardcoded price map for the hackathon) |
 | Devnet USDC mint | `AytU5HUQRew9VdUdrzQuZvZ7s14pHLiYjAF5WqdK3oxL` (in constants) |
-| Devnet faucet wallet | Public keypair baked into [app/src/utils/constants.ts:39](app/src/utils/constants.ts#L39) — deliberately exposed for demo USDC distribution, no mainnet value |
+| Devnet faucet wallet | Public keypair baked into [app/src/utils/constants.ts:83](app/src/utils/constants.ts#L83) — deliberately exposed for demo USDC distribution, no mainnet value; in-code warnings flag it. |
 
 **Environment files:** no `.env` or `.env.local` present in `app/`, repo root, or `crank/` — the app hardcodes devnet via `clusterApiUrl("devnet")` in [app/src/contexts/WalletContext.tsx:24](app/src/contexts/WalletContext.tsx#L24). `.gitignore` already blocks `.env*`, `*-keypair.json`, `id.json`, `.claude/settings.local.json`.
 
@@ -158,6 +158,7 @@ Author throughout: **nankolib** (single-developer project, built with Claude Cod
 - Pre-demo cleanup: markets + trade filtered to V2 only, collateral breakdown, fresh seed (commit `5393429`)
 - Buffer polyfill fix for Vercel production builds (commit `5da2a17`)
 - Vault filtering unified across all pages + on-chain metadata verified (commit `67c0d0c`)
+- Doc accuracy pass (2026-04-18): stale `butter_options_app/` folder removed, test count verified at 95/95, devnet safety warnings added to `constants.ts` + `Header.tsx` — four commits, see §2 commit log
 
 ---
 
@@ -233,7 +234,7 @@ No explicit blockers flagged in docs right now. The project is in "demo-ready, w
 - **Don't circle around a task** — user prefers direct action.
 
 ### Code org
-- **PDA seeds are string constants** repeated in both Rust and TS — if you rename one, rename both ([app/src/utils/constants.ts:15-31](app/src/utils/constants.ts#L15-L31) mirrors the Rust seeds).
+- **PDA seeds are string constants** repeated in both Rust and TS — if you rename one, rename both ([app/src/utils/constants.ts:45-61](app/src/utils/constants.ts#L45-L61) mirrors the Rust seeds).
 - **`USE_V2_VAULTS` feature flag** gates which flows the UI exposes. V1 code still exists but is hidden.
 - **IDL generation** — `b83b23f` regenerated the IDL to reflect all 24 instructions. Re-generate after any instruction signature change.
 - **Tests named `zzz-audit-fixes.ts`** run last on purpose (mocha alpha ordering) because they depend on earlier fixtures.
@@ -253,6 +254,6 @@ Start with `MEMORY.md` index. Key ones: `project_butter_options.md`, `project_v2
 
 - **Butter Options** = permissionless any-asset options on Solana using Token-2022 "living" option tokens; 2 programs, 24 instructions, full Deribit-style frontend.
 - **Stage:** devnet + Vercel, hackathon-ready for Colosseum Frontier (April 2026). Not mainnet.
-- **Test state:** 95/95 passing (verified 2026-04-18 on commit `9316bb5`); 5 Rust audit rounds + 2 frontend audits, 18 findings fixed, 0 open.
+- **Test state:** 95/95 passing (verified 2026-04-18 on commit `ff08458`); 5 Rust audit rounds + 2 frontend audits, 18 findings fixed, 0 open.
 - **Only remaining mainnet blockers:** permissionless Pyth-oracle settlement and replacing the hardcoded devnet price map in the crank bot.
 - **Biggest gotcha:** import `polyfills.ts` first in `main.tsx` or Buffer breaks on Vercel builds (`vite-plugin-node-polyfills` is broken on Vite 8).
