@@ -2,7 +2,7 @@ import { FC, useEffect, useState, useMemo } from "react";
 import { PublicKey, ComputeBudgetProgram } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import BN from "bn.js";
-import { formatUsdc, usdcToNumber, formatExpiry } from "../../utils/format";
+import { formatUsdc, usdcToNumber, formatExpiry, isExpired } from "../../utils/format";
 import { showToast } from "../Toast";
 import { decodeError } from "../../utils/errorDecoder";
 import { useTokenMetadata } from "../../hooks/useTokenMetadata";
@@ -153,6 +153,7 @@ export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, 
         const v = h.vault.account;
         const isCall = "call" in v.optionType;
         const settled = v.isSettled;
+        const expired = isExpired(v.expiry);
         const meta = tokenMetadata.get(h.optionMint.toBase58());
 
         let pnlDisplay = "—";
@@ -168,15 +169,17 @@ export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, 
         const exercising = exercisingId === h.vaultMint.publicKey.toBase58();
 
         return (
-          <div key={h.vaultMint.publicKey.toBase58()} className={`rounded-xl border border-border bg-bg-surface p-5 transition-opacity ${exercising ? "opacity-60" : ""}`}>
+          <div key={h.vaultMint.publicKey.toBase58()} className={`rounded-xl border border-border bg-bg-surface p-5 transition-opacity ${(exercising || expired) ? "opacity-60" : ""}`}>
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-text-primary">{h.market?.assetName || tickerFromMetadataSymbol(meta?.symbol) || "?"}</span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>{isCall ? "Call" : "Put"}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-gold/10 text-gold">Living Token</span>
+                {!expired && <span className="text-xs px-2 py-0.5 rounded-full bg-gold/10 text-gold">Living Token</span>}
+                {expired && <span className="text-xs px-2 py-0.5 rounded-full bg-text-muted/10 text-text-muted">Expired</span>}
               </div>
               {settled
                 ? <span className="text-xs text-gold">Settled @ ${formatUsdc(v.settlementPrice)}</span>
+                : expired ? <span className="text-xs text-text-muted">Expired — {formatExpiry(v.expiry)}</span>
                 : <span className="text-xs text-sol-green">Active — {formatExpiry(v.expiry)}</span>}
             </div>
             {meta && (
