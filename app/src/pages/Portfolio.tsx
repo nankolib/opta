@@ -212,7 +212,7 @@ export const Portfolio: FC = () => {
                 </span>
               </div>
               <div className="text-2xl font-bold text-text-primary">${Math.round(summary.intrinsic).toLocaleString()}</div>
-              {summary.intrinsicHasGaps && <div className="text-[10px] text-text-muted mt-0.5">partial — pyth feeds loading</div>}
+              {summary.intrinsicHasGaps && <div className="text-[10px] text-text-muted mt-0.5">partial — feeds loading</div>}
             </div>
             <div className="rounded-xl border border-border bg-bg-surface p-4">
               <div className="text-xs text-text-muted uppercase tracking-wider mb-1.5">Next Expiry</div>

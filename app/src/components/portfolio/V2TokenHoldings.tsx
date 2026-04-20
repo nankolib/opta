@@ -7,6 +7,17 @@ import { showToast } from "../Toast";
 import { decodeError } from "../../utils/errorDecoder";
 import { useTokenMetadata } from "../../hooks/useTokenMetadata";
 
+// Fallback when the on-chain market account isn't reachable through marketMap
+// (e.g. it failed safeFetchAll's strict validator). Parse the Token-2022 metadata
+// symbol like "BUTTER-SOL-100C-APR24" -> "SOL", and only accept it if it's in the
+// known-asset allowlist so we don't render garbage tickers.
+const KNOWN_ASSETS = new Set(["SOL", "BTC", "ETH", "AAPL", "XAU", "XAG", "WTI", "TSLA", "NVDA"]);
+function tickerFromMetadataSymbol(symbol: string | undefined): string | null {
+  if (!symbol) return null;
+  const candidate = symbol.split("-")[1];
+  return candidate && KNOWN_ASSETS.has(candidate) ? candidate : null;
+}
+
 interface V2TokenHoldingsProps {
   vaults: { publicKey: PublicKey; account: any }[];
   vaultMints: { publicKey: PublicKey; account: any }[];
@@ -160,7 +171,7 @@ export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, 
           <div key={h.vaultMint.publicKey.toBase58()} className={`rounded-xl border border-border bg-bg-surface p-5 transition-opacity ${exercising ? "opacity-60" : ""}`}>
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-text-primary">{h.market?.assetName || "?"}</span>
+                <span className="text-sm font-semibold text-text-primary">{h.market?.assetName || tickerFromMetadataSymbol(meta?.symbol) || "?"}</span>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${isCall ? "bg-sol-green/10 text-sol-green" : "bg-sol-purple/10 text-sol-purple"}`}>{isCall ? "Call" : "Put"}</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-gold/10 text-gold">Living Token</span>
               </div>
