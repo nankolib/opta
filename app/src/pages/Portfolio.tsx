@@ -290,7 +290,8 @@ export const Portfolio: FC = () => {
             </div>
             {USE_V2_VAULTS && (
               <div className="mb-6">
-                <h3 className="text-sm font-semibold text-sol-purple mb-3">Vault Options</h3>
+                <h3 className="text-lg font-semibold text-sol-purple mb-1">Vault Options</h3>
+                <p className="text-sm text-text-muted mb-4">Vault-backed — settled from a shared liquidity pool</p>
                 <V2TokenHoldings vaults={vaults} vaultMints={vaultMints} markets={markets}
                   program={program} publicKey={publicKey!} onRefetch={refetch}
                   hasV1Tokens={heldPositions.length > 0} />
@@ -298,7 +299,12 @@ export const Portfolio: FC = () => {
             )}
             {heldPositions.length > 0 && (
               <div>
-                {USE_V2_VAULTS && <h3 className="text-sm font-semibold text-gold mb-3">Direct Options</h3>}
+                {USE_V2_VAULTS && (
+                  <>
+                    <h3 className="text-lg font-semibold text-gold mb-1">Direct Options</h3>
+                    <p className="text-sm text-text-muted mb-4">P2P — written directly by another user as collateral</p>
+                  </>
+                )}
                 <HeldTab positions={heldPositions} marketMap={marketMap} publicKey={publicKey!}
                   program={program} provider={provider} onSuccess={refetch} spotPrices={spotPrices}
                   onListForResale={(p, m) => setResaleModal({ position: p, market: m })} />
@@ -536,7 +542,7 @@ const HeldTab: FC<{
         const meta = tokenMetadata.get(p.account.optionMint.toBase58());
 
         return (
-          <div key={p.publicKey.toBase58()} className={`rounded-xl border border-border bg-bg-surface p-5 transition-opacity ${(exercisingId === p.publicKey.toBase58() || expired) ? "opacity-60" : ""}`}>
+          <div key={p.publicKey.toBase58()} className={`rounded-xl border border-border border-l-2 border-l-gold/40 bg-bg-surface p-5 transition-opacity ${(exercisingId === p.publicKey.toBase58() || expired) ? "opacity-60" : ""}`}>
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-text-primary">{mkt.assetName}</span>

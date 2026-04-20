@@ -169,7 +169,7 @@ export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, 
         const exercising = exercisingId === h.vaultMint.publicKey.toBase58();
 
         return (
-          <div key={h.vaultMint.publicKey.toBase58()} className={`rounded-xl border border-border bg-bg-surface p-5 transition-opacity ${(exercising || expired) ? "opacity-60" : ""}`}>
+          <div key={h.vaultMint.publicKey.toBase58()} className={`rounded-xl border border-border border-l-2 border-l-sol-purple/40 bg-bg-surface p-5 transition-opacity ${(exercising || expired) ? "opacity-60" : ""}`}>
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold text-text-primary">{h.market?.assetName || tickerFromMetadataSymbol(meta?.symbol) || "?"}</span>
