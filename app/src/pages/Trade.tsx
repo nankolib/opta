@@ -1,9 +1,9 @@
-import { FC, useEffect, useState, useMemo } from "react";
+import { FC, useEffect, useRef, useState, useMemo } from "react";
 import { PublicKey, SystemProgram, ComputeBudgetProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction, ASSOCIATED_TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { useWallet } from "@solana/wallet-adapter-react";
 import BN from "bn.js";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useProgram } from "../hooks/useProgram";
 import { safeFetchAll } from "../hooks/useFetchAccounts";
 import { useVaults } from "../hooks/useVaults";
@@ -43,7 +43,10 @@ export const Trade: FC = () => {
   const [loading, setLoading] = useState(true);
   const [selectedAsset, setSelectedAsset] = useState<string>("");
   const [selectedExpiry, setSelectedExpiry] = useState<number>(0);
+  const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
   const [buyModal, setBuyModal] = useState<{ position: PositionAccount; market: any; isResale: boolean } | null>(null);
+  const [searchParams] = useSearchParams();
+  const appliedUrlRef = useRef(false);
 
   // V2 vault state
   const { vaults, vaultMints, isLoading: vaultsLoading, refetch: refetchVaults } = useVaults();
@@ -136,6 +139,32 @@ export const Trade: FC = () => {
       setSelectedExpiry(expiries[0]);
     }
   }, [expiries]);
+
+  // Apply URL deep-link params once (asset/expiry/strike from /markets row).
+  // Retries on each assets/expiries change until the asset is in `assets` (vaults
+  // may still be loading on first mount), then locks via the ref.
+  useEffect(() => {
+    if (appliedUrlRef.current) return;
+    const urlAsset = searchParams.get("asset");
+    const urlExpiry = searchParams.get("expiry");
+    const urlStrike = searchParams.get("strike");
+    if (!urlAsset && !urlExpiry && !urlStrike) {
+      appliedUrlRef.current = true;
+      return;
+    }
+    if (urlAsset && !assets.includes(urlAsset)) return;
+    if (urlAsset) setSelectedAsset(urlAsset);
+    if (urlExpiry && expiries.length > 0) {
+      const targetDay = Math.floor(parseInt(urlExpiry, 10) / 86400) * 86400;
+      const match = expiries.find((e) => Math.floor(e / 86400) * 86400 === targetDay);
+      if (match !== undefined) setSelectedExpiry(match);
+    }
+    if (urlStrike) {
+      const s = parseFloat(urlStrike);
+      if (!isNaN(s)) setSelectedStrike(s);
+    }
+    appliedUrlRef.current = true;
+  }, [assets, expiries, searchParams]);
 
   // Live Pyth prices
   const assetNames = useMemo(() => [...new Set(activeMarkets.map(m => m.account.assetName as string))], [activeMarkets]);
@@ -327,7 +356,7 @@ export const Trade: FC = () => {
               {assets.map((asset) => (
                 <button
                   key={asset}
-                  onClick={() => setSelectedAsset(asset)}
+                  onClick={() => { setSelectedAsset(asset); setSelectedStrike(null); }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     selectedAsset === asset
                       ? "bg-gold/15 text-gold border border-gold/30"
@@ -344,7 +373,7 @@ export const Trade: FC = () => {
               {expiries.map((ts) => (
                 <button
                   key={ts}
-                  onClick={() => setSelectedExpiry(ts)}
+                  onClick={() => { setSelectedExpiry(ts); setSelectedStrike(null); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                     selectedExpiry === ts
                       ? "bg-gold/15 text-gold border border-gold/30"
@@ -415,7 +444,7 @@ export const Trade: FC = () => {
                         const putItm = row.strike > spotPrice;
 
                         return (
-                          <tr key={row.strike} className="border-b border-border/50 hover:bg-bg-surface-hover transition-colors">
+                          <tr key={row.strike} className={`border-b border-border/50 hover:bg-bg-surface-hover transition-colors ${row.strike === selectedStrike ? "ring-1 ring-gold/40 bg-gold/5" : ""}`}>
                             {/* Call side */}
                             <td className={`px-2 py-2.5 text-xs text-right ${callItm ? "bg-sol-green/5" : ""}`}>
                               <span style={{ color: `rgba(74,222,128,${Math.abs(row.callGreeks.delta)})` }}>{row.callGreeks.delta.toFixed(2)}</span>

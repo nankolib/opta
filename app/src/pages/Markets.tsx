@@ -264,7 +264,10 @@ export const Markets: FC = () => {
                               </div>
                             </div>
                             <div className="mt-4 flex gap-3">
-                              <Link to="/trade" className="rounded-lg bg-sol-green/10 border border-sol-green/30 px-4 py-1.5 text-xs font-medium text-sol-green hover:bg-sol-green/20 transition-colors">
+                              <Link
+                                to={`/trade?asset=${encodeURIComponent(m.account.assetName)}&expiry=${m.account.expiryTimestamp.toString()}&strike=${usdcToNumber(m.account.strikePrice)}&type=${isCall ? "call" : "put"}`}
+                                className="rounded-lg bg-sol-green/10 border border-sol-green/30 px-4 py-1.5 text-xs font-medium text-sol-green hover:bg-sol-green/20 transition-colors"
+                              >
                                 Trade {m.account.assetName}
                               </Link>
                               <Link to="/write" className="rounded-lg bg-gold/10 border border-gold/30 px-4 py-1.5 text-xs font-medium text-gold hover:bg-gold/20 transition-colors">
