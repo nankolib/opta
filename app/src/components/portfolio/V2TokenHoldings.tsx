@@ -191,26 +191,31 @@ export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, 
             <div className="grid grid-cols-4 gap-3 text-xs">
               <div><div className="text-text-muted">Strike</div><div className="text-text-primary font-medium">${formatUsdc(v.strikePrice)}</div></div>
               <div><div className="text-text-muted">Balance</div><div className="text-gold font-bold">{h.balance} contracts</div></div>
-              <div><div className="text-text-muted">Expiry</div><div className="text-text-primary font-medium">{formatExpiry(v.expiry)}</div></div>
+              <div>
+                <div className="text-text-muted">Expiry</div>
+                <div className="text-text-primary font-medium">{formatExpiry(v.expiry)}</div>
+                {!settled && !expired && (
+                  <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-text-muted/10 text-text-muted">Awaiting settlement</span>
+                )}
+              </div>
               <div><div className="text-text-muted">PnL</div><div className={`font-medium ${pnlDisplay.startsWith("+") ? "text-sol-green" : "text-text-muted"}`}>{pnlDisplay}</div></div>
             </div>
 
-            <div className="mt-4 pt-3 border-t border-border/50 flex gap-2">
-              {settled && itm && (
-                <button onClick={() => handleExercise(h)} disabled={exercising}
-                  className="rounded-lg bg-sol-green/15 border border-sol-green/30 px-4 py-1.5 text-xs font-semibold text-sol-green hover:bg-sol-green/25 transition-colors disabled:opacity-50">
-                  {exercising ? "Burning tokens & claiming payout..." : `Exercise & Burn ${h.balance} tokens`}
-                </button>
-              )}
-              {settled && !itm && (
-                <span className="text-xs text-text-muted py-1.5">
-                  Out of the money (settlement: ${formatUsdc(v.settlementPrice)}, strike: ${formatUsdc(v.strikePrice)})
-                </span>
-              )}
-              {!settled && (
-                <span className="text-xs text-text-muted py-1.5">Vault not yet settled. Settlement required before exercise.</span>
-              )}
-            </div>
+            {settled && (
+              <div className="mt-4 pt-3 border-t border-border/50 flex gap-2">
+                {itm && (
+                  <button onClick={() => handleExercise(h)} disabled={exercising}
+                    className="rounded-lg bg-sol-green/15 border border-sol-green/30 px-4 py-1.5 text-xs font-semibold text-sol-green hover:bg-sol-green/25 transition-colors disabled:opacity-50">
+                    {exercising ? "Burning tokens & claiming payout..." : `Exercise & Burn ${h.balance} tokens`}
+                  </button>
+                )}
+                {!itm && (
+                  <span className="text-xs text-text-muted py-1.5">
+                    Out of the money (settlement: ${formatUsdc(v.settlementPrice)}, strike: ${formatUsdc(v.strikePrice)})
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
