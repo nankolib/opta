@@ -17,7 +17,7 @@ import { AdminTools } from "../components/portfolio/AdminTools";
 import { useTokenMetadata } from "../hooks/useTokenMetadata";
 import { decodeError } from "../utils/errorDecoder";
 import { V2TokenHoldings } from "../components/portfolio/V2TokenHoldings";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 interface PositionAccount { publicKey: PublicKey; account: any; }
 interface MarketAccount { publicKey: PublicKey; account: any; }
@@ -61,34 +61,104 @@ export const Portfolio: FC = () => {
   const writtenPositions = useMemo(() => publicKey ? positions.filter((p) => p.account.writer.toBase58() === publicKey.toBase58()) : [], [positions, publicKey]);
 
   // Token Holdings tab: only positions where the connected wallet actually holds option tokens.
-  // Fetch all Token-2022 accounts for the wallet, then match mints to positions.
+  // Fetch all Token-2022 accounts for the wallet, then match mints to both v1 positions
+  // (heldPositions) and v2 vault mints (heldVaultMints), tracking per-mint balances for
+  // the summary card. One RPC call serves both derivations.
   const [heldPositions, setHeldPositions] = useState<PositionAccount[]>([]);
+  const [heldBalances, setHeldBalances] = useState<Map<string, number>>(new Map());
+  const [heldVaultMints, setHeldVaultMints] = useState<{ vaultMint: any; vault: any; balance: number }[]>([]);
   useEffect(() => {
-    if (!publicKey || !program || positions.length === 0) { setHeldPositions([]); return; }
+    if (!publicKey || !program || (positions.length === 0 && vaultMints.length === 0)) {
+      setHeldPositions([]); setHeldBalances(new Map()); setHeldVaultMints([]); return;
+    }
     (async () => {
       try {
         const accounts = await program.provider.connection.getTokenAccountsByOwner(publicKey, { programId: TOKEN_2022_PROGRAM_ID });
-        // Build set of mints where balance > 0
-        const heldMints = new Set<string>();
+        const heldMints = new Map<string, number>();
         for (const a of accounts.value) {
           const mint = new PublicKey(a.account.data.slice(0, 32)).toBase58();
-          const balance = a.account.data.readBigUInt64LE(64);
-          if (balance > BigInt(0)) heldMints.add(mint);
+          const balance = Number(a.account.data.readBigUInt64LE(64));
+          if (balance > 0) heldMints.set(mint, balance);
         }
         const held = positions.filter((p) =>
           !p.account.isExercised && !p.account.isExpired && !p.account.isCancelled &&
           heldMints.has(p.account.optionMint.toBase58())
         );
         setHeldPositions(held);
+        setHeldBalances(heldMints);
+        const v2Held: { vaultMint: any; vault: any; balance: number }[] = [];
+        for (const vm of vaultMints) {
+          const mintKey = (vm.account.optionMint as PublicKey).toBase58();
+          const balance = heldMints.get(mintKey);
+          if (!balance) continue;
+          const vault = vaults.find((v) => v.publicKey.equals(vm.account.vault as PublicKey));
+          if (!vault) continue;
+          v2Held.push({ vaultMint: vm, vault, balance });
+        }
+        setHeldVaultMints(v2Held);
       } catch {
-        setHeldPositions([]);
+        setHeldPositions([]); setHeldBalances(new Map()); setHeldVaultMints([]);
       }
     })();
-  }, [publicKey, program, positions]);
+  }, [publicKey, program, positions, vaultMints, vaults]);
 
   // Live Pyth prices
   const assetNames = useMemo(() => [...new Set(markets.map(m => m.account.assetName as string))], [markets]);
   const { prices: spotPrices } = usePythPrices(assetNames);
+
+  // Summary metrics for the top dashboard. Buyer-side only. Past-expiry excluded.
+  // Intrinsic skips positions whose Pyth feed hasn't returned yet (better undercount than mislead).
+  const summary = useMemo(() => {
+    const now = Math.floor(Date.now() / 1000);
+    const v1Active = heldPositions.filter((p) => {
+      const mkt = marketMap.get(p.account.market.toBase58());
+      if (!mkt) return false;
+      const exp = typeof mkt.expiryTimestamp === "number" ? mkt.expiryTimestamp : mkt.expiryTimestamp.toNumber();
+      return exp > now;
+    });
+    const v2Active = heldVaultMints.filter(({ vault }) => {
+      const exp = typeof vault.account.expiry === "number" ? vault.account.expiry : vault.account.expiry.toNumber();
+      return exp > now;
+    });
+
+    let notional = 0;
+    let intrinsic = 0;
+    let intrinsicHasGaps = false;
+    let nextExpiry: number | null = null;
+
+    for (const p of v1Active) {
+      const mkt = marketMap.get(p.account.market.toBase58())!;
+      const balance = heldBalances.get(p.account.optionMint.toBase58()) ?? 0;
+      const strike = usdcToNumber(mkt.strikePrice);
+      notional += strike * balance;
+      const spot = spotPrices[mkt.assetName];
+      if (spot && spot > 0) {
+        const isCall = "call" in mkt.optionType;
+        intrinsic += (isCall ? Math.max(0, spot - strike) : Math.max(0, strike - spot)) * balance;
+      } else {
+        intrinsicHasGaps = true;
+      }
+      const exp = typeof mkt.expiryTimestamp === "number" ? mkt.expiryTimestamp : mkt.expiryTimestamp.toNumber();
+      if (nextExpiry === null || exp < nextExpiry) nextExpiry = exp;
+    }
+    for (const { vault, balance } of v2Active) {
+      const v = vault.account;
+      const strike = usdcToNumber(v.strikePrice);
+      notional += strike * balance;
+      const mkt = marketMap.get((v.market as PublicKey).toBase58());
+      const spot = mkt ? spotPrices[mkt.assetName] : 0;
+      if (spot && spot > 0) {
+        const isCall = "call" in v.optionType;
+        intrinsic += (isCall ? Math.max(0, spot - strike) : Math.max(0, strike - spot)) * balance;
+      } else {
+        intrinsicHasGaps = true;
+      }
+      const exp = typeof v.expiry === "number" ? v.expiry : v.expiry.toNumber();
+      if (nextExpiry === null || exp < nextExpiry) nextExpiry = exp;
+    }
+
+    return { count: v1Active.length + v2Active.length, notional, intrinsic, intrinsicHasGaps, nextExpiry };
+  }, [heldPositions, heldVaultMints, heldBalances, marketMap, spotPrices]);
 
   const refetch = async () => {
     if (!program) return;
@@ -117,10 +187,39 @@ export const Portfolio: FC = () => {
         <h1 className="text-3xl font-bold text-text-primary mb-2">Portfolio</h1>
         <p className="text-text-secondary mb-6">Your option positions. Options are SPL tokens — tradeable anywhere.</p>
 
-        <div className="rounded-xl border border-sol-purple/20 bg-sol-purple/5 p-4 mb-6">
-          <div className="text-sm text-sol-purple font-medium mb-1">Living Option Tokens</div>
-          <p className="text-xs text-text-secondary">Each option is a Token-2022 Living Option Token. Hold, transfer, list for resale, or exercise them. Tokens self-destruct at settlement.</p>
-        </div>
+        {summary.count === 0 ? (
+          <div className="rounded-xl border border-border bg-bg-surface p-6 text-center mb-6">
+            <p className="text-sm text-text-secondary">
+              No active positions yet — head to <Link to="/trade" className="text-gold hover:underline">Trade</Link> to buy your first option.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            <div className="rounded-xl border border-border bg-bg-surface p-4">
+              <div className="text-xs text-text-muted uppercase tracking-wider mb-1.5">Active Positions</div>
+              <div className="text-2xl font-bold text-text-primary">{summary.count}</div>
+            </div>
+            <div className="rounded-xl border border-border bg-bg-surface p-4">
+              <div className="text-xs text-text-muted uppercase tracking-wider mb-1.5">Notional Locked</div>
+              <div className="text-2xl font-bold text-text-primary">${Math.round(summary.notional).toLocaleString()}</div>
+            </div>
+            <div className="rounded-xl border border-border bg-bg-surface p-4">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-xs text-text-muted uppercase tracking-wider">Intrinsic Value</div>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-sol-green animate-pulse" />
+                  <span className="text-[10px] uppercase tracking-wider text-sol-green/80">live</span>
+                </span>
+              </div>
+              <div className="text-2xl font-bold text-text-primary">${Math.round(summary.intrinsic).toLocaleString()}</div>
+              {summary.intrinsicHasGaps && <div className="text-[10px] text-text-muted mt-0.5">partial — pyth feeds loading</div>}
+            </div>
+            <div className="rounded-xl border border-border bg-bg-surface p-4">
+              <div className="text-xs text-text-muted uppercase tracking-wider mb-1.5">Next Expiry</div>
+              <div className="text-2xl font-bold text-text-primary">{summary.nextExpiry ? formatExpiryShort(summary.nextExpiry) : "—"}</div>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center gap-2 mb-6">
           {USE_V2_VAULTS && (
