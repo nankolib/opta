@@ -55,14 +55,14 @@ export const DocsPage: FC = () => {
 
         {/* Content */}
         <main className="flex-1 min-w-0">
-          <h1 className="text-4xl font-bold text-text-primary mb-2">Butter Options Protocol</h1>
+          <h1 className="text-4xl font-bold text-text-primary mb-2">Opta Protocol</h1>
           <p className="text-text-secondary mb-12">Complete technical reference for the Living Option Token protocol on Solana.</p>
 
           {/* Living Option Token */}
           <section id="living-token" ref={(el) => { sectionRefs.current["living-token"] = el; }} className="mb-16 scroll-mt-24">
             <h2 className="text-2xl font-bold text-text-primary mb-4">The Living Option Token</h2>
             <p className="text-text-secondary mb-6 leading-relaxed">
-              Every option minted on Butter Options is a real Token-2022 token with three extensions:
+              Every option minted on Opta is a real Token-2022 token with three extensions:
             </p>
             <div className="space-y-4">
               <DocCard title="TransferHook" accent="gold"
@@ -78,7 +78,7 @@ export const DocsPage: FC = () => {
           <section id="pricing" ref={(el) => { sectionRefs.current["pricing"] = el; }} className="mb-16 scroll-mt-24">
             <h2 className="text-2xl font-bold text-text-primary mb-4">How Pricing Works</h2>
             <p className="text-text-secondary mb-6 leading-relaxed">
-              Butter Options uses asset-class-aware Black-Scholes pricing with 5 profiles:
+              Opta uses asset-class-aware Black-Scholes pricing with 5 profiles:
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
               {[

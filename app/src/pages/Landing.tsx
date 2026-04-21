@@ -65,7 +65,7 @@ export const Landing: FC = () => {
             />
           )}
           <a
-            href="https://github.com/nankolib/butter_options"
+            href="https://github.com/nankolib/opta"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-xl border border-border bg-bg-surface px-8 py-3.5 text-sm font-medium text-text-secondary hover:text-text-primary hover:border-border-light transition-all no-underline"
@@ -210,11 +210,11 @@ export const Landing: FC = () => {
         </div>
       </section>
 
-      {/* ===== Why Butter Options ===== */}
+      {/* ===== Why Opta ===== */}
       <section className="border-t border-border bg-bg-surface/30 py-20">
         <div className="mx-auto max-w-3xl px-4">
           <h2 className="text-center text-3xl font-bold text-text-primary mb-6">
-            Why Butter Options?
+            Why Opta?
           </h2>
           <div className="text-text-secondary leading-relaxed space-y-4 text-[15px]">
             <p>
@@ -224,7 +224,7 @@ export const Landing: FC = () => {
               Solana is building Internet Capital Markets — tokenized assets are arriving via Securitize, BlackRock-backed JupUSD, and the broader RWA wave. But institutions don't just buy assets — they hedge. No hedging infrastructure means no institutional money.
             </p>
             <p>
-              Every previous options protocol on Solana has died or pivoted. Butter Options is the hedging layer that makes Solana institutionally complete.
+              Every previous options protocol on Solana has died or pivoted. Opta is the hedging layer that makes Solana institutionally complete.
             </p>
           </div>
         </div>
@@ -235,7 +235,7 @@ export const Landing: FC = () => {
         <div className="mx-auto max-w-6xl px-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="text-sm text-text-muted">
-              Butter Options — Colosseum Frontier Hackathon 2026
+              Opta — Colosseum Frontier Hackathon 2026
             </div>
             <div className="text-xs text-text-muted text-center">
               Built entirely with Claude Code. Zero traditional developers.

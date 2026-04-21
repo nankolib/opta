@@ -1,12 +1,14 @@
-# Butter Options — Engineer Handoff
+# Opta — Engineer Handoff
 
-> Generated 2026-04-18 by `handoff-scribe` (Claude Code session). This document is the project seed context — drop it into a fresh Claude chat to bring any instance up to speed without re-explanation. For current HEAD, run `git log -1 --oneline`; this doc does not try to self-reference its own commit.
+> Generated 2026-04-18 by `handoff-scribe`; renamed from Butter Options to Opta on 2026-04-21 (Claude Code session). This document is the project seed context — drop it into a fresh Claude chat to bring any instance up to speed without re-explanation. For current HEAD, run `git log -1 --oneline`; this doc does not try to self-reference its own commit.
+
+> NOTE ON THE RENAME: The project was renamed from Butter Options to Opta on 2026-04-21. Phase 1 (documentation, GitHub repo, frontend display strings, Vercel, socials) is being rolled out now. Phase 2 (Rust program names, directory paths like `programs/butter-options/`, PDA seed constants, the `declare_id!()` macros, and IDL regeneration) is parked until after Colosseum judging to avoid breaking the live devnet deployment. When you see `butter_options` or `butter-options` as code identifiers in this document or in the repo, those are still the real identifiers in the code — do not rename them until Phase 2.
 
 ---
 
 ## How to use this document
 
-This document is the **seed context** for Butter Options. If you're a fresh Claude session starting work on this project:
+This document is the **seed context** for Opta. If you're a fresh Claude session starting work on this project:
 
 1. **Read this doc end-to-end before answering.** Skimming misses the gotchas and norms.
 2. **Check personal memory files** at `C:\Users\pc\.claude\projects\d--claude-everything-butter-options\memory\`. `MEMORY.md` is the index. These persist across sessions and carry the user's accumulated preferences, feedback, and lessons — always consult them before starting work.
@@ -30,9 +32,9 @@ If the user's live intent conflicts with this doc, follow the user. The doc is a
 
 ## 1. Project Identity
 
-**Butter Options** is an options-trading protocol built on the Solana blockchain. It lets anyone write (sell) or buy call/put options on any asset that has a Pyth price feed — crypto, commodities, equities, forex — with the option itself represented as a token that can be freely traded on a secondary market until it expires. The pitch line in the README is "the first living financial instrument on any blockchain": each option mint is an SPL **Token-2022** with three extensions that make the token enforce its own expiry, auto-burn at settlement, and carry its full term sheet on-chain.
+**Opta** is an options-trading protocol built on the Solana blockchain. It lets anyone write (sell) or buy call/put options on any asset that has a Pyth price feed — crypto, commodities, equities, forex — with the option itself represented as a token that can be freely traded on a secondary market until it expires. The pitch line in the README is "the first living financial instrument on any blockchain": each option mint is an SPL **Token-2022** with three extensions that make the token enforce its own expiry, auto-burn at settlement, and carry its full term sheet on-chain.
 
-- **Problem it solves:** On-chain options today are either asset-limited (crypto only), oracle-limited, or not composable by other programs. Butter makes any Pyth asset tradable as a permissionless, CPI-callable option token.
+- **Problem it solves:** On-chain options today are either asset-limited (crypto only), oracle-limited, or not composable by other programs. Opta makes any Pyth asset tradable as a permissionless, CPI-callable option token.
 - **Users:** DeFi traders (Trade/Write/Portfolio UI), liquidity providers (shared vaults), other Solana programs (CPI), AI agents (metadata is machine-readable).
 - **Stage:** **Devnet demo / hackathon submission.** Deployed to Solana devnet, frontend live on Vercel, built for **Colosseum Frontier Hackathon — April 2026.** Not on mainnet.
 
@@ -40,7 +42,7 @@ If the user's live intent conflicts with this doc, follow the user. The doc is a
 
 ## 2. Repository State
 
-- **GitHub remote:** `https://github.com/nankolib/butter_options.git`
+- **GitHub remote:** `https://github.com/nankolib/opta.git` *(GitHub repo rename is a later step in tonight's Phase 1 execution; the old URL will auto-redirect)*
 - **Current branch:** `master` (also pushed to `main` for hackathon judges)
 - **Working tree:** clean, up to date with `origin/master`
 - **Uncommitted changes:** none
@@ -271,7 +273,7 @@ Start with `MEMORY.md` index. Key ones: `project_butter_options.md`, `project_v2
 
 ## TL;DR
 
-- **Butter Options** = permissionless any-asset options on Solana using Token-2022 "living" option tokens; 2 programs, 24 instructions, full Deribit-style frontend.
+- **Opta** (formerly Butter Options) = permissionless any-asset options on Solana using Token-2022 "living" option tokens; 2 programs, 24 instructions, full Deribit-style frontend.
 - **Stage:** devnet + Vercel, hackathon-ready for Colosseum Frontier (April 2026). Not mainnet.
 - **Test state:** 95/95 passing (verified 2026-04-18 on commit `ff08458`); 5 Rust audit rounds + 2 frontend audits, 18 findings fixed, 0 open.
 - **Only remaining mainnet blockers:** permissionless Pyth-oracle settlement and replacing the hardcoded devnet price map in the crank bot.

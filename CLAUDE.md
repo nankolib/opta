@@ -1,4 +1,4 @@
-# Butter Options
+# Opta
 
 P2P composable tokenized options protocol on Solana (Token-2022).
 

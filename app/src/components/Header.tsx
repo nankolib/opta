@@ -17,7 +17,7 @@ import { DEVNET_FAUCET_KEYPAIR, DEVNET_USDC_MINT } from "../utils/constants";
  * Header — persistent navigation bar across all pages.
  *
  * Features:
- * - Butter Options logo/brand on the left
+ * - Opta logo/brand on the left
  * - Navigation links: Markets | Trade | Write | Portfolio
  * - Wallet connect button on the right
  * - "Devnet" network badge
@@ -113,13 +113,12 @@ export const Header: FC = () => {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
         {/* Logo / Brand */}
         <Link to="/" className="flex items-center gap-3 no-underline">
-          {/* Butter icon — a simple gold square with rounded corners */}
+          {/* Opta icon — a simple gold square with rounded corners */}
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gold/20 border border-gold/30">
-            <span className="text-gold font-bold text-sm">B</span>
+            <span className="text-gold font-bold text-sm">O</span>
           </div>
           <span className="text-lg font-semibold text-text-primary tracking-tight">
-            Butter
-            <span className="text-gold ml-1">Options</span>
+            <span className="text-gold">O</span>pta
           </span>
         </Link>
 

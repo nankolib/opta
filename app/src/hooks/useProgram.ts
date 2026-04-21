@@ -5,7 +5,7 @@ import type { ButterOptions } from "../idl/butter_options";
 import idl from "../idl/butter_options.json";
 
 /**
- * Hook that returns an Anchor Program instance for Butter Options.
+ * Hook that returns an Anchor Program instance for Opta.
  *
  * If no wallet is connected, returns a read-only provider (can fetch accounts
  * but cannot send transactions).

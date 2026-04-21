@@ -1,8 +1,8 @@
-# Butter Options
+# Opta
 
 **The first living financial instrument on any blockchain.**
 
-Butter Options is a permissionless, any-asset options protocol on Solana featuring the Living Option Token — a self-expiring, self-describing financial instrument built on Token-2022.
+Opta (formerly Butter Options) is a permissionless, any-asset options protocol on Solana featuring the Living Option Token — a self-expiring, self-describing financial instrument built on Token-2022.
 
 ## What Makes This Different
 
