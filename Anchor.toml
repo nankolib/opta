@@ -6,12 +6,12 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-butter_options = "CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq"
-butter_transfer_hook = "83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG"
+opta = "CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq"
+opta_transfer_hook = "83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG"
 
 [programs.devnet]
-butter_options = "CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq"
-butter_transfer_hook = "83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG"
+opta = "CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq"
+opta_transfer_hook = "83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG"
 
 [registry]
 url = "https://api.apr.dev"

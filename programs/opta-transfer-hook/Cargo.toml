@@ -1,12 +1,12 @@
 [package]
-name = "butter-transfer-hook"
+name = "opta-transfer-hook"
 version = "0.1.0"
-description = "Transfer hook for Butter Options — blocks expired option token transfers"
+description = "Transfer hook for Opta — blocks expired option token transfers"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "butter_transfer_hook"
+name = "opta_transfer_hook"
 
 [features]
 default = []

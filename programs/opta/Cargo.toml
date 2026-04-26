@@ -1,12 +1,12 @@
 [package]
-name = "butter-options"
+name = "opta"
 version = "0.1.0"
 description = "Created with Anchor"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "butter_options"
+name = "opta"
 
 [features]
 default = []
@@ -27,7 +27,7 @@ spl-token-2022 = { version = "8.0.1", features = ["no-entrypoint"] }
 spl-transfer-hook-interface = "0.10.0"
 spl-tlv-account-resolution = "0.10.0"
 spl-token-metadata-interface = "0.7.0"
-butter-transfer-hook = { path = "../butter-transfer-hook", features = ["cpi"] }
+opta-transfer-hook = { path = "../opta-transfer-hook", features = ["cpi"] }
 solmath = { version = "0.1.2", default-features = false, features = ["bs"] }
 pyth-solana-receiver-sdk = "1.1.0"
 
