@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // ProtocolState is a single account that stores global settings for the entire
-// Butter Options protocol. It is created once during `initialize_protocol` and
+// Opta protocol. It is created once during `initialize_protocol` and
 // never recreated.
 //
 // PDA seed: ["protocol"]

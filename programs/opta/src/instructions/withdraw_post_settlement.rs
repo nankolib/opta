@@ -13,7 +13,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, CloseAccount, Token, TokenAccount, Transfer};
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::VaultPostSettlementWithdraw;
 use crate::state::*;
 
@@ -22,16 +22,16 @@ pub fn handle_withdraw_post_settlement(ctx: Context<WithdrawPostSettlement>) -> 
     let writer_pos = &ctx.accounts.writer_position;
 
     // Validation
-    require!(vault.is_settled, ButterError::VaultNotSettled);
-    require!(writer_pos.owner == ctx.accounts.writer.key(), ButterError::NotWriter);
-    require!(writer_pos.shares > 0, ButterError::InsufficientCollateral);
+    require!(vault.is_settled, OptaError::VaultNotSettled);
+    require!(writer_pos.owner == ctx.accounts.writer.key(), OptaError::NotWriter);
+    require!(writer_pos.shares > 0, OptaError::InsufficientCollateral);
 
     // FIX HIGH-01: Auto-claim any unclaimed premium before closing position
     let total_earned = (writer_pos.shares as u128)
         .checked_mul(vault.premium_per_share_cumulative)
-        .ok_or(ButterError::MathOverflow)?
+        .ok_or(OptaError::MathOverflow)?
         .checked_div(1_000_000_000_000u128) // SCALE = 1e12
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     let earned_since_deposit = total_earned
         .checked_sub(writer_pos.premium_debt)
@@ -43,9 +43,9 @@ pub fn handle_withdraw_post_settlement(ctx: Context<WithdrawPostSettlement>) -> 
     // Calculate writer's share of remaining collateral
     let writer_remaining = (writer_pos.shares as u128)
         .checked_mul(vault.collateral_remaining as u128)
-        .ok_or(ButterError::MathOverflow)?
+        .ok_or(OptaError::MathOverflow)?
         .checked_div(vault.total_shares as u128)
-        .ok_or(ButterError::MathOverflow)? as u64;
+        .ok_or(OptaError::MathOverflow)? as u64;
 
     // Transfer USDC from vault to writer (signed by shared_vault PDA)
     let market_key = vault.market;
@@ -100,13 +100,13 @@ pub fn handle_withdraw_post_settlement(ctx: Context<WithdrawPostSettlement>) -> 
     let vault = &mut ctx.accounts.shared_vault;
     vault.collateral_remaining = vault.collateral_remaining
         .checked_sub(writer_remaining)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
     vault.total_shares = vault.total_shares
         .checked_sub(writer_shares)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
     vault.total_collateral = vault.total_collateral
         .checked_sub(writer_remaining)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // Check if this is the last writer — if so, close the vault USDC account
     let is_last_writer = vault.total_shares == 0;

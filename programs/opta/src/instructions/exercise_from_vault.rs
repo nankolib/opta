@@ -17,7 +17,7 @@ use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use anchor_spl::token_2022::Token2022;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::VaultExercised;
 use crate::state::*;
 
@@ -28,16 +28,16 @@ pub fn handle_exercise_from_vault(
     let vault = &ctx.accounts.shared_vault;
 
     // Validation
-    require!(vault.is_settled, ButterError::VaultNotSettled);
-    require!(quantity > 0, ButterError::InvalidContractSize);
+    require!(vault.is_settled, OptaError::VaultNotSettled);
+    require!(quantity > 0, OptaError::InvalidContractSize);
 
     // Read holder's token balance from Token-2022 account data (amount at bytes 64..72)
     let holder_data = ctx.accounts.holder_option_account.try_borrow_data()?;
     let holder_balance = u64::from_le_bytes(
-        holder_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        holder_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(holder_data);
-    require!(quantity <= holder_balance, ButterError::InsufficientOptionTokens);
+    require!(quantity <= holder_balance, OptaError::InsufficientOptionTokens);
 
     // Calculate payout per contract (same formula as settle_vault)
     let settlement_price = vault.settlement_price;
@@ -47,7 +47,7 @@ pub fn handle_exercise_from_vault(
         OptionType::Call => {
             if settlement_price > strike_price {
                 settlement_price.checked_sub(strike_price)
-                    .ok_or(ButterError::MathOverflow)?
+                    .ok_or(OptaError::MathOverflow)?
             } else {
                 0
             }
@@ -55,18 +55,18 @@ pub fn handle_exercise_from_vault(
         OptionType::Put => {
             if strike_price > settlement_price {
                 strike_price.checked_sub(settlement_price)
-                    .ok_or(ButterError::MathOverflow)?
+                    .ok_or(OptaError::MathOverflow)?
             } else {
                 0
             }
         }
     };
 
-    require!(payout_per_contract > 0, ButterError::OptionNotInTheMoney);
+    require!(payout_per_contract > 0, OptaError::OptionNotInTheMoney);
 
     let total_payout = quantity
         .checked_mul(payout_per_contract)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // Cap at remaining collateral
     let total_payout = std::cmp::min(total_payout, vault.collateral_remaining);
@@ -132,7 +132,7 @@ pub fn handle_exercise_from_vault(
     let vault = &mut ctx.accounts.shared_vault;
     vault.collateral_remaining = vault.collateral_remaining
         .checked_sub(total_payout)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     emit!(VaultExercised {
         vault: vault_key,
@@ -160,8 +160,8 @@ pub struct ExerciseFromVault<'info> {
 
     // FIX H-02: validate option_mint belongs to vault via VaultMint record
     #[account(
-        constraint = vault_mint_record.vault == shared_vault.key() @ ButterError::InvalidVaultMint,
-        constraint = vault_mint_record.option_mint == option_mint.key() @ ButterError::InvalidVaultMint,
+        constraint = vault_mint_record.vault == shared_vault.key() @ OptaError::InvalidVaultMint,
+        constraint = vault_mint_record.option_mint == option_mint.key() @ OptaError::InvalidVaultMint,
     )]
     pub vault_mint_record: Account<'info, VaultMint>,
 

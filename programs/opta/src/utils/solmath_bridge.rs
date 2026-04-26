@@ -11,7 +11,7 @@
 use anchor_lang::prelude::*;
 use solmath::SCALE;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 
 /// Converts a USDC smallest-units price (6 decimals) to solmath SCALE (12 decimals).
 ///
@@ -22,7 +22,7 @@ use crate::errors::ButterError;
 pub fn usdc_to_scale(usdc_amount: u64) -> Result<u128> {
     let amount = usdc_amount as u128;
     amount.checked_mul(1_000_000)
-        .ok_or_else(|| error!(ButterError::MathOverflow))
+        .ok_or_else(|| error!(OptaError::MathOverflow))
 }
 
 /// Converts a basis-points volatility (e.g. 8500 = 85%) to solmath SCALE.
@@ -34,7 +34,7 @@ pub fn usdc_to_scale(usdc_amount: u64) -> Result<u128> {
 pub fn vol_bps_to_scale(vol_bps: u64) -> Result<u128> {
     let bps = vol_bps as u128;
     bps.checked_mul(SCALE / 10_000)
-        .ok_or_else(|| error!(ButterError::MathOverflow))
+        .ok_or_else(|| error!(OptaError::MathOverflow))
 }
 
 /// Converts a solmath SCALE price back to USDC smallest units (6 decimals).
@@ -45,7 +45,7 @@ pub fn vol_bps_to_scale(vol_bps: u64) -> Result<u128> {
 /// Divide by 10^6 (because SCALE is 10^12 and USDC is 10^6).
 pub fn scale_to_usdc(scale_value: u128) -> Result<u64> {
     let result = scale_value / 1_000_000;
-    require!(result <= u64::MAX as u128, ButterError::MathOverflow);
+    require!(result <= u64::MAX as u128, OptaError::MathOverflow);
     Ok(result as u64)
 }
 
@@ -58,7 +58,7 @@ pub fn scale_to_usdc(scale_value: u128) -> Result<u64> {
 /// At SCALE: 180.50 × 10^12
 /// So: result = value × 10^(12 + exponent)
 pub fn pyth_price_to_scale(price: i64, exponent: i32) -> Result<u128> {
-    require!(price > 0, ButterError::InvalidSettlementPrice);
+    require!(price > 0, OptaError::InvalidSettlementPrice);
     let price_u128 = price as u128;
     let target_decimals: i32 = 12; // SCALE = 1e12
     let shift = target_decimals + exponent;
@@ -66,7 +66,7 @@ pub fn pyth_price_to_scale(price: i64, exponent: i32) -> Result<u128> {
     if shift >= 0 {
         let multiplier = 10u128.pow(shift as u32);
         price_u128.checked_mul(multiplier)
-            .ok_or_else(|| error!(ButterError::MathOverflow))
+            .ok_or_else(|| error!(OptaError::MathOverflow))
     } else {
         let divisor = 10u128.pow((-shift) as u32);
         Ok(price_u128 / divisor)
@@ -80,18 +80,18 @@ pub fn pyth_price_to_scale(price: i64, exponent: i32) -> Result<u128> {
 /// USDC: 180_500_000 (6 decimal places)
 /// Math: value × 10^(6 + exponent)
 pub fn pyth_price_to_usdc(price: i64, exponent: i32) -> Result<u64> {
-    require!(price > 0, ButterError::InvalidSettlementPrice);
+    require!(price > 0, OptaError::InvalidSettlementPrice);
     let price_u128 = price as u128;
     let target_decimals: i32 = 6;
     let shift = target_decimals + exponent;
 
     let result = if shift >= 0 {
         price_u128.checked_mul(10u128.pow(shift as u32))
-            .ok_or_else(|| error!(ButterError::MathOverflow))?
+            .ok_or_else(|| error!(OptaError::MathOverflow))?
     } else {
         price_u128 / 10u128.pow((-shift) as u32)
     };
-    require!(result <= u64::MAX as u128, ButterError::MathOverflow);
+    require!(result <= u64::MAX as u128, OptaError::MathOverflow);
     Ok(result as u64)
 }
 
@@ -102,13 +102,13 @@ pub fn pyth_price_to_usdc(price: i64, exponent: i32) -> Result<u64> {
 /// At SCALE: 0.01918 × 1e12 = 19_164_955_...
 /// Uses 365.25 days/year to account for leap years.
 pub fn seconds_to_time_scale(seconds: i64) -> Result<u128> {
-    require!(seconds > 0, ButterError::OptionExpired);
+    require!(seconds > 0, OptaError::OptionExpired);
     let seconds_u128 = seconds as u128;
     let seconds_per_year: u128 = 31_557_600; // 365.25 days
     seconds_u128.checked_mul(SCALE)
-        .ok_or_else(|| error!(ButterError::MathOverflow))?
+        .ok_or_else(|| error!(OptaError::MathOverflow))?
         .checked_div(seconds_per_year)
-        .ok_or_else(|| error!(ButterError::MathOverflow))
+        .ok_or_else(|| error!(OptaError::MathOverflow))
 }
 
 #[cfg(test)]

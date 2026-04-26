@@ -49,7 +49,7 @@ pub fn handle_initialize_protocol(ctx: Context<InitializeProtocol>) -> Result<()
     protocol.bump = ctx.bumps.protocol_state;
 
     msg!(
-        "Butter Options protocol initialized. Admin: {}",
+        "Opta protocol initialized. Admin: {}",
         protocol.admin
     );
 

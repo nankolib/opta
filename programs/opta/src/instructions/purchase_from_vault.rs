@@ -15,7 +15,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use anchor_spl::token_2022::Token2022;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::VaultPurchased;
 use crate::state::*;
 use super::initialize_protocol::TREASURY_SEED;
@@ -32,23 +32,23 @@ pub fn handle_purchase_from_vault(
     // =========================================================================
     // Validation
     // =========================================================================
-    require!(quantity > 0, ButterError::InvalidContractSize);
-    require!(vault.expiry > clock.unix_timestamp, ButterError::VaultExpired);
-    require!(!vault.is_settled, ButterError::VaultAlreadySettled);
+    require!(quantity > 0, OptaError::InvalidContractSize);
+    require!(vault.expiry > clock.unix_timestamp, OptaError::VaultExpired);
+    require!(!vault.is_settled, OptaError::VaultAlreadySettled);
 
     // Self-buy prevention: buyer can't be the writer
     require!(
         ctx.accounts.buyer.key() != vault_mint.writer,
-        ButterError::CannotBuyOwnOption
+        OptaError::CannotBuyOwnOption
     );
 
     // Check enough tokens are available in the purchase escrow
     let escrow_data = ctx.accounts.purchase_escrow.try_borrow_data()?;
     let available = u64::from_le_bytes(
-        escrow_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        escrow_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(escrow_data);
-    require!(quantity <= available, ButterError::InsufficientOptionTokens);
+    require!(quantity <= available, OptaError::InsufficientOptionTokens);
 
     // =========================================================================
     // Premium calculation
@@ -59,20 +59,20 @@ pub fn handle_purchase_from_vault(
     // =========================================================================
     let total_premium = quantity
         .checked_mul(vault_mint.premium_per_contract)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // Slippage protection: buyer won't pay more than max_premium
-    require!(total_premium <= max_premium, ButterError::SlippageExceeded);
+    require!(total_premium <= max_premium, OptaError::SlippageExceeded);
 
     let fee_bps = ctx.accounts.protocol_state.fee_bps as u64;
     let fee = total_premium
         .checked_mul(fee_bps)
-        .ok_or(ButterError::MathOverflow)?
+        .ok_or(OptaError::MathOverflow)?
         .checked_div(10_000)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
     let writer_share = total_premium
         .checked_sub(fee)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // =========================================================================
     // Transfer USDC: buyer → vault (writer_share) + buyer → treasury (fee)
@@ -142,38 +142,38 @@ pub fn handle_purchase_from_vault(
     let vault_mint = &mut ctx.accounts.vault_mint_record;
     vault_mint.quantity_sold = vault_mint.quantity_sold
         .checked_add(quantity)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     let writer_pos = &mut ctx.accounts.writer_position;
     writer_pos.options_sold = writer_pos.options_sold
         .checked_add(quantity)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     let vault = &mut ctx.accounts.shared_vault;
     vault.total_options_sold = vault.total_options_sold
         .checked_add(quantity)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
     vault.net_premium_collected = vault.net_premium_collected
         .checked_add(writer_share)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // FIX H-01: Update cumulative premium per share (reward-per-share accumulator)
     if vault.total_shares > 0 {
         let premium_increment = (writer_share as u128)
             .checked_mul(1_000_000_000_000) // 1e12 scale factor
-            .ok_or(ButterError::MathOverflow)?
+            .ok_or(OptaError::MathOverflow)?
             .checked_div(vault.total_shares as u128)
-            .ok_or(ButterError::MathOverflow)?;
+            .ok_or(OptaError::MathOverflow)?;
         vault.premium_per_share_cumulative = vault.premium_per_share_cumulative
             .checked_add(premium_increment)
-            .ok_or(ButterError::MathOverflow)?;
+            .ok_or(OptaError::MathOverflow)?;
     }
 
     // Update protocol volume
     let protocol = &mut ctx.accounts.protocol_state;
     protocol.total_volume = protocol.total_volume
         .checked_add(total_premium)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     emit!(VaultPurchased {
         vault: vault_key,
@@ -288,7 +288,7 @@ pub struct PurchaseFromVault<'info> {
 
     /// Transfer hook program.
     /// CHECK: Validated against known program ID.
-    #[account(constraint = transfer_hook_program.key() == butter_transfer_hook::ID)]
+    #[account(constraint = transfer_hook_program.key() == opta_transfer_hook::ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
     /// ExtraAccountMetaList for the transfer hook.

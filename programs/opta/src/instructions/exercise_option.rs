@@ -18,7 +18,7 @@ use anchor_lang::solana_program::program::invoke;
 use anchor_spl::token::{self, CloseAccount, Token, TokenAccount, Transfer};
 use anchor_spl::token_2022::Token2022;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::OptionExercised;
 use crate::state::*;
 
@@ -28,18 +28,18 @@ pub fn handle_exercise_option(ctx: Context<ExerciseOption>, tokens_to_exercise: 
     let clock = Clock::get()?;
 
     // Validation
-    require!(clock.unix_timestamp >= market.expiry_timestamp, ButterError::MarketNotExpired);
-    require!(market.is_settled, ButterError::MarketNotSettled);
-    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, ButterError::PositionNotActive);
+    require!(clock.unix_timestamp >= market.expiry_timestamp, OptaError::MarketNotExpired);
+    require!(market.is_settled, OptaError::MarketNotSettled);
+    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, OptaError::PositionNotActive);
 
     // Exerciser must hold enough tokens — read balance from Token-2022 account data.
     // Token account layout: bytes 64..72 = amount (u64 LE)
     let exerciser_acct_data = ctx.accounts.exerciser_option_account.try_borrow_data()?;
     let exerciser_balance = u64::from_le_bytes(
-        exerciser_acct_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        exerciser_acct_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(exerciser_acct_data);
-    require!(tokens_to_exercise > 0 && tokens_to_exercise <= exerciser_balance, ButterError::InsufficientOptionTokens);
+    require!(tokens_to_exercise > 0 && tokens_to_exercise <= exerciser_balance, OptaError::InsufficientOptionTokens);
 
     // Calculate proportional PnL
     let settlement_price = market.settlement_price;
@@ -50,25 +50,25 @@ pub fn handle_exercise_option(ctx: Context<ExerciseOption>, tokens_to_exercise: 
     let raw_pnl = match market.option_type {
         OptionType::Call => {
             if settlement_price > strike_price {
-                settlement_price.checked_sub(strike_price).ok_or(ButterError::MathOverflow)?
-                    .checked_mul(tokens_to_exercise).ok_or(ButterError::MathOverflow)?
+                settlement_price.checked_sub(strike_price).ok_or(OptaError::MathOverflow)?
+                    .checked_mul(tokens_to_exercise).ok_or(OptaError::MathOverflow)?
             } else { 0 }
         }
         OptionType::Put => {
             if strike_price > settlement_price {
-                strike_price.checked_sub(settlement_price).ok_or(ButterError::MathOverflow)?
-                    .checked_mul(tokens_to_exercise).ok_or(ButterError::MathOverflow)?
+                strike_price.checked_sub(settlement_price).ok_or(OptaError::MathOverflow)?
+                    .checked_mul(tokens_to_exercise).ok_or(OptaError::MathOverflow)?
             } else { 0 }
         }
     };
 
     let proportional_collateral = collateral
-        .checked_mul(tokens_to_exercise).ok_or(ButterError::MathOverflow)?
-        .checked_div(total_supply).ok_or(ButterError::MathOverflow)?;
+        .checked_mul(tokens_to_exercise).ok_or(OptaError::MathOverflow)?
+        .checked_div(total_supply).ok_or(OptaError::MathOverflow)?;
 
     let pnl = std::cmp::min(raw_pnl, proportional_collateral);
     let profitable = pnl > 0;
-    let writer_receives = proportional_collateral.checked_sub(pnl).ok_or(ButterError::MathOverflow)?;
+    let writer_receives = proportional_collateral.checked_sub(pnl).ok_or(OptaError::MathOverflow)?;
 
     let protocol_seeds = &[PROTOCOL_SEED, &[ctx.accounts.protocol_state.bump]];
     let signer_seeds = &[&protocol_seeds[..]];
@@ -138,7 +138,7 @@ pub fn handle_exercise_option(ctx: Context<ExerciseOption>, tokens_to_exercise: 
 
     let protocol = &mut ctx.accounts.protocol_state;
     protocol.total_volume = protocol.total_volume
-        .checked_add(pnl).ok_or(ButterError::MathOverflow)?;
+        .checked_add(pnl).ok_or(OptaError::MathOverflow)?;
 
     emit!(OptionExercised {
         position: ctx.accounts.position.key(),
@@ -204,7 +204,7 @@ pub struct ExerciseOption<'info> {
     pub writer_usdc_account: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: Writer's SOL account (receives escrow rent if closed).
-    #[account(mut, constraint = writer.key() == position.writer @ ButterError::NotWriter)]
+    #[account(mut, constraint = writer.key() == position.writer @ OptaError::NotWriter)]
     pub writer: UncheckedAccount<'info>,
 
     /// Standard SPL Token — for USDC operations.

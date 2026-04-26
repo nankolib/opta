@@ -17,7 +17,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::VaultDeposited;
 use crate::state::*;
 
@@ -29,15 +29,15 @@ pub fn handle_deposit_to_vault(
     let vault = &ctx.accounts.shared_vault;
 
     // Basic validation
-    require!(amount > 0, ButterError::InvalidPremium);
-    require!(!vault.is_settled, ButterError::VaultAlreadySettled);
-    require!(vault.expiry > clock.unix_timestamp, ButterError::VaultExpired);
+    require!(amount > 0, OptaError::InvalidPremium);
+    require!(!vault.is_settled, OptaError::VaultAlreadySettled);
+    require!(vault.expiry > clock.unix_timestamp, OptaError::VaultExpired);
 
     // Custom vault gate: only the original creator can deposit
     if vault.vault_type == VaultType::Custom && vault.total_shares > 0 {
         require!(
             ctx.accounts.writer.key() == vault.creator,
-            ButterError::CustomVaultSingleWriter
+            OptaError::CustomVaultSingleWriter
         );
     }
 
@@ -49,12 +49,12 @@ pub fn handle_deposit_to_vault(
         // Proportional to existing pool
         (amount as u128)
             .checked_mul(vault.total_shares as u128)
-            .ok_or(ButterError::MathOverflow)?
+            .ok_or(OptaError::MathOverflow)?
             .checked_div(vault.total_collateral as u128)
-            .ok_or(ButterError::MathOverflow)? as u64
+            .ok_or(OptaError::MathOverflow)? as u64
     };
 
-    require!(shares > 0, ButterError::MathOverflow);
+    require!(shares > 0, OptaError::MathOverflow);
 
     // Transfer USDC from writer to vault
     let transfer_ctx = CpiContext::new(
@@ -90,28 +90,28 @@ pub fn handle_deposit_to_vault(
     // For existing positions: add debt for the new shares only.
     let additional_debt = (shares as u128)
         .checked_mul(vault.premium_per_share_cumulative)
-        .ok_or(ButterError::MathOverflow)?
+        .ok_or(OptaError::MathOverflow)?
         .checked_div(1_000_000_000_000)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
     position.premium_debt = position.premium_debt
         .checked_add(additional_debt)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     position.shares = position.shares
         .checked_add(shares)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
     position.deposited_collateral = position.deposited_collateral
         .checked_add(amount)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // Update the vault totals
     let vault = &mut ctx.accounts.shared_vault;
     vault.total_collateral = vault.total_collateral
         .checked_add(amount)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
     vault.total_shares = vault.total_shares
         .checked_add(shares)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     let total_collateral = vault.total_collateral;
 

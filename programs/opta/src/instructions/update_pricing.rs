@@ -19,7 +19,7 @@
 use anchor_lang::prelude::*;
 use solmath::SCALE;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::state::*;
 use crate::utils::solmath_bridge::*;
 
@@ -34,8 +34,8 @@ pub fn handle_update_pricing(
     implied_vol_bps: u64,    // Vol in bps (e.g. 8500 = 85%)
 ) -> Result<()> {
     // 1. Validate vol bounds
-    require!(implied_vol_bps >= MIN_VOL_BPS, ButterError::VolTooLow);
-    require!(implied_vol_bps <= MAX_VOL_BPS, ButterError::VolTooHigh);
+    require!(implied_vol_bps >= MIN_VOL_BPS, OptaError::VolTooLow);
+    require!(implied_vol_bps <= MAX_VOL_BPS, OptaError::VolTooHigh);
 
     // 2. Read market data
     let market = &ctx.accounts.market;
@@ -44,8 +44,8 @@ pub fn handle_update_pricing(
     // 3. Check option hasn't expired (checked_sub guards against corrupted timestamps)
     let time_to_expiry = market.expiry_timestamp
         .checked_sub(clock.unix_timestamp)
-        .ok_or(ButterError::OptionExpired)?;
-    require!(time_to_expiry > 0, ButterError::OptionExpired);
+        .ok_or(OptaError::OptionExpired)?;
+    require!(time_to_expiry > 0, OptaError::OptionExpired);
 
     // 4. Determine spot price — from Pyth oracle or parameter
     let (spot_usdc, spot_scale) = if let Some(price_update) = &ctx.accounts.price_update {
@@ -56,21 +56,21 @@ pub fn handle_update_pricing(
         // market.pyth_feed stores the feed ID as a Pubkey (same 32 bytes).
         require!(
             feed_id == market.pyth_feed.to_bytes(),
-            ButterError::InvalidPythFeed
+            OptaError::InvalidPythFeed
         );
 
         let price = price_update.get_price_no_older_than(
             &clock,
             MAXIMUM_PRICE_AGE,
             &feed_id,
-        ).map_err(|_| ButterError::OracleStaleOrInvalid)?;
+        ).map_err(|_| OptaError::OracleStaleOrInvalid)?;
 
         let spot_scale_val = pyth_price_to_scale(price.price, price.exponent)?;
         let spot_usdc_val = pyth_price_to_usdc(price.price, price.exponent)?;
         (spot_usdc_val, spot_scale_val)
     } else {
         // PARAMETER MODE: trust caller-provided spot price (testing/fallback)
-        require!(spot_price_used > 0, ButterError::InvalidSettlementPrice);
+        require!(spot_price_used > 0, OptaError::InvalidSettlementPrice);
         let spot_scale_val = usdc_to_scale(spot_price_used)?;
         (spot_price_used, spot_scale_val)
     };
@@ -87,7 +87,7 @@ pub fn handle_update_pricing(
         RISK_FREE_RATE_SCALE,
         vol_scale,
         time_scale,
-    ).map_err(|_| ButterError::PricingCalculationFailed)?;
+    ).map_err(|_| OptaError::PricingCalculationFailed)?;
 
     // 7. Extract fair value based on option type
     let fair_value_scale = match market.option_type {

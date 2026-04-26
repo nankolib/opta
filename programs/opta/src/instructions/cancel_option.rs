@@ -12,15 +12,15 @@ use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token::{self, CloseAccount, Token, TokenAccount, Transfer};
 use anchor_spl::token_2022::Token2022;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::OptionCancelled;
 use crate::state::*;
 
 pub fn handle_cancel_option(ctx: Context<CancelOption>) -> Result<()> {
     let position = &ctx.accounts.position;
 
-    require!(!position.is_cancelled && !position.is_exercised && !position.is_expired, ButterError::PositionNotActive);
-    require!(position.tokens_sold == 0, ButterError::TokensAlreadySold);
+    require!(!position.is_cancelled && !position.is_exercised && !position.is_expired, OptaError::PositionNotActive);
+    require!(position.tokens_sold == 0, OptaError::TokensAlreadySold);
 
     let protocol_seeds = &[PROTOCOL_SEED, &[ctx.accounts.protocol_state.bump]];
     let signer_seeds = &[&protocol_seeds[..]];
@@ -29,7 +29,7 @@ pub fn handle_cancel_option(ctx: Context<CancelOption>) -> Result<()> {
     // Token account layout: bytes 64..72 = amount (u64 LE)
     let escrow_data = ctx.accounts.purchase_escrow.try_borrow_data()?;
     let purchase_escrow_balance = u64::from_le_bytes(
-        escrow_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        escrow_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(escrow_data);
 
@@ -88,7 +88,7 @@ pub fn handle_cancel_option(ctx: Context<CancelOption>) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct CancelOption<'info> {
-    #[account(mut, constraint = writer.key() == position.writer @ ButterError::NotWriter)]
+    #[account(mut, constraint = writer.key() == position.writer @ OptaError::NotWriter)]
     pub writer: Signer<'info>,
 
     #[account(seeds = [PROTOCOL_SEED], bump = protocol_state.bump)]

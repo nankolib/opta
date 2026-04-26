@@ -12,20 +12,20 @@ use anchor_lang::prelude::*;
 
 use anchor_spl::token_2022::Token2022;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::ResaleCancelled;
 use crate::state::*;
 
 pub fn handle_cancel_resale(ctx: Context<CancelResale>) -> Result<()> {
     let position = &ctx.accounts.position;
 
-    require!(position.is_listed_for_resale, ButterError::NotListedForResale);
-    require!(ctx.accounts.seller.key() == position.resale_seller, ButterError::NotResaleSeller);
+    require!(position.is_listed_for_resale, OptaError::NotListedForResale);
+    require!(ctx.accounts.seller.key() == position.resale_seller, OptaError::NotResaleSeller);
 
     // Read escrow balance from raw account data (Token-2022 layout: amount at bytes 64..72)
     let escrow_data = ctx.accounts.resale_escrow.try_borrow_data()?;
     let escrow_balance = u64::from_le_bytes(
-        escrow_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        escrow_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(escrow_data);
 
@@ -110,7 +110,7 @@ pub struct CancelResale<'info> {
 
     /// Transfer hook program.
     /// CHECK: Validated against known program ID.
-    #[account(constraint = transfer_hook_program.key() == butter_transfer_hook::ID)]
+    #[account(constraint = transfer_hook_program.key() == opta_transfer_hook::ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
     /// ExtraAccountMetaList for the transfer hook.

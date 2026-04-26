@@ -15,7 +15,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use anchor_spl::token_2022::Token2022;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::OptionResold;
 use crate::state::*;
 use super::initialize_protocol::TREASURY_SEED;
@@ -24,38 +24,38 @@ pub fn handle_buy_resale(ctx: Context<BuyResale>, amount: u64, max_premium: u64)
     let position = &ctx.accounts.position;
 
     let clock = Clock::get()?;
-    require!(clock.unix_timestamp < ctx.accounts.market.expiry_timestamp, ButterError::MarketExpired);
-    require!(position.is_listed_for_resale, ButterError::NotListedForResale);
-    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, ButterError::PositionNotActive);
-    require!(ctx.accounts.buyer.key() != position.resale_seller, ButterError::CannotBuyOwnResale);
-    require!(amount > 0, ButterError::InvalidContractSize);
+    require!(clock.unix_timestamp < ctx.accounts.market.expiry_timestamp, OptaError::MarketExpired);
+    require!(position.is_listed_for_resale, OptaError::NotListedForResale);
+    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, OptaError::PositionNotActive);
+    require!(ctx.accounts.buyer.key() != position.resale_seller, OptaError::CannotBuyOwnResale);
+    require!(amount > 0, OptaError::InvalidContractSize);
 
     // Read resale escrow balance from raw account data (Token-2022 layout: amount at bytes 64..72)
     let escrow_data = ctx.accounts.resale_escrow.try_borrow_data()?;
     let escrow_balance = u64::from_le_bytes(
-        escrow_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        escrow_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(escrow_data);
-    require!(amount <= escrow_balance, ButterError::InsufficientOptionTokens);
+    require!(amount <= escrow_balance, OptaError::InsufficientOptionTokens);
 
     // Proportional price: resale_premium * amount / resale_token_amount
     let resale_premium = position.resale_premium;
     let resale_total = position.resale_token_amount;
     let proportional_price = resale_premium
-        .checked_mul(amount).ok_or(ButterError::MathOverflow)?
-        .checked_div(resale_total).ok_or(ButterError::MathOverflow)?;
+        .checked_mul(amount).ok_or(OptaError::MathOverflow)?
+        .checked_div(resale_total).ok_or(OptaError::MathOverflow)?;
 
     // FIX M-02: prevent dust purchases where premium rounds to zero
-    require!(proportional_price > 0, ButterError::PremiumTooLow);
+    require!(proportional_price > 0, OptaError::PremiumTooLow);
 
     // FIX M-03: slippage protection — buyer won't pay more than max_premium
-    require!(proportional_price <= max_premium, ButterError::SlippageExceeded);
+    require!(proportional_price <= max_premium, OptaError::SlippageExceeded);
 
     let fee_bps = ctx.accounts.protocol_state.fee_bps as u64;
     let fee = proportional_price
-        .checked_mul(fee_bps).ok_or(ButterError::MathOverflow)?
-        .checked_div(10_000).ok_or(ButterError::MathOverflow)?;
-    let seller_amount = proportional_price.checked_sub(fee).ok_or(ButterError::MathOverflow)?;
+        .checked_mul(fee_bps).ok_or(OptaError::MathOverflow)?
+        .checked_div(10_000).ok_or(OptaError::MathOverflow)?;
+    let seller_amount = proportional_price.checked_sub(fee).ok_or(OptaError::MathOverflow)?;
 
     // Transfer USDC: buyer -> seller (standard SPL Token)
     if seller_amount > 0 {
@@ -112,7 +112,7 @@ pub fn handle_buy_resale(ctx: Context<BuyResale>, amount: u64, max_premium: u64)
     // Check if all listed tokens are now sold by re-reading escrow balance from raw data
     let escrow_data = ctx.accounts.resale_escrow.try_borrow_data()?;
     let remaining = u64::from_le_bytes(
-        escrow_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        escrow_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(escrow_data);
 
@@ -128,18 +128,18 @@ pub fn handle_buy_resale(ctx: Context<BuyResale>, amount: u64, max_premium: u64)
     } else {
         // Reduce the listed amount and proportionally reduce the remaining premium
         let sold_fraction_premium = resale_premium
-            .checked_mul(amount).ok_or(ButterError::MathOverflow)?
-            .checked_div(resale_total).ok_or(ButterError::MathOverflow)?;
+            .checked_mul(amount).ok_or(OptaError::MathOverflow)?
+            .checked_div(resale_total).ok_or(OptaError::MathOverflow)?;
         position.resale_premium = position.resale_premium
-            .checked_sub(sold_fraction_premium).ok_or(ButterError::MathOverflow)?;
+            .checked_sub(sold_fraction_premium).ok_or(OptaError::MathOverflow)?;
         position.resale_token_amount = position.resale_token_amount
-            .checked_sub(amount).ok_or(ButterError::MathOverflow)?;
+            .checked_sub(amount).ok_or(OptaError::MathOverflow)?;
     }
 
     // Update protocol volume
     let protocol = &mut ctx.accounts.protocol_state;
     protocol.total_volume = protocol.total_volume
-        .checked_add(proportional_price).ok_or(ButterError::MathOverflow)?;
+        .checked_add(proportional_price).ok_or(OptaError::MathOverflow)?;
 
     emit!(OptionResold {
         position: ctx.accounts.position.key(),
@@ -220,7 +220,7 @@ pub struct BuyResale<'info> {
 
     /// Transfer hook program.
     /// CHECK: Validated against known program ID.
-    #[account(constraint = transfer_hook_program.key() == butter_transfer_hook::ID)]
+    #[account(constraint = transfer_hook_program.key() == opta_transfer_hook::ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
     /// ExtraAccountMetaList for the transfer hook.

@@ -15,25 +15,25 @@ use anchor_lang::solana_program::system_instruction;
 use anchor_spl::token_2022::Token2022;
 use spl_token_2022::extension::ExtensionType;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::OptionListedForResale;
 use crate::state::*;
 
 pub fn handle_list_for_resale(ctx: Context<ListForResale>, resale_premium: u64, token_amount: u64) -> Result<()> {
     let position = &ctx.accounts.position;
 
-    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, ButterError::PositionNotActive);
-    require!(!position.is_listed_for_resale, ButterError::AlreadyListedForResale);
-    require!(resale_premium > 0, ButterError::InvalidPremium);
-    require!(token_amount > 0, ButterError::InvalidContractSize);
+    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, OptaError::PositionNotActive);
+    require!(!position.is_listed_for_resale, OptaError::AlreadyListedForResale);
+    require!(resale_premium > 0, OptaError::InvalidPremium);
+    require!(token_amount > 0, OptaError::InvalidContractSize);
 
     // Read seller balance from raw account data (Token-2022 layout: amount at bytes 64..72)
     let seller_data = ctx.accounts.seller_option_account.try_borrow_data()?;
     let seller_balance = u64::from_le_bytes(
-        seller_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        seller_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(seller_data);
-    require!(token_amount <= seller_balance, ButterError::InsufficientOptionTokens);
+    require!(token_amount <= seller_balance, OptaError::InsufficientOptionTokens);
 
     // Create the resale escrow Token-2022 account if it doesn't exist yet.
     // We check lamports == 0 to detect a missing account.
@@ -42,7 +42,7 @@ pub fn handle_list_for_resale(ctx: Context<ListForResale>, resale_premium: u64, 
         // Token accounts for TransferHook mints need the TransferHookAccount extension.
         let escrow_space = ExtensionType::try_calculate_account_len::<spl_token_2022::state::Account>(
             &[ExtensionType::TransferHookAccount],
-        ).map_err(|_| ButterError::MathOverflow)?;
+        ).map_err(|_| OptaError::MathOverflow)?;
         let rent = Rent::get()?;
         let escrow_lamports = rent.minimum_balance(escrow_space);
         let escrow_seeds: &[&[u8]] = &[
@@ -150,7 +150,7 @@ pub struct ListForResale<'info> {
 
     /// Transfer hook program.
     /// CHECK: Validated against known program ID.
-    #[account(constraint = transfer_hook_program.key() == butter_transfer_hook::ID)]
+    #[account(constraint = transfer_hook_program.key() == opta_transfer_hook::ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
     /// ExtraAccountMetaList for the transfer hook.

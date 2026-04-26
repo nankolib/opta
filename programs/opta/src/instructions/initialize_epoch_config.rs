@@ -14,7 +14,7 @@
 
 use anchor_lang::prelude::*;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::state::*;
 
 pub fn handle_initialize_epoch_config(
@@ -24,9 +24,9 @@ pub fn handle_initialize_epoch_config(
     monthly_enabled: bool,
 ) -> Result<()> {
     // Validate day of week: 0=Sunday through 6=Saturday
-    require!(weekly_expiry_day <= 6, ButterError::InvalidEpochExpiry);
+    require!(weekly_expiry_day <= 6, OptaError::InvalidEpochExpiry);
     // Validate hour: 0-23
-    require!(weekly_expiry_hour <= 23, ButterError::InvalidEpochExpiry);
+    require!(weekly_expiry_hour <= 23, OptaError::InvalidEpochExpiry);
 
     let config = &mut ctx.accounts.epoch_config;
     config.authority = ctx.accounts.admin.key();
@@ -44,7 +44,7 @@ pub struct InitializeEpochConfig<'info> {
     /// Protocol admin — must match protocol_state.admin.
     #[account(
         mut,
-        constraint = admin.key() == protocol_state.admin @ ButterError::Unauthorized,
+        constraint = admin.key() == protocol_state.admin @ OptaError::Unauthorized,
     )]
     pub admin: Signer<'info>,
 

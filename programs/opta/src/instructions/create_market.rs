@@ -16,7 +16,7 @@
 
 use anchor_lang::prelude::*;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::state::{OptionsMarket, OptionType, ProtocolState, MARKET_SEED, MAX_ASSET_CLASS, MAX_ASSET_NAME_LEN, PROTOCOL_SEED};
 
 /// Handler: create a new options market with the given parameters.
@@ -32,16 +32,16 @@ pub fn handle_create_market(
     // -------------------------------------------------------------------------
     // Validation: asset name must be non-empty and <= 16 chars
     // -------------------------------------------------------------------------
-    require!(!asset_name.is_empty(), ButterError::InvalidAssetName);
+    require!(!asset_name.is_empty(), OptaError::InvalidAssetName);
     require!(
         asset_name.len() <= MAX_ASSET_NAME_LEN,
-        ButterError::InvalidAssetName
+        OptaError::InvalidAssetName
     );
 
     // -------------------------------------------------------------------------
     // Validation: strike price must be positive
     // -------------------------------------------------------------------------
-    require!(strike_price > 0, ButterError::InvalidStrikePrice);
+    require!(strike_price > 0, OptaError::InvalidStrikePrice);
 
     // -------------------------------------------------------------------------
     // Validation: expiry must be in the future
@@ -52,7 +52,7 @@ pub fn handle_create_market(
     let clock = Clock::get()?;
     require!(
         expiry_timestamp > clock.unix_timestamp,
-        ButterError::ExpiryInPast
+        OptaError::ExpiryInPast
     );
 
     // -------------------------------------------------------------------------
@@ -61,13 +61,13 @@ pub fn handle_create_market(
     // -------------------------------------------------------------------------
     require!(
         pyth_feed != Pubkey::default(),
-        ButterError::InvalidPythFeed
+        OptaError::InvalidPythFeed
     );
 
     // -------------------------------------------------------------------------
     // Validation: asset class must be a known value (0-4)
     // -------------------------------------------------------------------------
-    require!(asset_class <= MAX_ASSET_CLASS, ButterError::InvalidAssetClass);
+    require!(asset_class <= MAX_ASSET_CLASS, OptaError::InvalidAssetClass);
 
     // -------------------------------------------------------------------------
     // Initialize the market account with the provided parameters.
@@ -90,7 +90,7 @@ pub fn handle_create_market(
     protocol.total_markets = protocol
         .total_markets
         .checked_add(1)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     msg!(
         "Market created: {} strike={} expiry={} type={:?}",

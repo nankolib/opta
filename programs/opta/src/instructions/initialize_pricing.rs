@@ -13,7 +13,7 @@
 
 use anchor_lang::prelude::*;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::state::*;
 
 /// Handler: create a PricingData account for an option position.
@@ -23,7 +23,7 @@ pub fn handle_initialize_pricing(ctx: Context<InitializePricing>) -> Result<()> 
     // Position must still be active (not exercised, expired, or cancelled)
     require!(
         !position.is_exercised && !position.is_expired && !position.is_cancelled,
-        ButterError::PositionNotActive
+        OptaError::PositionNotActive
     );
 
     let pricing = &mut ctx.accounts.pricing_data;

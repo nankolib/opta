@@ -1,11 +1,11 @@
 // =============================================================================
-// errors.rs — Custom error codes for the Butter Options protocol
+// errors.rs — Custom error codes for the Opta protocol
 // =============================================================================
 
 use anchor_lang::prelude::*;
 
 #[error_code]
-pub enum ButterError {
+pub enum OptaError {
     // Protocol errors
     #[msg("Protocol has already been initialized")]
     AlreadyInitialized,

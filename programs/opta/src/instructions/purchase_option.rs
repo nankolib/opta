@@ -15,7 +15,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use anchor_spl::token_2022::Token2022;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::OptionPurchased;
 use crate::state::*;
 use super::initialize_protocol::TREASURY_SEED;
@@ -26,35 +26,35 @@ pub fn handle_purchase_option(ctx: Context<PurchaseOption>, amount: u64) -> Resu
     let clock = Clock::get()?;
 
     // Validation
-    require!(clock.unix_timestamp < market.expiry_timestamp, ButterError::MarketExpired);
-    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, ButterError::PositionNotActive);
-    require!(ctx.accounts.buyer.key() != position.writer, ButterError::CannotBuyOwnOption);
-    require!(amount > 0, ButterError::InvalidContractSize);
+    require!(clock.unix_timestamp < market.expiry_timestamp, OptaError::MarketExpired);
+    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, OptaError::PositionNotActive);
+    require!(ctx.accounts.buyer.key() != position.writer, OptaError::CannotBuyOwnOption);
+    require!(amount > 0, OptaError::InvalidContractSize);
 
     // Read purchase_escrow balance from raw account data (Token-2022 account layout: amount at bytes 64..72)
     let escrow_data = ctx.accounts.purchase_escrow.try_borrow_data()?;
     let available = u64::from_le_bytes(
-        escrow_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        escrow_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(escrow_data);
-    require!(amount <= available, ButterError::InsufficientOptionTokens);
+    require!(amount <= available, OptaError::InsufficientOptionTokens);
 
     // Proportional premium: buyer pays (premium * amount / total_supply)
     let total_premium = position.premium;
     let total_supply = position.total_supply;
     let proportional_premium = total_premium
-        .checked_mul(amount).ok_or(ButterError::MathOverflow)?
-        .checked_div(total_supply).ok_or(ButterError::MathOverflow)?;
+        .checked_mul(amount).ok_or(OptaError::MathOverflow)?
+        .checked_div(total_supply).ok_or(OptaError::MathOverflow)?;
 
     // Reject if rounding truncated the premium to zero (dust purchase exploit)
-    require!(proportional_premium > 0, ButterError::PremiumTooLow);
+    require!(proportional_premium > 0, OptaError::PremiumTooLow);
 
     // Fee calculation
     let fee_bps = ctx.accounts.protocol_state.fee_bps as u64;
     let fee = proportional_premium
-        .checked_mul(fee_bps).ok_or(ButterError::MathOverflow)?
-        .checked_div(10_000).ok_or(ButterError::MathOverflow)?;
-    let writer_amount = proportional_premium.checked_sub(fee).ok_or(ButterError::MathOverflow)?;
+        .checked_mul(fee_bps).ok_or(OptaError::MathOverflow)?
+        .checked_div(10_000).ok_or(OptaError::MathOverflow)?;
+    let writer_amount = proportional_premium.checked_sub(fee).ok_or(OptaError::MathOverflow)?;
 
     // Transfer premium minus fee: buyer -> writer (standard SPL Token / USDC)
     if writer_amount > 0 {
@@ -112,12 +112,12 @@ pub fn handle_purchase_option(ctx: Context<PurchaseOption>, amount: u64) -> Resu
     // Update position: track how many tokens have been sold
     let position = &mut ctx.accounts.position;
     position.tokens_sold = position.tokens_sold
-        .checked_add(amount).ok_or(ButterError::MathOverflow)?;
+        .checked_add(amount).ok_or(OptaError::MathOverflow)?;
 
     // Update protocol volume
     let protocol = &mut ctx.accounts.protocol_state;
     protocol.total_volume = protocol.total_volume
-        .checked_add(proportional_premium).ok_or(ButterError::MathOverflow)?;
+        .checked_add(proportional_premium).ok_or(OptaError::MathOverflow)?;
 
     emit!(OptionPurchased {
         market: market.key(),
@@ -196,7 +196,7 @@ pub struct PurchaseOption<'info> {
 
     /// Transfer hook program.
     /// CHECK: Validated against known program ID.
-    #[account(constraint = transfer_hook_program.key() == butter_transfer_hook::ID)]
+    #[account(constraint = transfer_hook_program.key() == opta_transfer_hook::ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
     /// ExtraAccountMetaList for the transfer hook.

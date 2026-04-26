@@ -1,5 +1,5 @@
 // =============================================================================
-// butter-transfer-hook — Transfer hook for Butter Options token expiry
+// opta-transfer-hook — Transfer hook for Opta option token expiry
 // =============================================================================
 //
 // This program implements the SPL Transfer Hook Interface. It is called
@@ -15,7 +15,7 @@
 //   - ExtraAccountMetaList PDA: ["extra-account-metas", mint]
 //     Required by Token-2022 to know which extra accounts the hook needs.
 //   - HookState PDA: ["hook-state", mint]
-//     Stores the option expiry timestamp and the Butter protocol PDA address.
+//     Stores the option expiry timestamp and the Opta protocol PDA address.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -46,7 +46,7 @@ pub struct HookState {
     /// Unix timestamp when the option expires. Copied from the OptionsMarket.
     pub expiry: i64,
 
-    /// The Butter Options protocol PDA. Escrow accounts are owned by this PDA.
+    /// The Opta protocol PDA. Escrow accounts are owned by this PDA.
     /// If the source or destination token account owner matches this address,
     /// the transfer is considered protocol-internal and always allowed.
     pub protocol_state: Pubkey,
@@ -70,12 +70,12 @@ pub enum TransferHookError {
 // =============================================================================
 
 #[program]
-pub mod butter_transfer_hook {
+pub mod opta_transfer_hook {
     use super::*;
 
     /// Initialize the ExtraAccountMetaList and HookState for a new option mint.
     ///
-    /// Called by the Butter Options program during write_option via CPI.
+    /// Called by the Opta program during write_option via CPI.
     /// This sets up the accounts that Token-2022 will pass to the hook on
     /// every transfer of this mint's tokens.
     pub fn initialize_extra_account_meta_list(
@@ -305,12 +305,12 @@ fn _check_expiry_and_escrow_raw(
 
 #[derive(Accounts)]
 pub struct InitializeExtraAccountMetaList<'info> {
-    /// The payer for account creation (the writer, forwarded from butter-options).
+    /// The payer for account creation (the writer, forwarded from opta).
     #[account(mut)]
     pub payer: Signer<'info>,
 
     /// The option token mint that this hook is being set up for.
-    /// CHECK: Validated by the caller (butter-options program).
+    /// CHECK: Validated by the caller (opta program).
     pub mint: UncheckedAccount<'info>,
 
     /// The ExtraAccountMetaList PDA — tells Token-2022 which extra accounts
@@ -336,9 +336,9 @@ pub struct InitializeExtraAccountMetaList<'info> {
     )]
     pub hook_state: Account<'info, HookState>,
 
-    /// The Butter Options protocol state PDA. Its pubkey is stored in
+    /// The Opta protocol state PDA. Its pubkey is stored in
     /// HookState so the hook can identify protocol escrow accounts.
-    /// CHECK: Validated by the butter-options program before CPI.
+    /// CHECK: Validated by the opta program before CPI.
     pub protocol_state: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,

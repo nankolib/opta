@@ -1,5 +1,5 @@
 // =============================================================================
-// events.rs — On-chain events emitted by Butter Options
+// events.rs — On-chain events emitted by Opta
 // =============================================================================
 
 use anchor_lang::prelude::*;

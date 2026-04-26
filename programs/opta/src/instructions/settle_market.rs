@@ -18,7 +18,7 @@
 
 use anchor_lang::prelude::*;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::MarketSettled;
 use crate::state::{OptionsMarket, ProtocolState, PROTOCOL_SEED};
 
@@ -40,14 +40,14 @@ pub fn handle_settle_market(
     // Market must have expired.
     require!(
         clock.unix_timestamp >= market.expiry_timestamp,
-        ButterError::MarketNotExpired
+        OptaError::MarketNotExpired
     );
 
     // Market must not already be settled.
-    require!(!market.is_settled, ButterError::MarketAlreadySettled);
+    require!(!market.is_settled, OptaError::MarketAlreadySettled);
 
     // Settlement price must be positive.
-    require!(settlement_price > 0, ButterError::InvalidSettlementPrice);
+    require!(settlement_price > 0, OptaError::InvalidSettlementPrice);
 
     // -------------------------------------------------------------------------
     // Set settlement price
@@ -90,7 +90,7 @@ pub struct SettleMarket<'info> {
     /// Only the protocol admin can settle markets (hackathon constraint).
     /// In production, this would be permissionless with Pyth validation.
     #[account(
-        constraint = admin.key() == protocol_state.admin @ ButterError::Unauthorized,
+        constraint = admin.key() == protocol_state.admin @ OptaError::Unauthorized,
     )]
     pub admin: Signer<'info>,
 

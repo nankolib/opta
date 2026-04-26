@@ -17,7 +17,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount, Mint as SplMint};
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::VaultCreated;
 use crate::state::*;
 use crate::utils::epoch::is_valid_epoch_expiry;
@@ -35,10 +35,10 @@ pub fn handle_create_shared_vault(
     let clock = Clock::get()?;
 
     // Strike price must be positive
-    require!(strike_price > 0, ButterError::InvalidStrikePrice);
+    require!(strike_price > 0, OptaError::InvalidStrikePrice);
 
     // Expiry must be in the future
-    require!(expiry > clock.unix_timestamp, ButterError::ExpiryInPast);
+    require!(expiry > clock.unix_timestamp, OptaError::ExpiryInPast);
 
     // Validate expiry based on vault type
     match vault_type {
@@ -46,31 +46,31 @@ pub fn handle_create_shared_vault(
             // Epoch vaults must align to the configured epoch boundary
             let epoch_config = ctx.accounts.epoch_config
                 .as_ref()
-                .ok_or(ButterError::InvalidEpochExpiry)?;
+                .ok_or(OptaError::InvalidEpochExpiry)?;
             require!(
                 is_valid_epoch_expiry(expiry, epoch_config),
-                ButterError::InvalidEpochExpiry
+                OptaError::InvalidEpochExpiry
             );
 
             // Must be at least min_epoch_duration_days from now
             let min_expiry = clock.unix_timestamp
                 + (epoch_config.min_epoch_duration_days as i64) * 86400;
-            require!(expiry >= min_expiry, ButterError::InvalidEpochExpiry);
+            require!(expiry >= min_expiry, OptaError::InvalidEpochExpiry);
         }
         VaultType::Custom => {
             // Custom vaults just need at least 1 hour buffer
             require!(
                 expiry >= clock.unix_timestamp + MIN_CUSTOM_EXPIRY_BUFFER,
-                ButterError::ExpiryInPast
+                OptaError::ExpiryInPast
             );
         }
     }
 
     // FIX M-01: Validate vault parameters match the market's parameters
     let market = &ctx.accounts.market;
-    require!(strike_price == market.strike_price, ButterError::InvalidStrikePrice);
-    require!(option_type as u8 == market.option_type as u8, ButterError::InvalidOptionType);
-    require!(expiry == market.expiry_timestamp, ButterError::ExpiryMismatch);
+    require!(strike_price == market.strike_price, OptaError::InvalidStrikePrice);
+    require!(option_type as u8 == market.option_type as u8, OptaError::InvalidOptionType);
+    require!(expiry == market.expiry_timestamp, OptaError::ExpiryMismatch);
 
     let vault = &mut ctx.accounts.shared_vault;
     vault.market = ctx.accounts.market.key();

@@ -13,7 +13,7 @@
 
 use anchor_lang::prelude::*;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::VaultSettled;
 use crate::state::*;
 
@@ -22,11 +22,11 @@ pub fn handle_settle_vault(ctx: Context<SettleVault>) -> Result<()> {
     let vault = &ctx.accounts.shared_vault;
 
     // Validation
-    require!(market.is_settled, ButterError::MarketNotSettled);
-    require!(!vault.is_settled, ButterError::VaultAlreadySettled);
+    require!(market.is_settled, OptaError::MarketNotSettled);
+    require!(!vault.is_settled, OptaError::VaultAlreadySettled);
 
     let clock = Clock::get()?;
-    require!(vault.expiry <= clock.unix_timestamp, ButterError::MarketNotExpired);
+    require!(vault.expiry <= clock.unix_timestamp, OptaError::MarketNotExpired);
 
     // Calculate total payout owed to option holders
     let settlement_price = market.settlement_price;
@@ -36,7 +36,7 @@ pub fn handle_settle_vault(ctx: Context<SettleVault>) -> Result<()> {
         OptionType::Call => {
             if settlement_price > strike_price {
                 settlement_price.checked_sub(strike_price)
-                    .ok_or(ButterError::MathOverflow)?
+                    .ok_or(OptaError::MathOverflow)?
             } else {
                 0
             }
@@ -44,7 +44,7 @@ pub fn handle_settle_vault(ctx: Context<SettleVault>) -> Result<()> {
         OptionType::Put => {
             if strike_price > settlement_price {
                 strike_price.checked_sub(settlement_price)
-                    .ok_or(ButterError::MathOverflow)?
+                    .ok_or(OptaError::MathOverflow)?
             } else {
                 0
             }
@@ -53,7 +53,7 @@ pub fn handle_settle_vault(ctx: Context<SettleVault>) -> Result<()> {
 
     let total_payout = payout_per_contract
         .checked_mul(vault.total_options_sold)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // Cap payout at total collateral (can't pay out more than exists)
     let total_payout = std::cmp::min(total_payout, vault.total_collateral);

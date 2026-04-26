@@ -15,7 +15,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::PremiumClaimed;
 use crate::state::*;
 
@@ -24,15 +24,15 @@ pub fn handle_claim_premium(ctx: Context<ClaimPremium>) -> Result<()> {
     let writer_pos = &ctx.accounts.writer_position;
 
     // Validation
-    require!(writer_pos.owner == ctx.accounts.writer.key(), ButterError::NotWriter);
+    require!(writer_pos.owner == ctx.accounts.writer.key(), OptaError::NotWriter);
 
     // FIX H-01: Use reward-per-share accumulator instead of proportional share.
     // total_earned = shares * cumulative / SCALE
     let total_earned = (writer_pos.shares as u128)
         .checked_mul(vault.premium_per_share_cumulative)
-        .ok_or(ButterError::MathOverflow)?
+        .ok_or(OptaError::MathOverflow)?
         .checked_div(1_000_000_000_000) // SCALE = 1e12
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // Subtract the debt (premium earned before this writer deposited)
     let earned_since_deposit = total_earned
@@ -43,7 +43,7 @@ pub fn handle_claim_premium(ctx: Context<ClaimPremium>) -> Result<()> {
     let claimable = earned_since_deposit
         .saturating_sub(writer_pos.premium_claimed as u128) as u64;
 
-    require!(claimable > 0, ButterError::NothingToClaim);
+    require!(claimable > 0, OptaError::NothingToClaim);
 
     // Transfer USDC from vault to writer (signed by shared_vault PDA)
     let market_key = vault.market;
@@ -80,7 +80,7 @@ pub fn handle_claim_premium(ctx: Context<ClaimPremium>) -> Result<()> {
     let writer_pos = &mut ctx.accounts.writer_position;
     writer_pos.premium_claimed = writer_pos.premium_claimed
         .checked_add(claimable)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     emit!(PremiumClaimed {
         vault: vault_key,

@@ -12,7 +12,7 @@
 //   4. Transfer hook state is initialized via CPI to the hook program
 //   5. Buyers can purchase without the writer needing to co-sign
 //
-// The token name is human-readable: "BUTTER-SOL-200C-APR15"
+// The token name is human-readable: "OPTA-SOL-200C-APR15"
 // This shows up directly in Phantom wallet so holders know what they own.
 // =============================================================================
 
@@ -22,13 +22,13 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use anchor_spl::token_2022::Token2022;
 use spl_token_2022::extension::ExtensionType;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::OptionWritten;
 use crate::state::*;
 
 // =============================================================================
 // Month abbreviations for human-readable expiry dates in token names.
-// "BUTTER-SOL-200C-APR15" is much more useful than a unix timestamp.
+// "OPTA-SOL-200C-APR15" is much more useful than a unix timestamp.
 // =============================================================================
 const MONTHS: [&str; 12] = [
     "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
@@ -55,18 +55,18 @@ pub fn handle_write_option(
     // =========================================================================
     // Validation (unchanged from original)
     // =========================================================================
-    require!(clock.unix_timestamp < market.expiry_timestamp, ButterError::MarketExpired);
-    require!(contract_size > 0, ButterError::InvalidContractSize);
-    require!(premium > 0, ButterError::InvalidPremium);
+    require!(clock.unix_timestamp < market.expiry_timestamp, OptaError::MarketExpired);
+    require!(contract_size > 0, OptaError::InvalidContractSize);
+    require!(premium > 0, OptaError::InvalidPremium);
 
     let required_collateral = match market.option_type {
         OptionType::Put => market.strike_price
-            .checked_mul(contract_size).ok_or(ButterError::MathOverflow)?,
+            .checked_mul(contract_size).ok_or(OptaError::MathOverflow)?,
         OptionType::Call => market.strike_price
-            .checked_mul(2).ok_or(ButterError::MathOverflow)?
-            .checked_mul(contract_size).ok_or(ButterError::MathOverflow)?,
+            .checked_mul(2).ok_or(OptaError::MathOverflow)?
+            .checked_mul(contract_size).ok_or(OptaError::MathOverflow)?,
     };
-    require!(collateral_amount >= required_collateral, ButterError::InsufficientCollateral);
+    require!(collateral_amount >= required_collateral, OptaError::InsufficientCollateral);
 
     // =========================================================================
     // Premium bounds check: total premium must be 0.1%–50% of collateral.
@@ -74,14 +74,14 @@ pub fn handle_write_option(
     // absurd premiums that nobody would buy (too high).
     // =========================================================================
     let min_premium = collateral_amount
-        .checked_mul(MIN_PREMIUM_BPS).ok_or(ButterError::MathOverflow)?
-        .checked_div(10_000).ok_or(ButterError::MathOverflow)?;
+        .checked_mul(MIN_PREMIUM_BPS).ok_or(OptaError::MathOverflow)?
+        .checked_div(10_000).ok_or(OptaError::MathOverflow)?;
     let max_premium = collateral_amount
-        .checked_mul(MAX_PREMIUM_BPS).ok_or(ButterError::MathOverflow)?
-        .checked_div(10_000).ok_or(ButterError::MathOverflow)?;
+        .checked_mul(MAX_PREMIUM_BPS).ok_or(OptaError::MathOverflow)?
+        .checked_div(10_000).ok_or(OptaError::MathOverflow)?;
 
-    require!(premium >= min_premium, ButterError::WritePremiumTooLow);
-    require!(premium <= max_premium, ButterError::WritePremiumTooHigh);
+    require!(premium >= min_premium, OptaError::WritePremiumTooLow);
+    require!(premium <= max_premium, OptaError::WritePremiumTooHigh);
 
     // =========================================================================
     // Step 1: Transfer USDC collateral from writer to escrow (standard Token)
@@ -103,8 +103,8 @@ pub fn handle_write_option(
     // =========================================================================
     // Step 2: Build the human-readable token name
     //
-    // Format: "BUTTER-{ASSET}-{STRIKE}{C/P}-{MONTH}{DAY}"
-    // Example: "BUTTER-SOL-200C-APR15"
+    // Format: "OPTA-{ASSET}-{STRIKE}{C/P}-{MONTH}{DAY}"
+    // Example: "OPTA-SOL-200C-APR15"
     // This shows up in Phantom wallet so holders know exactly what they own.
     // =========================================================================
     let strike_dollars = market.strike_price / 1_000_000;
@@ -115,7 +115,7 @@ pub fn handle_write_option(
     let (month_idx, day) = timestamp_to_month_day(market.expiry_timestamp);
     let month_name = MONTHS[month_idx];
     let token_name = format!(
-        "BUTTER-{}-{}{}-{}{}",
+        "OPTA-{}-{}{}-{}{}",
         market.asset_name, strike_dollars, type_char, month_name, day
     );
     // Truncate to 32 chars if needed (unlikely but safe)
@@ -153,7 +153,7 @@ pub fn handle_write_option(
             ExtensionType::MetadataPointer,
         ],
     )
-    .map_err(|_| ButterError::MathOverflow)?;
+    .map_err(|_| OptaError::MathOverflow)?;
 
     let rent = Rent::get()?;
     // Fund for full size (base + metadata headroom) so auto-realloc has rent covered
@@ -241,7 +241,7 @@ pub fn handle_write_option(
             mint_info.key,         // mint
             &ctx.accounts.protocol_state.key(), // mint authority (must sign)
             token_name.clone(),
-            "bOPT".to_string(),
+            "oOPT".to_string(),
             "".to_string(), // no off-chain URI needed — everything is on-chain
         ),
         &[
@@ -255,7 +255,7 @@ pub fn handle_write_option(
     // These key-value pairs make the token fully self-describing on-chain.
     let collateral_per_token = collateral_amount
         .checked_div(contract_size)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     let additional_fields: Vec<(&str, String)> = vec![
         ("asset_name", market.asset_name.clone()),
@@ -300,7 +300,7 @@ pub fn handle_write_option(
     // =========================================================================
     let cpi_ctx = CpiContext::new(
         ctx.accounts.transfer_hook_program.to_account_info(),
-        butter_transfer_hook::cpi::accounts::InitializeExtraAccountMetaList {
+        opta_transfer_hook::cpi::accounts::InitializeExtraAccountMetaList {
             payer: ctx.accounts.writer.to_account_info(),
             mint: mint_info.clone(),
             extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
@@ -309,7 +309,7 @@ pub fn handle_write_option(
             system_program: ctx.accounts.system_program.to_account_info(),
         },
     );
-    butter_transfer_hook::cpi::initialize_extra_account_meta_list(
+    opta_transfer_hook::cpi::initialize_extra_account_meta_list(
         cpi_ctx,
         market.expiry_timestamp,
     )?;
@@ -329,7 +329,7 @@ pub fn handle_write_option(
         ExtensionType::try_calculate_account_len::<spl_token_2022::state::Account>(
             &[ExtensionType::TransferHookAccount],
         )
-        .map_err(|_| ButterError::MathOverflow)?;
+        .map_err(|_| OptaError::MathOverflow)?;
     let escrow_lamports = rent.minimum_balance(escrow_space);
 
     let escrow_seeds: &[&[u8]] = &[
@@ -499,9 +499,9 @@ pub struct WriteOption<'info> {
     // -------------------------------------------------------------------------
 
     /// The transfer hook program. Validated against the known program ID.
-    /// CHECK: Constrained to the known butter-transfer-hook program ID.
+    /// CHECK: Constrained to the known opta-transfer-hook program ID.
     #[account(
-        constraint = transfer_hook_program.key() == butter_transfer_hook::ID
+        constraint = transfer_hook_program.key() == opta_transfer_hook::ID
     )]
     pub transfer_hook_program: UncheckedAccount<'info>,
 

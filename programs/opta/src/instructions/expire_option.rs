@@ -10,7 +10,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, CloseAccount, Token, TokenAccount, Transfer};
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::OptionExpired;
 use crate::state::*;
 
@@ -19,9 +19,9 @@ pub fn handle_expire_option(ctx: Context<ExpireOption>) -> Result<()> {
     let position = &ctx.accounts.position;
     let clock = Clock::get()?;
 
-    require!(clock.unix_timestamp >= market.expiry_timestamp, ButterError::MarketNotExpired);
-    require!(market.is_settled, ButterError::MarketNotSettled);
-    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, ButterError::PositionNotActive);
+    require!(clock.unix_timestamp >= market.expiry_timestamp, OptaError::MarketNotExpired);
+    require!(market.is_settled, OptaError::MarketNotSettled);
+    require!(!position.is_exercised && !position.is_expired && !position.is_cancelled, OptaError::PositionNotActive);
 
     // Only allow expiry if the option is out of the money (no value to exercise).
     // ITM options must be exercised by token holders first.
@@ -29,7 +29,7 @@ pub fn handle_expire_option(ctx: Context<ExpireOption>) -> Result<()> {
         OptionType::Call => market.settlement_price <= market.strike_price,
         OptionType::Put  => market.settlement_price >= market.strike_price,
     };
-    require!(is_otm || position.tokens_sold == 0, ButterError::CannotExpireItmOption);
+    require!(is_otm || position.tokens_sold == 0, OptaError::CannotExpireItmOption);
 
     let protocol_seeds = &[PROTOCOL_SEED, &[ctx.accounts.protocol_state.bump]];
     let signer_seeds = &[&protocol_seeds[..]];
@@ -97,7 +97,7 @@ pub struct ExpireOption<'info> {
     pub writer_usdc_account: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: Writer's SOL account for rent.
-    #[account(mut, constraint = writer.key() == position.writer @ ButterError::NotWriter)]
+    #[account(mut, constraint = writer.key() == position.writer @ OptaError::NotWriter)]
     pub writer: UncheckedAccount<'info>,
 
     pub token_program: Program<'info, Token>,

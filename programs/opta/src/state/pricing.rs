@@ -19,7 +19,7 @@ use anchor_lang::prelude::*;
 /// Computed on-chain via solmath's bs_full_hp() Black-Scholes engine.
 ///
 /// WHY THIS EXISTS:
-/// Without this, anyone holding a Butter option token has to call our
+/// Without this, anyone holding an Opta option token has to call our
 /// SDK to know what it's worth. With this, the fair value is right there
 /// on the blockchain — computed deterministically by the smart contract.
 #[account]

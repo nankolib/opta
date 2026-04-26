@@ -20,7 +20,7 @@ use anchor_lang::solana_program::{program::invoke, program::invoke_signed, syste
 use anchor_spl::token_2022::Token2022;
 use spl_token_2022::extension::ExtensionType;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::VaultMinted;
 use crate::state::*;
 
@@ -47,12 +47,12 @@ pub fn handle_mint_from_vault(
     // =========================================================================
     // Validation
     // =========================================================================
-    require!(quantity > 0, ButterError::InvalidContractSize);
-    require!(premium_per_contract > 0, ButterError::InvalidPremium);
-    require!(!vault.is_settled, ButterError::VaultAlreadySettled);
-    require!(vault.expiry > clock.unix_timestamp, ButterError::VaultExpired);
-    require!(writer_pos.vault == vault.key(), ButterError::Unauthorized);
-    require!(writer_pos.owner == ctx.accounts.writer.key(), ButterError::NotWriter);
+    require!(quantity > 0, OptaError::InvalidContractSize);
+    require!(premium_per_contract > 0, OptaError::InvalidPremium);
+    require!(!vault.is_settled, OptaError::VaultAlreadySettled);
+    require!(vault.expiry > clock.unix_timestamp, OptaError::VaultExpired);
+    require!(writer_pos.vault == vault.key(), OptaError::Unauthorized);
+    require!(writer_pos.owner == ctx.accounts.writer.key(), OptaError::NotWriter);
 
     // =========================================================================
     // Calculate writer's available collateral
@@ -63,40 +63,40 @@ pub fn handle_mint_from_vault(
     let collateral_per_contract = match vault.option_type {
         OptionType::Call => vault.strike_price
             .checked_mul(2)
-            .ok_or(ButterError::MathOverflow)?,
+            .ok_or(OptaError::MathOverflow)?,
         OptionType::Put => vault.strike_price,
     };
 
     let total_collateral_needed = quantity
         .checked_mul(collateral_per_contract)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // Writer's total collateral share based on their proportion of the pool
     let writer_share_of_collateral = (writer_pos.shares as u128)
         .checked_mul(vault.total_collateral as u128)
-        .ok_or(ButterError::MathOverflow)?
+        .ok_or(OptaError::MathOverflow)?
         .checked_div(vault.total_shares as u128)
-        .ok_or(ButterError::MathOverflow)? as u64;
+        .ok_or(OptaError::MathOverflow)? as u64;
 
     // Already committed collateral (options already minted)
     let already_committed = writer_pos.options_minted
         .checked_mul(collateral_per_contract)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     let available = writer_share_of_collateral
         .checked_sub(already_committed)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     require!(
         total_collateral_needed <= available,
-        ButterError::InsufficientVaultCollateral
+        OptaError::InsufficientVaultCollateral
     );
 
     // =========================================================================
     // Build the human-readable token name (IDENTICAL to write_option.rs)
     //
-    // Format: "BUTTER-{ASSET}-{STRIKE}{C/P}-{MONTH}{DAY}"
-    // Example: "BUTTER-SOL-200C-APR15"
+    // Format: "OPTA-{ASSET}-{STRIKE}{C/P}-{MONTH}{DAY}"
+    // Example: "OPTA-SOL-200C-APR15"
     // =========================================================================
     let strike_dollars = market.strike_price / 1_000_000;
     let type_char = match market.option_type {
@@ -106,7 +106,7 @@ pub fn handle_mint_from_vault(
     let (month_idx, day) = timestamp_to_month_day(market.expiry_timestamp);
     let month_name = MONTHS[month_idx];
     let token_name = format!(
-        "BUTTER-{}-{}{}-{}{}",
+        "OPTA-{}-{}{}-{}{}",
         market.asset_name, strike_dollars, type_char, month_name, day
     );
     let token_name = if token_name.len() > 32 {
@@ -138,7 +138,7 @@ pub fn handle_mint_from_vault(
             ExtensionType::MetadataPointer,
         ],
     )
-    .map_err(|_| ButterError::MathOverflow)?;
+    .map_err(|_| OptaError::MathOverflow)?;
 
     let rent = Rent::get()?;
     // Overfund for metadata realloc (same as write_option: base_space + 854)
@@ -226,7 +226,7 @@ pub fn handle_mint_from_vault(
             mint_info.key,
             &ctx.accounts.protocol_state.key(),
             token_name.clone(),
-            "bOPT".to_string(),
+            "oOPT".to_string(),
             "".to_string(),
         ),
         &[
@@ -280,7 +280,7 @@ pub fn handle_mint_from_vault(
     // =========================================================================
     let cpi_ctx = CpiContext::new(
         ctx.accounts.transfer_hook_program.to_account_info(),
-        butter_transfer_hook::cpi::accounts::InitializeExtraAccountMetaList {
+        opta_transfer_hook::cpi::accounts::InitializeExtraAccountMetaList {
             payer: ctx.accounts.writer.to_account_info(),
             mint: mint_info.clone(),
             extra_account_meta_list: ctx.accounts.extra_account_meta_list.to_account_info(),
@@ -289,7 +289,7 @@ pub fn handle_mint_from_vault(
             system_program: ctx.accounts.system_program.to_account_info(),
         },
     );
-    butter_transfer_hook::cpi::initialize_extra_account_meta_list(
+    opta_transfer_hook::cpi::initialize_extra_account_meta_list(
         cpi_ctx,
         market.expiry_timestamp,
     )?;
@@ -303,7 +303,7 @@ pub fn handle_mint_from_vault(
         ExtensionType::try_calculate_account_len::<spl_token_2022::state::Account>(
             &[ExtensionType::TransferHookAccount],
         )
-        .map_err(|_| ButterError::MathOverflow)?;
+        .map_err(|_| OptaError::MathOverflow)?;
     let escrow_lamports = rent.minimum_balance(escrow_space);
 
     let escrow_seeds: &[&[u8]] = &[
@@ -379,12 +379,12 @@ pub fn handle_mint_from_vault(
     let writer_pos = &mut ctx.accounts.writer_position;
     writer_pos.options_minted = writer_pos.options_minted
         .checked_add(quantity)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     let vault = &mut ctx.accounts.shared_vault;
     vault.total_options_minted = vault.total_options_minted
         .checked_add(quantity)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     emit!(VaultMinted {
         vault: ctx.accounts.shared_vault.key(),
@@ -470,8 +470,8 @@ pub struct MintFromVault<'info> {
     pub vault_mint_record: Box<Account<'info, VaultMint>>,
 
     /// The transfer hook program — for initializing hook state.
-    /// CHECK: Constrained to the known butter-transfer-hook program ID.
-    #[account(constraint = transfer_hook_program.key() == butter_transfer_hook::ID)]
+    /// CHECK: Constrained to the known opta-transfer-hook program ID.
+    #[account(constraint = transfer_hook_program.key() == opta_transfer_hook::ID)]
     pub transfer_hook_program: UncheckedAccount<'info>,
 
     /// ExtraAccountMetaList PDA — created by the hook program during CPI.

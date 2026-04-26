@@ -1,5 +1,5 @@
 // =============================================================================
-// lib.rs — Butter Options: Tokenized P2P options protocol on Solana
+// lib.rs — Opta: Tokenized P2P options protocol on Solana
 // =============================================================================
 //
 // Options are represented as SPL tokens. Whoever holds the tokens can exercise.
@@ -33,7 +33,7 @@ use state::*;
 declare_id!("CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq");
 
 #[program]
-pub mod butter_options {
+pub mod opta {
     use super::*;
 
     pub fn initialize_protocol(ctx: Context<InitializeProtocol>) -> Result<()> {

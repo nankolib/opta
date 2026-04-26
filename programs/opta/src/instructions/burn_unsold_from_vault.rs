@@ -16,7 +16,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 
-use crate::errors::ButterError;
+use crate::errors::OptaError;
 use crate::events::VaultBurnUnsold;
 use crate::state::*;
 
@@ -26,25 +26,25 @@ pub fn handle_burn_unsold_from_vault(ctx: Context<BurnUnsoldFromVault>) -> Resul
     // Validate writer owns this position
     require!(
         ctx.accounts.writer_position.owner == ctx.accounts.writer.key(),
-        ButterError::NotWriter
+        OptaError::NotWriter
     );
     require!(
         vault_mint.writer == ctx.accounts.writer.key(),
-        ButterError::NotWriter
+        OptaError::NotWriter
     );
     require!(
         vault_mint.vault == ctx.accounts.shared_vault.key(),
-        ButterError::Unauthorized
+        OptaError::Unauthorized
     );
 
     // Read unsold count from the purchase escrow (Token-2022 layout: amount at bytes 64..72)
     let escrow_data = ctx.accounts.purchase_escrow.try_borrow_data()?;
     let unsold = u64::from_le_bytes(
-        escrow_data[64..72].try_into().map_err(|_| ButterError::MathOverflow)?
+        escrow_data[64..72].try_into().map_err(|_| OptaError::MathOverflow)?
     );
     drop(escrow_data);
 
-    require!(unsold > 0, ButterError::NoTokensToBurn);
+    require!(unsold > 0, OptaError::NoTokensToBurn);
 
     // Protocol PDA signs for the burn (it owns the purchase escrow)
     let protocol_seeds = &[PROTOCOL_SEED, &[ctx.accounts.protocol_state.bump]];
@@ -96,19 +96,19 @@ pub fn handle_burn_unsold_from_vault(ctx: Context<BurnUnsoldFromVault>) -> Resul
     let vault_mint = &mut ctx.accounts.vault_mint_record;
     vault_mint.quantity_minted = vault_mint.quantity_minted
         .checked_sub(unsold)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // Update writer position
     let writer_pos = &mut ctx.accounts.writer_position;
     writer_pos.options_minted = writer_pos.options_minted
         .checked_sub(unsold)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     // Update vault totals
     let vault = &mut ctx.accounts.shared_vault;
     vault.total_options_minted = vault.total_options_minted
         .checked_sub(unsold)
-        .ok_or(ButterError::MathOverflow)?;
+        .ok_or(OptaError::MathOverflow)?;
 
     emit!(VaultBurnUnsold {
         vault: vault_key,
