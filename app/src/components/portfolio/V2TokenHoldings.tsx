@@ -90,6 +90,16 @@ export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, 
   const mintKeys = useMemo(() => holdings.map((h) => h.optionMint), [holdings]);
   const tokenMetadata = useTokenMetadata(mintKeys);
 
+  // Phase 2 demo filter: hide any holding whose Token-2022 metadata name does not
+  // start with "OPTA-". Belt-and-suspenders on top of the useVaults cutoff cascade —
+  // pre-Phase-2 vault mints emit "BUTTER-..." names; new mints emit "OPTA-...".
+  const visibleHoldings = useMemo(() => {
+    return holdings.filter((h) => {
+      const meta = tokenMetadata.get(h.optionMint.toBase58());
+      return meta?.name?.startsWith("OPTA-") === true;
+    });
+  }, [holdings, tokenMetadata]);
+
   const handleExercise = async (h: HeldV2Token) => {
     if (!program || !publicKey) return;
     const key = h.vaultMint.publicKey.toBase58();
@@ -135,7 +145,7 @@ export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, 
 
   if (loading) return <div className="text-text-muted text-sm animate-pulse py-4">Scanning wallet for option tokens...</div>;
 
-  if (holdings.length === 0) {
+  if (visibleHoldings.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-bg-surface p-8 text-center">
         <p className="text-text-muted text-sm">
@@ -149,7 +159,7 @@ export const V2TokenHoldings: FC<V2TokenHoldingsProps> = ({ vaults, vaultMints, 
 
   return (
     <div className="space-y-3">
-      {holdings.map((h) => {
+      {visibleHoldings.map((h) => {
         const v = h.vault.account;
         const isCall = "call" in v.optionType;
         const settled = v.isSettled;

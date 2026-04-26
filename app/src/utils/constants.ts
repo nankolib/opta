@@ -65,6 +65,31 @@ export const EPOCH_CONFIG_SEED = "epoch_config";
 export const USE_V2_VAULTS = true;
 
 // ============================================================================
+// Phase 2 demo cutoff
+// ============================================================================
+// Hide vaults created before the Phase 2 redeploy (2026-04-26 ~18:00 UTC).
+// Pre-Phase-2 vaults have BUTTER-prefixed Token-2022 metadata names; new vaults
+// from this point forward use OPTA-. Filtering at the source in useVaults keeps
+// the demo brand-consistent. Old vaults remain on-chain but are invisible to the UI.
+export const PHASE2_CUTOFF_TIMESTAMP = 1777226400; // 2026-04-26T18:00:00Z
+
+/** Returns true if a SharedVault account was created at or after the Phase 2 cutoff. */
+export function isPostPhase2Vault(vault: { account: any } | { createdAt: any }): boolean {
+  const createdAt = (vault as any)?.account?.createdAt ?? (vault as any)?.createdAt;
+  if (createdAt == null) return false;
+  const ts = typeof createdAt === "number" ? createdAt : createdAt.toNumber();
+  return ts >= PHASE2_CUTOFF_TIMESTAMP;
+}
+
+/** Returns true if an OptionPosition account was created at or after the Phase 2 cutoff. */
+export function isPostPhase2Position(position: { account: any } | { createdAt: any }): boolean {
+  const createdAt = (position as any)?.account?.createdAt ?? (position as any)?.createdAt;
+  if (createdAt == null) return false;
+  const ts = typeof createdAt === "number" ? createdAt : createdAt.toNumber();
+  return ts >= PHASE2_CUTOFF_TIMESTAMP;
+}
+
+// ============================================================================
 // ⚠️  CRITICAL — FULL PRIVATE KEY, DO NOT SHIP TO MAINNET
 // ============================================================================
 // This is a complete 64-byte secret key (32-byte seed + 32-byte public key).

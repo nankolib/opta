@@ -8,6 +8,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { Program } from "@coral-xyz/anchor";
 import { Buffer } from "buffer";
+import { isPostPhase2Position } from "../utils/constants";
 
 // Token-2022 program ID — hardcoded to avoid importing @solana/spl-token here
 const TOKEN_2022_PROGRAM_ID = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
@@ -90,13 +91,15 @@ export async function safeFetchAll<T>(
     try {
       const mints = decoded.map((d) => (d.account as any).optionMint as PublicKey);
       const mintInfos = await connection.getMultipleAccountsInfo(mints);
-      return decoded.filter((_, i) => {
+      const t22Filtered = decoded.filter((_, i) => {
         const info = mintInfos[i];
         return info && info.owner.equals(TOKEN_2022_PROGRAM_ID);
       });
+      // Phase 2 cutoff: hide positions created before the redeploy.
+      return t22Filtered.filter((d) => isPostPhase2Position(d));
     } catch {
-      // If mint lookup fails (e.g. network error), return all decoded positions
-      return decoded;
+      // If mint lookup fails (e.g. network error), still apply the cutoff filter.
+      return decoded.filter((d) => isPostPhase2Position(d));
     }
   }
 

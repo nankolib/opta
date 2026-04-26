@@ -4,7 +4,7 @@ import { BN } from "@coral-xyz/anchor";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useProgram } from "./useProgram";
 import { safeFetchAll } from "./useFetchAccounts";
-import { USE_V2_VAULTS } from "../utils/constants";
+import { USE_V2_VAULTS, isPostPhase2Vault } from "../utils/constants";
 
 // Precision multiplier matching Rust's 1e12 for premium_per_share_cumulative
 const PRECISION = new BN("1000000000000");
@@ -68,9 +68,14 @@ export function useVaults() {
         safeFetchAll(program, "vaultMint"),
         safeFetchAll(program, "epochConfig"),
       ]);
-      setVaults(sv);
-      setWriterPositions(wp);
-      setVaultMints(vm);
+      // Phase 2 cutoff — hide pre-Phase-2 vaults and cascade to their related records.
+      const filteredSv = sv.filter(isPostPhase2Vault);
+      const validVaultKeys = new Set(filteredSv.map((v) => v.publicKey.toBase58()));
+      const filteredWp = wp.filter((p: any) => validVaultKeys.has((p.account.vault as PublicKey).toBase58()));
+      const filteredVm = vm.filter((m: any) => validVaultKeys.has((m.account.vault as PublicKey).toBase58()));
+      setVaults(filteredSv);
+      setWriterPositions(filteredWp);
+      setVaultMints(filteredVm);
       setEpochConfig(ec.length > 0 ? ec[0] : null);
     } catch (err) {
       console.error("Failed to fetch vault accounts:", err);
