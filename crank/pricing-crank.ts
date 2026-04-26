@@ -18,7 +18,7 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ButterOptions } from "../target/types/butter_options";
+import { Opta } from "../target/types/opta";
 import {
   Connection, PublicKey, Keypair,
 } from "@solana/web3.js";
@@ -120,7 +120,7 @@ async function safeFetchAll(conn: Connection, program: Program<any>, accountName
 // =============================================================================
 async function tick(
   conn: Connection,
-  program: Program<ButterOptions>,
+  program: Program<Opta>,
   wallet: Keypair,
 ) {
   const nowTs = Math.floor(Date.now() / 1000);
@@ -236,7 +236,7 @@ async function main() {
     confirmTransactionInitialTimeout: 60000,
   });
   const idl = JSON.parse(
-    fs.readFileSync(path.join(__dirname, "..", "target", "idl", "butter_options.json"), "utf-8"),
+    fs.readFileSync(path.join(__dirname, "..", "target", "idl", "opta.json"), "utf-8"),
   );
   const rawKey = JSON.parse(
     fs.readFileSync(
@@ -248,7 +248,7 @@ async function main() {
   const anchorWallet = new anchor.Wallet(wallet);
   const provider = new anchor.AnchorProvider(conn, anchorWallet, { commitment: "confirmed" });
   anchor.setProvider(provider);
-  const program = new Program(idl, provider) as Program<ButterOptions>;
+  const program = new Program(idl, provider) as Program<Opta>;
 
   console.log(`Wallet: ${wallet.publicKey.toBase58()}`);
   console.log(`RPC: ${process.env.RPC_URL || "https://api.devnet.solana.com"}`);

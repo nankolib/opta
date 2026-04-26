@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { useConnection, useAnchorWallet } from "@solana/wallet-adapter-react";
 import { AnchorProvider, Program } from "@coral-xyz/anchor";
-import type { ButterOptions } from "../idl/butter_options";
-import idl from "../idl/butter_options.json";
+import type { Opta } from "../idl/opta";
+import idl from "../idl/opta.json";
 
 /**
  * Hook that returns an Anchor Program instance for Opta.
@@ -11,7 +11,7 @@ import idl from "../idl/butter_options.json";
  * but cannot send transactions).
  */
 export function useProgram(): {
-  program: Program<ButterOptions> | null;
+  program: Program<Opta> | null;
   provider: AnchorProvider | null;
 } {
   const { connection } = useConnection();
@@ -32,7 +32,7 @@ export function useProgram(): {
         const program = new Program(
           idl as any,
           readOnlyProvider,
-        ) as unknown as Program<ButterOptions>;
+        ) as unknown as Program<Opta>;
         return { program, provider: null };
       } catch {
         return { program: null, provider: null };
@@ -42,7 +42,7 @@ export function useProgram(): {
     const program = new Program(
       idl as any,
       provider,
-    ) as unknown as Program<ButterOptions>;
+    ) as unknown as Program<Opta>;
     return { program, provider };
   }, [connection, wallet]);
 }

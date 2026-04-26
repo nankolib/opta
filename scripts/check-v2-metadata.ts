@@ -1,14 +1,14 @@
 // Quick check: dump v2 option mint account data to verify Token-2022 metadata
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ButterOptions } from "../target/types/butter_options";
+import { Opta } from "../target/types/opta";
 import { PublicKey } from "@solana/web3.js";
 import { getMint, getTokenMetadata, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 
 async function main() {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.butterOptions as Program<ButterOptions>;
+  const program = anchor.workspace.opta as Program<Opta>;
 
   // Fetch all VaultMint records
   const vaultMints = await (program.account as any).vaultMint.all();

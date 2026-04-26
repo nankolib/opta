@@ -1,7 +1,7 @@
 // Test script: full lifecycle — create short-expiry market, write, buy, settle, exercise + cancel
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ButterOptions } from "../target/types/butter_options";
+import { Opta } from "../target/types/opta";
 import {
   Connection, PublicKey, Keypair, SystemProgram, Transaction,
   ComputeBudgetProgram, TransactionMessage, VersionedTransaction,
@@ -23,13 +23,13 @@ function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout
 
 async function main() {
   const conn = new Connection(process.env.RPC_URL || "https://api.devnet.solana.com", { commitment: "confirmed", confirmTransactionInitialTimeout: 60000 });
-  const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "target", "idl", "butter_options.json"), "utf-8"));
+  const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "target", "idl", "opta.json"), "utf-8"));
   const rawKey = JSON.parse(fs.readFileSync(path.join(process.env.HOME || "~", ".config/solana/id.json"), "utf-8"));
   const admin = Keypair.fromSecretKey(Uint8Array.from(rawKey));
   const wallet = new anchor.Wallet(admin);
   const provider = new anchor.AnchorProvider(conn, wallet, { commitment: "confirmed" });
   anchor.setProvider(provider);
-  const program = new Program(idl, provider) as Program<ButterOptions>;
+  const program = new Program(idl, provider) as Program<Opta>;
 
   const writerPath = path.join(__dirname, ".devnet-writer-keypair.json");
   const writerRaw = JSON.parse(fs.readFileSync(writerPath, "utf-8"));

@@ -4,7 +4,7 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ButterOptions } from "../target/types/butter_options";
+import { Opta } from "../target/types/opta";
 import { Connection, PublicKey, Keypair } from "@solana/web3.js";
 import BN from "bn.js";
 import fs from "fs";
@@ -50,7 +50,7 @@ function formatDate(ts: number): string {
 
 async function main() {
   const conn = new Connection("https://api.devnet.solana.com", "confirmed");
-  const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "target", "idl", "butter_options.json"), "utf-8"));
+  const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "target", "idl", "opta.json"), "utf-8"));
   const rawKey = JSON.parse(fs.readFileSync(
     path.join(process.env.HOME || process.env.USERPROFILE || "~", ".config/solana/id.json"), "utf-8",
   ));
@@ -58,7 +58,7 @@ async function main() {
   const anchorWallet = new anchor.Wallet(wallet);
   const provider = new anchor.AnchorProvider(conn, anchorWallet, { commitment: "confirmed" });
   anchor.setProvider(provider);
-  const program = new Program(idl, provider) as Program<ButterOptions>;
+  const program = new Program(idl, provider) as Program<Opta>;
 
   // Find all active positions
   const disc = getDiscriminator("OptionPosition");
@@ -106,7 +106,7 @@ async function main() {
 }
 
 async function pricePosition(
-  program: Program<ButterOptions>,
+  program: Program<Opta>,
   wallet: Keypair,
   pos: { publicKey: PublicKey; account: any },
   market: any,

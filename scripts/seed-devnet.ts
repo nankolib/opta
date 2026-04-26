@@ -7,7 +7,7 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ButterOptions } from "../target/types/butter_options";
+import { Opta } from "../target/types/opta";
 import {
   Keypair,
   PublicKey,
@@ -165,9 +165,9 @@ async function main() {
   anchor.setProvider(provider);
 
   // Load program from IDL
-  const idlPath = path.join(__dirname, "..", "target", "idl", "butter_options.json");
+  const idlPath = path.join(__dirname, "..", "target", "idl", "opta.json");
   const idl = JSON.parse(fs.readFileSync(idlPath, "utf-8"));
-  const program = new Program(idl, provider) as Program<ButterOptions>;
+  const program = new Program(idl, provider) as Program<Opta>;
 
   const admin = payer;
   console.log("Wallet:", admin.publicKey.toBase58());

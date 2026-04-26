@@ -7,7 +7,7 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ButterOptions } from "../target/types/butter_options";
+import { Opta } from "../target/types/opta";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 
 const PROGRAM_ID = new PublicKey("CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq");
@@ -25,7 +25,7 @@ async function main() {
 
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.butterOptions as Program<ButterOptions>;
+  const program = anchor.workspace.opta as Program<Opta>;
   const admin = provider.wallet;
 
   console.log("Admin:", admin.publicKey.toBase58());

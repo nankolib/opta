@@ -9,7 +9,7 @@ import { useTokenMetadata } from "../../hooks/useTokenMetadata";
 
 // Fallback when the on-chain market account isn't reachable through marketMap
 // (e.g. it failed safeFetchAll's strict validator). Parse the Token-2022 metadata
-// symbol like "BUTTER-SOL-100C-APR24" -> "SOL", and only accept it if it's in the
+// symbol like "OPTA-SOL-100C-APR24" -> "SOL", and only accept it if it's in the
 // known-asset allowlist so we don't render garbage tickers.
 const KNOWN_ASSETS = new Set(["SOL", "BTC", "ETH", "AAPL", "XAU", "XAG", "WTI", "TSLA", "NVDA"]);
 function tickerFromMetadataSymbol(symbol: string | undefined): string | null {

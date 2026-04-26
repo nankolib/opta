@@ -166,8 +166,8 @@ describe("token2022-smoke", () => {
         updateAuthority: mintAuthority,
         mint: mintKeypair.publicKey,
         mintAuthority: mintAuthority,
-        name: "BUTTER-SOL-200C-APR15",
-        symbol: "bOPT",
+        name: "OPTA-SOL-200C-APR15",
+        symbol: "oOPT",
         uri: "",
       }),
     );

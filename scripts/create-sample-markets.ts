@@ -4,7 +4,7 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ButterOptions } from "../target/types/butter_options";
+import { Opta } from "../target/types/opta";
 import { Keypair, PublicKey, SystemProgram, ComputeBudgetProgram } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
@@ -56,7 +56,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function main() {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.butterOptions as Program<ButterOptions>;
+  const program = anchor.workspace.opta as Program<Opta>;
   const admin = provider.wallet as anchor.Wallet;
   const payer = (admin as any).payer as Keypair;
 

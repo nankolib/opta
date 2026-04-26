@@ -1,5 +1,5 @@
 // =============================================================================
-// tests/butter-options.ts — Integration tests for Butter Options tokenized protocol
+// tests/opta.ts — Integration tests for Opta tokenized protocol
 // =============================================================================
 //
 // These tests run against a local Solana validator (started by `anchor test`).
@@ -19,7 +19,7 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { ButterOptions } from "../target/types/butter_options";
+import { Opta } from "../target/types/opta";
 import {
   Keypair,
   PublicKey,
@@ -57,7 +57,7 @@ function usdc(amount: number): BN {
 // need this prepended.
 const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
 
-describe("butter-options", () => {
+describe("opta", () => {
   // Force "confirmed" commitment so account reads see recently-confirmed state.
   const connection = new anchor.web3.Connection(
     "http://127.0.0.1:8899",
@@ -70,7 +70,7 @@ describe("butter-options", () => {
   });
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.butterOptions as Program<ButterOptions>;
+  const program = anchor.workspace.opta as Program<Opta>;
   const admin = provider.wallet as anchor.Wallet;
   const payer = (admin as any).payer as Keypair;
 
@@ -1689,8 +1689,8 @@ describe("butter-options", () => {
       assert.ok(metadata, "Token metadata should exist on the mint");
 
       // Verify base metadata
-      assert.ok(metadata!.name.startsWith("BUTTER-ETH-300C"), `Name should start with BUTTER-ETH-300C, got: ${metadata!.name}`);
-      assert.equal(metadata!.symbol, "bOPT", "Symbol should be bOPT");
+      assert.ok(metadata!.name.startsWith("OPTA-ETH-300C"), `Name should start with OPTA-ETH-300C, got: ${metadata!.name}`);
+      assert.equal(metadata!.symbol, "oOPT", "Symbol should be oOPT");
 
       // Verify additional fields stored as key-value pairs
       const fields = new Map(metadata!.additionalMetadata);

@@ -5,7 +5,7 @@ const { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } = require("@solana/spl-tok
 async function main() {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.butterOptions;
+  const program = anchor.workspace.opta;
   const admin = provider.wallet;
   const userWallet = admin.publicKey.toBase58();
   const connection = provider.connection;

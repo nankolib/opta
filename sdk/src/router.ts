@@ -107,7 +107,7 @@ interface MintData {
  * instructions for a single transaction.
  *
  * @param connection - Solana RPC connection
- * @param program - Anchor program instance for butter_options
+ * @param program - Anchor program instance for opta
  * @param params - Fill parameters (asset, type, strike range, quantity, max premium)
  * @returns FillPlan with optimal fills sorted by price
  */
