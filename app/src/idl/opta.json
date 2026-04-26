@@ -1,7 +1,7 @@
 {
   "address": "CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq",
   "metadata": {
-    "name": "butter_options",
+    "name": "opta",
     "version": "0.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
@@ -4552,7 +4552,7 @@
         "Computed on-chain via solmath's bs_full_hp() Black-Scholes engine.",
         "",
         "WHY THIS EXISTS:",
-        "Without this, anyone holding a Butter option token has to call our",
+        "Without this, anyone holding an Opta option token has to call our",
         "SDK to know what it's worth. With this, the fair value is right there",
         "on the blockchain — computed deterministically by the smart contract."
       ],

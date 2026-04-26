@@ -2,12 +2,12 @@
  * Program IDL in camelCase format in order to be used in JS/TS.
  *
  * Note that this is only a type helper and is not the actual IDL. The original
- * IDL can be found at `target/idl/butter_options.json`.
+ * IDL can be found at `target/idl/opta.json`.
  */
-export type ButterOptions = {
+export type Opta = {
   "address": "CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq",
   "metadata": {
-    "name": "butterOptions",
+    "name": "opta",
     "version": "0.1.0",
     "spec": "0.1.0",
     "description": "Created with Anchor"
@@ -4558,7 +4558,7 @@ export type ButterOptions = {
         "Computed on-chain via solmath's bs_full_hp() Black-Scholes engine.",
         "",
         "WHY THIS EXISTS:",
-        "Without this, anyone holding a Butter option token has to call our",
+        "Without this, anyone holding an Opta option token has to call our",
         "SDK to know what it's worth. With this, the fair value is right there",
         "on the blockchain — computed deterministically by the smart contract."
       ],
