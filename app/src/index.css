@@ -62,7 +62,7 @@
 
   /* ----- animations (paired with @keyframes blocks below) */
   --animate-pulse-live: pulse-live 2.6s var(--ease-opta) infinite;
-  --animate-dot-pop: dot-pop 0.6s var(--ease-opta) forwards;
+  --animate-dot-pop: dot-pop 0.6s var(--ease-opta) both;
   --animate-hero-glow-drift: hero-glow-drift 28s var(--ease-opta) infinite;
   --animate-scrollbar: scrollbar 3.6s var(--ease-opta) infinite;
   --animate-marquee: marquee 42s linear infinite;
@@ -72,6 +72,9 @@
   --animate-neb-drift-2: neb-drift-2 32s var(--ease-opta) infinite alternate;
   --animate-scan: scan 12s var(--ease-opta) infinite;
   --animate-cta-breathe: cta-breathe 6s var(--ease-opta) infinite;
+
+  /* ----- shadow tokens (paper-surface effects) */
+  --shadow-dot-glow: 0 0 12px rgba(215, 38, 61, 0.5);
 }
 
 /* ============================================================================
