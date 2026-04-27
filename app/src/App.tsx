@@ -3,7 +3,7 @@ import { Header } from "./components/Header";
 import { ToastContainer } from "./components/Toast";
 import { Landing } from "./pages/Landing";
 import { MarketsPage as Markets } from "./pages/markets";
-import { Trade } from "./pages/Trade";
+import { TradePage as Trade } from "./pages/trade";
 import { WritePage as Write } from "./pages/write";
 import { PortfolioPage } from "./pages/portfolio";
 import { DocsLayout, DocsIndex, DocsSection } from "./pages/docs";
@@ -21,12 +21,13 @@ import { DocsLayout, DocsIndex, DocsSection } from "./pages/docs";
  *   /portfolio — Paper-surface trader page; supplies AppNav
  *   /markets   — Paper-surface trader page; supplies AppNav
  *   /write     — Paper-surface trader page; supplies AppNav
+ *   /trade     — Paper-surface trader page; supplies AppNav
  *
- * Long-term, all logged-in trader pages (Markets / Trade / Write /
- * Portfolio) will use AppNav instead of the global Header. Markets,
- * Portfolio, and Write have migrated.
+ * All logged-in trader pages (Markets / Trade / Write / Portfolio)
+ * have migrated to AppNav. The global Header is now only shown on
+ * routes not listed above (currently none).
  */
-const HEADER_HIDDEN_PATHS = ["/", "/docs", "/portfolio", "/markets", "/write"];
+const HEADER_HIDDEN_PATHS = ["/", "/docs", "/portfolio", "/markets", "/write", "/trade"];
 
 /**
  * True iff `path` exactly matches one of `patterns` or is a descendant
