@@ -1,24 +1,25 @@
 import type { FC } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useProgram } from "../../hooks/useProgram";
 import { safeFetchAll } from "../../hooks/useFetchAccounts";
 import { useVaults } from "../../hooks/useVaults";
 import { usePythPrices } from "../../hooks/usePythPrices";
+import { useTokenMetadata } from "../../hooks/useTokenMetadata";
 import { usePaperPalette } from "../../hooks";
 import { TOKEN_2022_PROGRAM_ID } from "../../utils/constants";
-import { usdcToNumber } from "../../utils/format";
-import {
-  calculateCallPremium,
-  calculatePutPremium,
-  getDefaultVolatility,
-} from "../../utils/blackScholes";
 import { PaperGrain } from "../../components/layout";
 import { AppNav } from "../../components/AppNav";
 import { MoneyAmount } from "../../components/MoneyAmount";
 import { StatementHeader, type Denomination } from "./StatementHeader";
 import { SummaryBand, type SummaryCell } from "./SummaryBand";
+import { OpenPositionsSection } from "./OpenPositionsSection";
+import { ClosedPositionsSection } from "./ClosedPositionsSection";
+import { ResaleModal } from "./ResaleModal";
+import { AdminToolsSection } from "./AdminToolsSection";
+import { buildPositions, type Position, type PositionAction } from "./positions";
+import { usePortfolioActions } from "./usePortfolioActions";
 
 interface PositionAccount {
   publicKey: PublicKey;
@@ -30,37 +31,36 @@ interface MarketAccount {
 }
 
 /**
- * PortfolioPage — paper-surface page for the user's option positions.
+ * PortfolioPage — the user's options statement.
  *
- * Stage 1 builds the shell: AppNav, StatementHeader, 4-cell SummaryBand,
- * and a placeholder for the Stage 2 positions table. Real on-chain
- * data drives the summary metrics; disconnected wallet renders all
- * four cells as "—".
+ * Stage 1 built the AppNav / StatementHeader / SummaryBand shell with
+ * data-driven summary metrics. Stage 2 replaces the placeholder below
+ * the band with the real positions content:
  *
- * Summary derivations:
- *   - Open Positions: count of active held positions (v1 + v2),
- *     past-expiry excluded
- *   - Cost Basis: Σ premium × (heldBalance / totalSupply) — proportional
- *     because the on-chain protocol doesn't persist per-buyer purchase
- *     prices, only writer-side total premia per mint
- *   - Current Value: B-S fair value × balance for active pre-expiry;
- *     intrinsic × balance for settled-ITM still-held; $0 for
- *     settled-OTM still-held
- *   - Unrealised P&L: currentValue - costBasis, with percentage delta
+ *   - § 01 · Open positions table (with filter pills)
+ *   - § 02 · Closed positions (collapsible)
+ *   - Admin tools (admin-only, visually quarantined)
+ *   - ResaleModal (mounted on demand when a v1 active row clicks
+ *     "List for Resale")
  *
- * Stage 2 will replace the placeholder with the positions table and
- * row-level actions (exercise / list-for-resale / cancel / expire),
- * migrating logic from the legacy Portfolio.tsx that lived here
- * before this stage.
+ * Buyer-side only — written/vault-writer positions live elsewhere
+ * (legacy WrittenTab and VaultPositions tabs were dropped per Stage 2
+ * scope; their logic remains in components/portfolio/ for reference
+ * and may be migrated to a future page).
+ *
+ * Position[] is built once via buildPositions(); both the SummaryBand
+ * and the section tables consume the same array, so the cost-basis
+ * and current-value math is computed in exactly one place.
  */
 export const PortfolioPage: FC = () => {
   usePaperPalette();
   const { publicKey, connected } = useWallet();
   const { program } = useProgram();
-  const [positions, setPositions] = useState<PositionAccount[]>([]);
+  const [positionsRaw, setPositionsRaw] = useState<PositionAccount[]>([]);
   const [markets, setMarkets] = useState<MarketAccount[]>([]);
   const [heldBalances, setHeldBalances] = useState<Map<string, number>>(new Map());
   const [denomination, setDenomination] = useState<Denomination>("USDC");
+  const [resaleTarget, setResaleTarget] = useState<Position | null>(null);
 
   const { vaults, vaultMints } = useVaults();
   const assetNames = useMemo(
@@ -69,29 +69,16 @@ export const PortfolioPage: FC = () => {
   );
   const { prices: spotPrices } = usePythPrices(assetNames);
 
-  // Fetch positions and markets
-  useEffect(() => {
-    if (!program || !publicKey) return;
-    Promise.all([
-      safeFetchAll(program, "optionPosition"),
-      safeFetchAll(program, "optionsMarket"),
-    ])
-      .then(([posns, mkts]) => {
-        setPositions(posns as PositionAccount[]);
-        setMarkets(mkts as MarketAccount[]);
-      })
-      .catch(console.error);
-  }, [program, publicKey]);
-
-  // Pull wallet's Token-2022 balances so we know which option mints
-  // (v1 positions or v2 vault mints) the user actually holds.
-  useEffect(() => {
-    if (!publicKey || !program) {
-      setHeldBalances(new Map());
-      return;
-    }
-    (async () => {
-      try {
+  const refetchAll = useCallback(async () => {
+    if (!program) return;
+    try {
+      const [posns, mkts] = await Promise.all([
+        safeFetchAll(program, "optionPosition"),
+        safeFetchAll(program, "optionsMarket"),
+      ]);
+      setPositionsRaw(posns as PositionAccount[]);
+      setMarkets(mkts as MarketAccount[]);
+      if (publicKey) {
         const accts = await program.provider.connection.getTokenAccountsByOwner(publicKey, {
           programId: TOKEN_2022_PROGRAM_ID,
         });
@@ -102,11 +89,20 @@ export const PortfolioPage: FC = () => {
           if (balance > 0) m.set(mint, balance);
         }
         setHeldBalances(m);
-      } catch {
+      } else {
         setHeldBalances(new Map());
       }
-    })();
-  }, [publicKey, program]);
+    } catch (err) {
+      console.error("Portfolio refetch failed", err);
+    }
+  }, [program, publicKey]);
+
+  const actions = usePortfolioActions(refetchAll);
+
+  useEffect(() => {
+    if (!program) return;
+    refetchAll();
+  }, [program, publicKey, refetchAll]);
 
   const marketMap = useMemo(() => {
     const map = new Map<string, any>();
@@ -114,9 +110,78 @@ export const PortfolioPage: FC = () => {
     return map;
   }, [markets]);
 
-  // Compute the four summary metrics. Returns nulls for the four
-  // headline values when wallet is disconnected, so the SummaryBand
-  // can render "—" placeholders cleanly.
+  // Token metadata fallback for v2 vault mints whose market PDA isn't
+  // reachable through marketMap (e.g. dropped by safeFetchAll's strict
+  // validator). Used inside buildPositions to recover the asset ticker
+  // from the on-chain token symbol.
+  const v2MintKeys = useMemo(
+    () => vaultMints.map((vm) => vm.account.optionMint as PublicKey),
+    [vaultMints],
+  );
+  const tokenMetadata = useTokenMetadata(v2MintKeys);
+  const metadataSymbolByMint = useMemo(() => {
+    const m = new Map<string, string>();
+    tokenMetadata.forEach((meta, mint) => {
+      if (meta?.symbol) m.set(mint, meta.symbol);
+    });
+    return m;
+  }, [tokenMetadata]);
+
+  // Filter raw positions/vault-mints down to what the wallet currently holds
+  const v1Held = useMemo(() => {
+    if (!connected || !publicKey) return [];
+    return positionsRaw.filter((p) => {
+      if (p.account.isExercised || p.account.isCancelled) return false;
+      const bal = heldBalances.get(p.account.optionMint.toBase58());
+      return !!bal && bal > 0;
+    });
+  }, [positionsRaw, heldBalances, connected, publicKey]);
+
+  const v2Held = useMemo(() => {
+    if (!connected || !publicKey) return [];
+    const found: { vaultMint: any; vault: any; balance: number; market: any | null }[] = [];
+    for (const vm of vaultMints) {
+      const mintKey = (vm.account.optionMint as PublicKey).toBase58();
+      const balance = heldBalances.get(mintKey);
+      if (!balance) continue;
+      const vault = vaults.find((v) => v.publicKey.equals(vm.account.vault as PublicKey));
+      if (!vault) continue;
+      const market = marketMap.get((vault.account.market as PublicKey).toBase58()) ?? null;
+      found.push({ vaultMint: vm, vault, balance, market });
+    }
+    return found;
+  }, [vaultMints, vaults, marketMap, heldBalances, connected, publicKey]);
+
+  const positions = useMemo(
+    () =>
+      buildPositions({
+        v1Held,
+        v2Held,
+        heldBalances,
+        marketMap,
+        spotPrices,
+        metadataSymbolByMint,
+      }),
+    [v1Held, v2Held, heldBalances, marketMap, spotPrices, metadataSymbolByMint],
+  );
+
+  const openPositions = useMemo(
+    () =>
+      positions.filter(
+        (p) =>
+          p.state === "active" ||
+          p.state === "settled-itm" ||
+          p.state === "expired-unsettled",
+      ),
+    [positions],
+  );
+  const closedPositions = useMemo(
+    () => positions.filter((p) => p.state === "settled-otm"),
+    [positions],
+  );
+
+  // Summary metrics — same definitions as Stage 1, now derived from the
+  // unified Position[] array instead of duplicating the math.
   const summary = useMemo(() => {
     if (!connected || !publicKey) {
       return {
@@ -129,134 +194,21 @@ export const PortfolioPage: FC = () => {
         pnlPercent: null as number | null,
       };
     }
-
-    const now = Math.floor(Date.now() / 1000);
-
-    // V1 held positions (any non-finalized position the wallet has tokens for)
-    const v1Held = positions.filter((p) => {
-      if (p.account.isExercised || p.account.isExpired || p.account.isCancelled) return false;
-      const bal = heldBalances.get(p.account.optionMint.toBase58());
-      return !!bal && bal > 0;
-    });
-
-    // V2 held vault tokens (paired with the parent vault + market)
-    const v2Held: { vaultMint: any; vault: any; balance: number; market: any | null }[] = [];
-    for (const vm of vaultMints) {
-      const mintKey = (vm.account.optionMint as PublicKey).toBase58();
-      const balance = heldBalances.get(mintKey);
-      if (!balance) continue;
-      const vault = vaults.find((v) => v.publicKey.equals(vm.account.vault as PublicKey));
-      if (!vault) continue;
-      const market = marketMap.get((vault.account.market as PublicKey).toBase58()) ?? null;
-      v2Held.push({ vaultMint: vm, vault, balance, market });
-    }
-
-    // Active filter (pre-expiry) for the headline open-count + calls/puts split
-    const v1Active = v1Held.filter((p) => {
-      const mkt = marketMap.get(p.account.market.toBase58());
-      if (!mkt) return false;
-      const exp =
-        typeof mkt.expiryTimestamp === "number"
-          ? mkt.expiryTimestamp
-          : mkt.expiryTimestamp.toNumber();
-      return exp > now;
-    });
-    const v2Active = v2Held.filter(({ vault }) => {
-      const v = vault.account;
-      const exp = typeof v.expiry === "number" ? v.expiry : v.expiry.toNumber();
-      return exp > now;
-    });
-
-    let callCount = 0;
-    let putCount = 0;
-    for (const p of v1Active) {
-      const mkt = marketMap.get(p.account.market.toBase58())!;
-      if ("call" in mkt.optionType) callCount++;
-      else putCount++;
-    }
-    for (const { vault } of v2Active) {
-      if ("call" in vault.account.optionType) callCount++;
-      else putCount++;
-    }
-    const openCount = v1Active.length + v2Active.length;
-
-    // Cost basis: Σ premium × (heldBalance / totalSupply). Uses ALL held
-    // (active + post-expiry-still-held) so settled-ITM positions still
-    // count toward "what I paid" until the user exercises and burns.
-    let costBasis = 0;
-    for (const p of v1Held) {
-      const balance = heldBalances.get(p.account.optionMint.toBase58()) ?? 0;
-      const totalSupply = p.account.totalSupply?.toNumber?.() || 1;
-      const premium = usdcToNumber(p.account.premium);
-      costBasis += premium * (balance / totalSupply);
-    }
-    for (const { vaultMint, balance } of v2Held) {
-      const totalSupply = vaultMint.account.totalSupply?.toNumber?.() || 1;
-      const premium = usdcToNumber(vaultMint.account.premium ?? 0);
-      costBasis += premium * (balance / totalSupply);
-    }
-
-    // Current value: B-S for active, intrinsic for settled-ITM, 0 for settled-OTM.
-    // Skips positions whose Pyth feed hasn't returned (better to undercount
-    // than mislead — same posture the legacy summary used).
-    let currentValue = 0;
-    for (const p of v1Held) {
-      const mkt = marketMap.get(p.account.market.toBase58());
-      if (!mkt) continue;
-      const balance = heldBalances.get(p.account.optionMint.toBase58()) ?? 0;
-      const isCall = "call" in mkt.optionType;
-      const strike = usdcToNumber(mkt.strikePrice);
-      if (mkt.isSettled) {
-        const settle = usdcToNumber(mkt.settlementPrice);
-        const intrinsic = isCall ? Math.max(0, settle - strike) : Math.max(0, strike - settle);
-        currentValue += intrinsic * balance;
-      } else {
-        const spot = spotPrices[mkt.assetName];
-        if (!spot || spot <= 0) continue;
-        const exp =
-          typeof mkt.expiryTimestamp === "number"
-            ? mkt.expiryTimestamp
-            : mkt.expiryTimestamp.toNumber();
-        const days = Math.max(0, (exp - now) / 86400);
-        const vol = getDefaultVolatility(mkt.assetName);
-        const fair = isCall
-          ? calculateCallPremium(spot, strike, days, vol)
-          : calculatePutPremium(spot, strike, days, vol);
-        currentValue += fair * balance;
-      }
-    }
-    for (const { vault, balance, market } of v2Held) {
-      const v = vault.account;
-      const isCall = "call" in v.optionType;
-      const strike = usdcToNumber(v.strikePrice);
-      if (v.isSettled) {
-        const settle = usdcToNumber(v.settlementPrice);
-        const intrinsic = isCall ? Math.max(0, settle - strike) : Math.max(0, strike - settle);
-        currentValue += intrinsic * balance;
-      } else {
-        const spot = market ? spotPrices[market.assetName] : 0;
-        if (!spot || spot <= 0) continue;
-        const exp = typeof v.expiry === "number" ? v.expiry : v.expiry.toNumber();
-        const days = Math.max(0, (exp - now) / 86400);
-        const assetName = market?.assetName ?? "SOL";
-        const vol = getDefaultVolatility(assetName);
-        const fair = isCall
-          ? calculateCallPremium(spot, strike, days, vol)
-          : calculatePutPremium(spot, strike, days, vol);
-        currentValue += fair * balance;
-      }
-    }
-
+    const activeOnly = positions.filter((p) => p.state === "active");
+    const callCount = activeOnly.filter((p) => p.side === "call").length;
+    const putCount = activeOnly.filter((p) => p.side === "put").length;
+    const openCount = activeOnly.length;
+    const costBasis = positions.reduce((s, p) => s + p.costBasis, 0);
+    const currentValue = positions.reduce((s, p) => s + p.currentValue, 0);
     const pnl = currentValue - costBasis;
     const pnlPercent = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
-
     return { openCount, callCount, putCount, costBasis, currentValue, pnl, pnlPercent };
-  }, [connected, publicKey, positions, vaultMints, vaults, marketMap, heldBalances, spotPrices]);
+  }, [positions, connected, publicKey]);
 
-  const monthLabel = useMemo(() => {
-    return new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  }, []);
-
+  const monthLabel = useMemo(
+    () => new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+    [],
+  );
   const timestampLabel = useMemo(() => {
     const now = new Date();
     const datePart = now.toLocaleDateString("en-GB", {
@@ -272,7 +224,6 @@ export const PortfolioPage: FC = () => {
     return `${datePart} · ${timePart} UTC`;
   }, []);
 
-  // P&L color logic: positive = muted green, negative = crimson, zero = ink.
   const pnlColorClass =
     summary.pnl === null || summary.pnl === 0
       ? ""
@@ -317,6 +268,40 @@ export const PortfolioPage: FC = () => {
     },
   ];
 
+  // Action dispatcher: most actions fire through the hook directly;
+  // List for Resale opens the modal, which then submits via the hook.
+  const handleAction = useCallback(
+    (p: Position, action: PositionAction) => {
+      switch (action) {
+        case "exercise":
+          actions.exercise(p);
+          break;
+        case "list-resale":
+          setResaleTarget(p);
+          break;
+        case "cancel-resale":
+          actions.cancelResale(p);
+          break;
+        case "burn":
+          actions.burn(p);
+          break;
+        case "none":
+        default:
+          break;
+      }
+    },
+    [actions],
+  );
+
+  const handleResaleSubmit = useCallback(
+    async (premiumUsd: number, tokenAmount: number) => {
+      if (!resaleTarget) return;
+      await actions.listResale(resaleTarget, premiumUsd, tokenAmount);
+      setResaleTarget(null);
+    },
+    [actions, resaleTarget],
+  );
+
   return (
     <div className="relative bg-paper text-ink overflow-x-hidden min-h-screen">
       <PaperGrain />
@@ -330,12 +315,37 @@ export const PortfolioPage: FC = () => {
         />
         <SummaryBand cells={cells} />
 
-        {/* Stage 2 placeholder for the positions table */}
-        <div className="mt-16 border border-rule rounded-md p-12 text-center">
-          <p className="font-fraunces-text italic font-light leading-[1.55] opacity-60 text-[clamp(16px,1.3vw,18px)] m-0">
-            Positions table coming in Stage 2.
-          </p>
-        </div>
+        {!connected ? (
+          <div className="mt-16 border border-rule rounded-md p-12 text-center">
+            <p className="font-fraunces-text italic font-light leading-[1.55] opacity-60 text-[clamp(15px,1.2vw,17px)] m-0">
+              Connect your wallet to view your positions.
+            </p>
+          </div>
+        ) : (
+          <>
+            <OpenPositionsSection
+              positions={openPositions}
+              onAction={handleAction}
+              busyId={actions.busyId}
+            />
+            <ClosedPositionsSection
+              positions={closedPositions}
+              onAction={handleAction}
+              busyId={actions.busyId}
+            />
+            <AdminToolsSection markets={markets} onRefetch={refetchAll} />
+          </>
+        )}
+
+        {resaleTarget && (
+          <ResaleModal
+            position={resaleTarget}
+            spotPrice={spotPrices[resaleTarget.asset]}
+            onClose={() => setResaleTarget(null)}
+            onSubmit={handleResaleSubmit}
+            isSubmitting={actions.busyId === resaleTarget.id}
+          />
+        )}
       </main>
     </div>
   );
