@@ -9,12 +9,12 @@ import { MetaLabel, HairlineRule } from "../../components/layout";
  * Layout: sticky left column on md+ (top offset matches the body's
  * pt to align with where the body content begins, so the sidebar
  * is "stuck" from the moment the page loads). Stacks above the
- * body as a static block on narrow viewports (<md) — the user's
- * mobile preference per Stage 1 brief.
+ * body as a static block on narrow viewports (<md).
  *
- * No active-section highlighting in Stage 1 (Stage 3 polish).
- * NavLink is used for forward-compatibility — Stage 3 can add the
- * `isActive` styling without restructuring this component.
+ * Active route: NavLink's `isActive` callback drives a 2px crimson
+ * left bar at `left: -12px` plus full-opacity ink. Same indicator
+ * the right rail uses for the active sub-section — section-level
+ * here, sub-section-level there.
  */
 export const DocsSidebar: FC = () => {
   const sections = SECTIONS.filter((s) => s.kind === "section");
@@ -45,14 +45,26 @@ const SidebarItem: FC<{ section: DocsSectionMeta }> = ({ section }) => (
   <li>
     <NavLink
       to={`/docs/${section.slug}`}
-      className="grid grid-cols-[1.6em_1fr] items-baseline gap-2 no-underline opacity-65 transition-opacity duration-300 ease-opta hover:opacity-100"
+      className={({ isActive }) =>
+        `relative grid grid-cols-[1.6em_1fr] items-baseline gap-2 no-underline transition-opacity duration-300 ease-opta hover:opacity-100 ${isActive ? "opacity-100" : "opacity-65"}`
+      }
     >
-      <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-crimson">
-        {section.number}
-      </span>
-      <span className="font-fraunces-text italic font-normal text-[14px] leading-snug text-ink">
-        {section.title}
-      </span>
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <span
+              aria-hidden="true"
+              className="absolute left-[-12px] top-0 bottom-0 w-[2px] bg-crimson"
+            />
+          )}
+          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-crimson">
+            {section.number}
+          </span>
+          <span className="font-fraunces-text italic font-normal text-[14px] leading-snug text-ink">
+            {section.title}
+          </span>
+        </>
+      )}
     </NavLink>
   </li>
 );
