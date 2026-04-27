@@ -23,7 +23,9 @@
     "buffer": "^6.0.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-markdown": "^9.1.0",
     "react-router-dom": "^7.13.2",
+    "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.2.2"
   },
   "devDependencies": {
