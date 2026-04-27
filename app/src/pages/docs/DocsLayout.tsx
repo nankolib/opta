@@ -1,11 +1,11 @@
 import type { FC } from "react";
 import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { DocsNav } from "./DocsNav";
 import { DocsSidebar } from "./DocsSidebar";
 import { DocsOnThisPage } from "./DocsOnThisPage";
 import { DocsContext, type OutlineItem } from "./docsContext";
 import { PaperGrain } from "../../components/layout";
+import { AppNav } from "../../components/AppNav";
 import { usePaperPalette } from "../../hooks";
 
 /**
@@ -20,10 +20,13 @@ import { usePaperPalette } from "../../hooks";
  * 2. `<PaperGrain />` mounts the z-9000 SVG-noise overlay (matches
  *    Landing).
  *
- * 3. `<DocsNav />` is fixed at the top; `<DocsSidebar />` sticks
- *    below the nav at md+ breakpoints; `<DocsOnThisPage />` sticks
- *    on the right at lg+. Inner routes (DocsIndex, DocsSection)
- *    render into <Outlet /> in the middle column.
+ * 3. `<AppNav />` is fixed at the top — the canonical 5-link app
+ *    nav (Markets / Trade / Write / Portfolio / Docs); DOCS lights
+ *    up on /docs and /docs/<slug> via NavLink's default partial
+ *    match. `<DocsSidebar />` sticks below the nav at md+
+ *    breakpoints; `<DocsOnThisPage />` sticks on the right at lg+.
+ *    Inner routes (DocsIndex, DocsSection) render into <Outlet />
+ *    in the middle column.
  *
  * Grid template adapts:
  *   mobile (<md):    1 column   — sidebar stacks above body
@@ -50,7 +53,7 @@ export const DocsLayout: FC = () => {
     <DocsContext.Provider value={{ outline, setOutline }}>
       <div className="relative bg-paper text-ink overflow-x-hidden">
         <PaperGrain />
-        <DocsNav />
+        <AppNav />
         <main className="mx-auto w-full max-w-[1280px] px-[clamp(20px,4vw,56px)] pt-[120px] pb-[clamp(80px,14vh,160px)]">
           <div className={`grid grid-cols-1 ${gridCols} gap-x-[clamp(40px,6vw,80px)] gap-y-12`}>
             <DocsSidebar />

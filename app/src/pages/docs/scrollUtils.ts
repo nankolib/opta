@@ -1,5 +1,5 @@
 /**
- * Vertical offset (in px) reserved for the fixed DocsNav at the top
+ * Vertical offset (in px) reserved for the fixed AppNav at the top
  * of the page. Anchor scrolls subtract this from the target's
  * absolute Y so the heading lands BELOW the nav, not underneath it.
  *
