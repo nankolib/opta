@@ -29,8 +29,17 @@ export const Wordmark: FC<WordmarkProps> = ({
       ? "text-[64px] tracking-[-0.03em] font-fraunces-mid-em"
       : "text-[22px] tracking-[-0.01em] font-fraunces-text";
 
+  // `normal-case` and `font-serif` are explicit overrides so the
+  // wordmark stops inheriting text-transform / font-family from
+  // mono-uppercase parents like LandingNav. `text-ink` / `text-paper`
+  // is the same idea for color: the wordmark's own color is set by
+  // its context prop, not inherited. Otherwise dropping <Wordmark>
+  // into a context without a parent text color (or with the wrong
+  // one) leaves the text invisible against the surface — a real bug
+  // we hit on the dark MarketSection.
+  const colorClass = context === "dark" ? "text-paper" : "text-ink";
   const baseClass =
-    `inline-flex items-baseline italic font-medium leading-none no-underline ${sizeClasses} ${className}`.trim();
+    `inline-flex items-baseline italic font-medium leading-none no-underline normal-case font-serif ${colorClass} ${sizeClasses} ${className}`.trim();
 
   const inner: ReactNode = (
     <>

@@ -73,10 +73,10 @@ export const Hero: FC = () => {
               aria-hidden="true"
               className="inline-block h-[6px] w-[6px] rounded-full bg-crimson animate-pulse-live"
             />
-            Solana mainnet
+            Solana devnet
           </MetaLabel>
           <MetaLabel>v0.1 — April 2026</MetaLabel>
-          <MetaLabel>Audited · OtterSec / Sec3</MetaLabel>
+          <MetaLabel>Audit rounds · 7 complete</MetaLabel>
         </div>
 
         {/* headline */}

@@ -28,11 +28,17 @@ export const MarketSection: FC = () => {
       id="market"
       className="relative isolate overflow-hidden bg-ink text-paper py-[clamp(100px,18vh,200px)]"
     >
-      {/* nav-over-dark sentinel (1px at section top) */}
+      {/* nav-over-dark sentinel — spans the full section so the
+          IntersectionObserver's "in band" state persists for the
+          duration of the dark section being behind the nav, not
+          just the single-frame moment a 1px-top sentinel crosses
+          the rootMargin band. Functionally equivalent to observing
+          the section element itself, but keeps the setSentinelRef
+          contract (a discrete element, not the section) intact. */}
       <span
         ref={setSentinelRef}
         aria-hidden="true"
-        className="absolute inset-x-0 top-0 block h-px"
+        className="pointer-events-none absolute inset-0"
       />
 
       {/* nebula gradients */}
@@ -72,10 +78,15 @@ export const MarketSection: FC = () => {
 
       <div className="relative z-[2] mx-auto w-full max-w-[1280px] px-[clamp(20px,4vw,56px)]">
         <Fade className="mb-[clamp(60px,10vh,120px)] text-paper">
-          <SectionNumber number="03" label="The unlock" />
+          <SectionNumber number="03" label="The unlock" tone="paper" />
         </Fade>
 
-        <div className="mb-[clamp(60px,10vh,120px)] max-w-[18ch]">
+        {/* No max-width on the headline wrapper: each Reveal renders as
+            display:block (one line per Reveal), so natural line breaks
+            handle the layout. v3's `max-width: 18ch` resolves against
+            body sans metrics, not display metrics, and clips the
+            headline at large breakpoints. */}
+        <div className="mb-[clamp(60px,10vh,120px)]">
           <h2 className="m-0 font-fraunces-display font-light leading-[0.98] tracking-[-0.03em] text-paper text-[clamp(44px,7vw,104px)]">
             <Reveal as="span" className="block">
               The largest

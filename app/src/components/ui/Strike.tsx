@@ -16,7 +16,11 @@ type StrikeProps = {
  * timing tweaks should happen in index.css, not at the call site.
  */
 export function Strike({ children, className = "" }: StrikeProps) {
-  const [ref, isVisible] = useReveal<HTMLSpanElement>();
+  // High threshold (0.85) so the strike fires only when the phrase
+  // is essentially fully in view. With the default 0.18 the line
+  // animates while the surrounding sentence is still scrolling in,
+  // crossing out copy the reader hasn't read yet.
+  const [ref, isVisible] = useReveal<HTMLSpanElement>({ threshold: 0.85 });
   return (
     <span
       ref={ref}
