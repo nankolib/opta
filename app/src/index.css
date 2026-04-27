@@ -3,16 +3,30 @@
 /* ============================================================================
    Opta — Global Theme
 
-   Colors:
-     - Background: #0A0A0B (near-black)
-     - Surface:    #141416 (charcoal card backgrounds)
-     - Gold:       #D4A843 (brand accent)
-     - Green:      #14F195 (Solana green / profit)
-     - Purple:     #9945FF (Solana purple / secondary)
-     - Red:        #EF4444 (loss / error)
+   Tailwind 4 CSS-first config. Theme values live as --color-*, --font-*,
+   --animate-*, --ease-* custom properties inside @theme {} and become
+   utility classes automatically.
+
+   Two color systems coexist deliberately:
+     - Solana-dark palette (bg-primary / bg-surface / gold / sol-*) drives
+       the trader-facing pages — Markets, Trade, Write, Portfolio — plus
+       the persistent Header and Toast. These surfaces are tools and use
+       the existing dark theme.
+     - Opta-paper palette (paper / ink / crimson / rule / dot-teal) drives
+       the institutional-voice surfaces — Landing now, Docs next. These
+       are documents and use the v3 design language.
+
+   Pages route themselves to a palette by setting/unsetting
+   data-paper="true" on <html> from inside the page component
+   (see usePaperPalette in hooks/). See html[data-paper="true"] block
+   below for the document-level flip.
+
+   Animations and the five Fraunces variable-font axis utilities are
+   defined for the paper surface but available globally.
    ============================================================================ */
 
 @theme {
+  /* ----- existing dark palette (drives trader-facing pages — do not touch) */
   --color-bg-primary: #0A0A0B;
   --color-bg-surface: #141416;
   --color-bg-surface-hover: #1A1A1E;
@@ -27,43 +41,225 @@
   --color-text-primary: #F5F5F5;
   --color-text-secondary: #9CA3AF;
   --color-text-muted: #6B7280;
+
+  /* ----- Opta paper palette (Landing + Docs surfaces) */
+  --color-paper: #F1ECE2;
+  --color-paper-2: #EAE3D5;
+  --color-ink: #0A0A08;
+  --color-ink-soft: #1A1A16;
+  --color-crimson: #D7263D;
+  --color-rule: rgba(10, 10, 8, 0.14);
+  --color-rule-soft: rgba(10, 10, 8, 0.08);
+  --color-dot-teal: #1AC6A5;
+
+  /* ----- fonts */
+  --font-serif: "Fraunces", "Times New Roman", serif;
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+
+  /* ----- easing */
+  --ease-opta: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ----- animations (paired with @keyframes blocks below) */
+  --animate-pulse-live: pulse-live 2.6s var(--ease-opta) infinite;
+  --animate-dot-pop: dot-pop 0.6s var(--ease-opta) forwards;
+  --animate-hero-glow-drift: hero-glow-drift 28s var(--ease-opta) infinite;
+  --animate-scrollbar: scrollbar 3.6s var(--ease-opta) infinite;
+  --animate-marquee: marquee 42s linear infinite;
+  --animate-spin-slow: spin-slow 36s linear infinite;
+  --animate-spin-rev: spin-slow 28s linear infinite reverse;
+  --animate-neb-drift-1: neb-drift-1 24s var(--ease-opta) infinite alternate;
+  --animate-neb-drift-2: neb-drift-2 32s var(--ease-opta) infinite alternate;
+  --animate-scan: scan 12s var(--ease-opta) infinite;
+  --animate-cta-breathe: cta-breathe 6s var(--ease-opta) infinite;
 }
 
-/* Base styles */
+/* ============================================================================
+   Keyframes
+   ============================================================================ */
+
+@keyframes pulse-live {
+  0%   { box-shadow: 0 0 0 0 rgba(215, 38, 61, 0.55); }
+  70%  { box-shadow: 0 0 0 8px rgba(215, 38, 61, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(215, 38, 61, 0); }
+}
+@keyframes dot-pop {
+  0%   { transform: translateY(-0.06em) scale(0); }
+  100% { transform: translateY(-0.06em) scale(1); }
+}
+@keyframes hero-glow-drift {
+  0%   { transform: translate(-50%, -50%) translate(0, 0); }
+  50%  { transform: translate(-50%, -50%) translate(-40px, 30px); }
+  100% { transform: translate(-50%, -50%) translate(0, 0); }
+}
+@keyframes scrollbar {
+  0%   { transform: scaleX(0.2); opacity: 0.4; }
+  50%  { transform: scaleX(1);   opacity: 1; }
+  100% { transform: scaleX(0.2); opacity: 0.4; }
+}
+@keyframes marquee {
+  to { transform: translateX(-50%); }
+}
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+@keyframes neb-drift-1 {
+  0%   { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(-6%, 4%) scale(1.06); }
+}
+@keyframes neb-drift-2 {
+  0%   { transform: translate(0, 0) scale(1.04); }
+  100% { transform: translate(5%, -5%) scale(1); }
+}
+@keyframes scan {
+  0%   { top: 33%; opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { top: 67%; opacity: 0; }
+}
+@keyframes cta-breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1);    opacity: 0.85; }
+  50%      { transform: translate(-50%, -50%) scale(1.08); opacity: 1; }
+}
+
+/* ============================================================================
+   Fraunces variable-font axis utilities
+
+   Fraunces exposes opsz (optical size), SOFT (softness), and WONK
+   (wonkiness) axes. The v3 design uses exactly five combinations.
+   These named utilities replace inline arbitrary font-variation-settings
+   so JSX stays readable and tokens stay traceable to a single block.
+
+     Display headlines  (60–168px)            → font-fraunces-display     (opsz 144, SOFT 30,  WONK 0)
+     Display italics    ("native" / "missing" / "0" emphasis)
+                                              → font-fraunces-display-em  (opsz 144, SOFT 100, WONK 1)
+     Mid headlines      (28–80px)             → font-fraunces-mid         (opsz 72,  SOFT 30,  WONK 0)
+     Mid italics        (italic mid words)    → font-fraunces-mid-em      (opsz 72,  SOFT 100, WONK 1)
+     Body italics       (lede, blurb, footer) → font-fraunces-text        (opsz 24,  SOFT 100, WONK 1)
+   ============================================================================ */
+
+@utility font-fraunces-display {
+  font-family: var(--font-serif);
+  font-variation-settings: "opsz" 144, "SOFT" 30, "WONK" 0;
+}
+@utility font-fraunces-display-em {
+  font-family: var(--font-serif);
+  font-variation-settings: "opsz" 144, "SOFT" 100, "WONK" 1;
+}
+@utility font-fraunces-mid {
+  font-family: var(--font-serif);
+  font-variation-settings: "opsz" 72, "SOFT" 30, "WONK" 0;
+}
+@utility font-fraunces-mid-em {
+  font-family: var(--font-serif);
+  font-variation-settings: "opsz" 72, "SOFT" 100, "WONK" 1;
+}
+@utility font-fraunces-text {
+  font-family: var(--font-serif);
+  font-variation-settings: "opsz" 24, "SOFT" 100, "WONK" 1;
+}
+
+/* ============================================================================
+   Base styles
+   ============================================================================ */
+
 html {
   background-color: #0A0A0B;
   color: #F5F5F5;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* When a paper-palette page (Landing, Docs) is mounted, it sets
+   data-paper="true" on <html> via usePaperPalette() to flip the
+   document background. Removed on unmount so trader-facing routes
+   keep their dark theme. */
+html[data-paper="true"] {
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}
+html[data-paper="true"] ::selection {
+  background: var(--color-ink);
+  color: var(--color-paper);
 }
 
 body {
   margin: 0;
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "ss02", "kern", "liga";
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: #0A0A0B;
-}
-::-webkit-scrollbar-thumb {
-  background: #2A2A30;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #3A3A40;
+/* Honor prefers-reduced-motion across the entire app */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
+/* Custom scrollbar (kept dark — dominant surface area is dark pages) */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0A0A0B; }
+::-webkit-scrollbar-thumb { background: #2A2A30; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3A3A40; }
+
 /* Wallet adapter modal overrides */
-.wallet-adapter-modal-wrapper {
-  background-color: #141416 !important;
+.wallet-adapter-modal-wrapper { background-color: #141416 !important; }
+.wallet-adapter-modal-button-close { background-color: #1E1E22 !important; }
+.wallet-adapter-button { font-family: var(--font-sans) !important; }
+
+/* ============================================================================
+   Paper-surface primitives that Tailwind alone can't express cleanly.
+
+   Class names are prefixed `opta-` to avoid global namespace collisions.
+   These back the <Reveal>, <Fade>, <Strike>, <Tracer> components in
+   components/brand/ — consumers use the components, not these classes.
+   ============================================================================ */
+
+.opta-reveal { overflow: hidden; }
+.opta-reveal > .opta-rise {
+  display: block;
+  transform: translateY(110%);
+  transition: transform 1.4s var(--ease-opta);
+  will-change: transform;
 }
-.wallet-adapter-modal-button-close {
-  background-color: #1E1E22 !important;
+.opta-reveal.is-in > .opta-rise { transform: translateY(0); }
+
+.opta-fade {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 1.1s var(--ease-opta), transform 1.1s var(--ease-opta);
 }
-.wallet-adapter-button {
-  font-family: "Inter", system-ui, sans-serif !important;
+.opta-fade.is-in { opacity: 1; transform: none; }
+
+.opta-stag { transition-delay: calc(var(--i, 0) * 90ms); }
+
+.opta-strike { position: relative; white-space: nowrap; }
+.opta-strike::after {
+  content: "";
+  position: absolute;
+  left: -2px; right: -2px;
+  top: 54%;
+  height: 2px;
+  background: var(--color-crimson);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 1.6s var(--ease-opta) 0.6s;
 }
+.opta-strike.is-in::after { transform: scaleX(1); }
+
+.opta-tracer { position: absolute; left: 0; right: 0; height: 1px; pointer-events: none; }
+.opta-tracer::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 0;
+  background: var(--color-crimson);
+  transition: width 2.4s var(--ease-opta);
+}
+.opta-tracer.is-in::before { width: 100%; }

@@ -175,7 +175,7 @@ export const Header: FC = () => {
             style={{
               backgroundColor: "#D4A843",
               color: "#0A0A0B",
-              fontFamily: '"Inter", system-ui, sans-serif',
+              fontFamily: '"Geist", ui-sans-serif, system-ui, sans-serif',
               fontWeight: 600,
               fontSize: "14px",
               height: "40px",
