@@ -5,7 +5,7 @@ import { Landing } from "./pages/Landing";
 import { Markets } from "./pages/Markets";
 import { Trade } from "./pages/Trade";
 import { Write } from "./pages/Write";
-import { Portfolio } from "./pages/Portfolio";
+import { PortfolioPage } from "./pages/portfolio";
 import { DocsLayout, DocsIndex, DocsSection } from "./pages/docs";
 
 /**
@@ -16,10 +16,15 @@ import { DocsLayout, DocsIndex, DocsSection } from "./pages/docs";
  * paper-surface routes which supply a brand-specific nav bar.
  *
  * Currently:
- *   /         — Landing (paper-surface; supplies its own nav)
- *   /docs     — Docs index + every /docs/<section> (paper-surface)
+ *   /          — Landing (paper-surface; supplies its own nav)
+ *   /docs      — Docs index + every /docs/<section> (paper-surface)
+ *   /portfolio — Paper-surface trader page; supplies AppNav
+ *
+ * Long-term, all logged-in trader pages (Markets / Trade / Write /
+ * Portfolio) will use AppNav instead of the global Header. For now,
+ * only Portfolio has migrated.
  */
-const HEADER_HIDDEN_PATHS = ["/", "/docs"];
+const HEADER_HIDDEN_PATHS = ["/", "/docs", "/portfolio"];
 
 /**
  * True iff `path` exactly matches one of `patterns` or is a descendant
@@ -46,7 +51,7 @@ function AppShell() {
         <Route path="/markets" element={<Markets />} />
         <Route path="/trade" element={<Trade />} />
         <Route path="/write" element={<Write />} />
-        <Route path="/portfolio" element={<Portfolio />} />
+        <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/docs" element={<DocsLayout />}>
           <Route index element={<DocsIndex />} />
           <Route path=":sectionSlug" element={<DocsSection />} />
