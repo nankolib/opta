@@ -40,13 +40,9 @@ export const AppNav: FC = () => {
 
       <div className="hidden md:flex gap-7">
         <AppNavLink to="/markets">Markets</AppNavLink>
+        <AppNavLink to="/trade">Trade</AppNavLink>
+        <AppNavLink to="/write">Write</AppNavLink>
         <AppNavLink to="/portfolio">Portfolio</AppNavLink>
-        <span
-          aria-disabled="true"
-          className="opacity-40 cursor-not-allowed select-none"
-        >
-          Research
-        </span>
         <AppNavLink to="/docs">Docs</AppNavLink>
       </div>
 
