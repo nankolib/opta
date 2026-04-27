@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Header } from "./components/Header";
 import { ToastContainer } from "./components/Toast";
 import { Landing } from "./pages/Landing";
@@ -9,31 +9,56 @@ import { Portfolio } from "./pages/Portfolio";
 import { DocsPage } from "./pages/DocsPage";
 
 /**
- * App — Root component with routing.
+ * Routes that hide the persistent global Header.
  *
- * The Header is persistent across all pages.
- * Routes:
- *   /           → Landing page (hero + features)
- *   /markets    → Browse active options markets
- *   /trade      → Deribit-style options chain
- *   /write      → Write/sell options
- *   /portfolio  → View your positions
+ * Listed paths and any descendants (segments after a "/") are gated.
+ * Pages on these routes render their own navigation — typically the
+ * paper-surface routes which supply a brand-specific nav bar.
+ *
+ * Currently:
+ *   /         — Landing (paper-surface; supplies its own nav)
+ *
+ * Planned in the upcoming Docs prompt:
+ *   /docs     — Docs index + every /docs/<section>
  */
+const HEADER_HIDDEN_PATHS = ["/"];
+
+/**
+ * True iff `path` exactly matches one of `patterns` or is a descendant
+ * of one. The "+ '/'" guard keeps "/" from matching every path while
+ * still letting "/docs" match "/docs/architecture" once we add it.
+ */
+const matchesAny = (path: string, patterns: readonly string[]) =>
+  patterns.some((p) => p === path || path.startsWith(p + "/"));
+
+/**
+ * AppShell — rendered inside <BrowserRouter> so useLocation() works.
+ * The persistent Header is gated per route via HEADER_HIDDEN_PATHS.
+ */
+function AppShell() {
+  const location = useLocation();
+  const showHeader = !matchesAny(location.pathname, HEADER_HIDDEN_PATHS);
+
+  return (
+    <div className="min-h-screen bg-bg-primary text-text-primary">
+      {showHeader && <Header />}
+      <ToastContainer />
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/markets" element={<Markets />} />
+        <Route path="/trade" element={<Trade />} />
+        <Route path="/write" element={<Write />} />
+        <Route path="/portfolio" element={<Portfolio />} />
+        <Route path="/docs" element={<DocsPage />} />
+      </Routes>
+    </div>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-bg-primary text-text-primary">
-        <Header />
-        <ToastContainer />
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/markets" element={<Markets />} />
-          <Route path="/trade" element={<Trade />} />
-          <Route path="/write" element={<Write />} />
-          <Route path="/portfolio" element={<Portfolio />} />
-          <Route path="/docs" element={<DocsPage />} />
-        </Routes>
-      </div>
+      <AppShell />
     </BrowserRouter>
   );
 }
