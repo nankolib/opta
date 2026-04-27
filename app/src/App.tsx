@@ -6,7 +6,7 @@ import { Markets } from "./pages/Markets";
 import { Trade } from "./pages/Trade";
 import { Write } from "./pages/Write";
 import { Portfolio } from "./pages/Portfolio";
-import { DocsPage } from "./pages/DocsPage";
+import { DocsLayout, DocsIndex, DocsSection } from "./pages/docs";
 
 /**
  * Routes that hide the persistent global Header.
@@ -17,16 +17,14 @@ import { DocsPage } from "./pages/DocsPage";
  *
  * Currently:
  *   /         — Landing (paper-surface; supplies its own nav)
- *
- * Planned in the upcoming Docs prompt:
- *   /docs     — Docs index + every /docs/<section>
+ *   /docs     — Docs index + every /docs/<section> (paper-surface)
  */
-const HEADER_HIDDEN_PATHS = ["/"];
+const HEADER_HIDDEN_PATHS = ["/", "/docs"];
 
 /**
  * True iff `path` exactly matches one of `patterns` or is a descendant
  * of one. The "+ '/'" guard keeps "/" from matching every path while
- * still letting "/docs" match "/docs/architecture" once we add it.
+ * letting "/docs" correctly match "/docs/architecture" etc.
  */
 const matchesAny = (path: string, patterns: readonly string[]) =>
   patterns.some((p) => p === path || path.startsWith(p + "/"));
@@ -49,7 +47,10 @@ function AppShell() {
         <Route path="/trade" element={<Trade />} />
         <Route path="/write" element={<Write />} />
         <Route path="/portfolio" element={<Portfolio />} />
-        <Route path="/docs" element={<DocsPage />} />
+        <Route path="/docs" element={<DocsLayout />}>
+          <Route index element={<DocsIndex />} />
+          <Route path=":sectionSlug" element={<DocsSection />} />
+        </Route>
       </Routes>
     </div>
   );
