@@ -254,7 +254,6 @@ pub fn handle_mint_from_vault(
             }
             .to_string(),
         ),
-        ("pyth_feed", market.pyth_feed.to_string()),
         ("collateral_per_token", collateral_per_token.to_string()),
         ("market_pda", ctx.accounts.market.key().to_string()),
         ("vault_pda", ctx.accounts.shared_vault.key().to_string()),

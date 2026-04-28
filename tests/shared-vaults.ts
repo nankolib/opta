@@ -41,14 +41,14 @@ import { assert } from "chai";
 import BN from "bn.js";
 
 // =============================================================================
-// Asset registry — must match programs/opta/src/instructions/create_market.rs
+// Asset registry — 32-byte Pyth Pull feed IDs (mainnet hex from
+// scripts/pyth-feed-ids.csv). Stage P1 stores these verbatim with no
+// on-chain validation; Stage P2 settle_expiry will validate against
+// PriceUpdateV2 accounts.
 // =============================================================================
 const REGISTRY = {
-  SOL:  new PublicKey("J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"),
-  BTC:  new PublicKey("HovQMDrbAgAYPCmHVSrezcSmkMtXSSUsLDFANExrZh2J"),
-  ETH:  new PublicKey("EdVCmQ9FSPcVe5YySXDPCRmc8aDQLKJ9GvYRk4HY7y44"),
-  XAU:  new PublicKey("8y3WWjvmSmVGWVKH1rCA7VTRmuU7QbJ9axMK6JUUuCyi"),
-  AAPL: new PublicKey("5yKHAuiDWKUGRgs3s6mYGdfZjFmTfgHVDBwFBDfMuZJH"),
+  SOL:  Buffer.from("ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d", "hex"),
+  BTC:  Buffer.from("e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", "hex"),
 };
 
 // =============================================================================
@@ -93,10 +93,10 @@ describe("shared-vaults", () => {
   let epochConfigPda: PublicKey;
   let marketPda: PublicKey;
 
-  // Use the canonical SOL Pyth feed pubkey from the on-chain registry.
-  // Stage 2's create_market validates (asset, feed, class) against the
-  // hardcoded registry — random pubkeys revert with UnknownAsset.
-  const solPythFeed = REGISTRY.SOL;
+  // SOL feed_id as a number[] for the Anchor TS createMarket arg.
+  // Stage P1: stored opaquely; Stage P2 settle_expiry validates via
+  // PriceUpdateV2.get_price_no_older_than.
+  const solPythFeedId = Array.from(REGISTRY.SOL);
 
   // =========================================================================
   // PDA derivation helpers
@@ -351,7 +351,7 @@ describe("shared-vaults", () => {
     [marketPda] = deriveMarketPda("SOL");
     try {
       await (program as any).methods
-        .createMarket("SOL", solPythFeed, 0)
+        .createMarket("SOL", solPythFeedId, 0)
         .accounts({
           creator: payer.publicKey,
           protocolState: protocolStatePda,
@@ -425,7 +425,7 @@ describe("shared-vaults", () => {
       const [customMarketPda] = deriveMarketPda("SOL");
       try {
         await (program as any).methods
-          .createMarket("SOL", solPythFeed, 0)
+          .createMarket("SOL", solPythFeedId, 0)
           .accounts({
             creator: payer.publicKey,
             protocolState: protocolStatePda,
@@ -469,7 +469,7 @@ describe("shared-vaults", () => {
       const [badMarketPda] = deriveMarketPda("SOL");
       try {
         await (program as any).methods
-          .createMarket("SOL", solPythFeed, 0)
+          .createMarket("SOL", solPythFeedId, 0)
           .accounts({
             creator: payer.publicKey,
             protocolState: protocolStatePda,

@@ -1,15 +1,16 @@
 // =============================================================================
-// instructions/create_market.rs — Register an asset (permissionless placeholder)
+// instructions/create_market.rs — Register an asset (permissionless)
 // =============================================================================
 //
-// Stage 2-amend-lite shape: create_market is permissionless. Anyone can
-// register an asset. The pyth_feed: Pubkey field is stored opaquely with
-// no on-chain validation. This is a deliberate PLACEHOLDER — see the
-// per-handler comment below.
+// Stage P1 shape: create_market is permissionless. Anyone can register an
+// asset by storing a 32-byte Pyth Pull feed ID alongside its ticker and
+// asset class. The feed_id is stored verbatim with no on-chain validation
+// at create time — Stage P2's settle_expiry validates it by passing the
+// stored feed_id to PriceUpdateV2::get_price_no_older_than, which fails
+// with MismatchedFeedId if the feed_id doesn't match the price update.
 //
 // Strike, expiry, option type, and settlement state moved to SharedVault
-// and (Stage 3) SettlementRecord. The Market PDA is a per-asset registry
-// record only.
+// and SettlementRecord. The Market PDA is a per-asset registry record.
 //
 // Asset names must be pre-normalized by the caller: ASCII-uppercase,
 // alphanumeric only, 1..=16 chars. The handler verifies the normalization
@@ -38,24 +39,10 @@ fn assert_normalized(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// PLACEHOLDER (pre-Pyth-Pull migration): pyth_feed: Pubkey is stored
-/// without on-chain validation. The legacy push oracle that this field
-/// originally pointed at was sunsetted by Pyth on 2024-06-30 and has been
-/// frozen on devnet since 2024-08-30 (verified empirically).
-///
-/// The next session migrates to the Pyth Pull oracle: pyth_feed will be
-/// replaced with a 32-byte hex feed_id, settle_expiry will accept a
-/// PriceUpdateV2 account from pyth-solana-receiver-sdk with a staleness
-/// check, and a migrate_pyth_feed admin instruction will handle the rare
-/// case where Pyth rotates a feed ID.
-///
-/// Until then: anyone can call create_market with any (asset_name,
-/// pyth_feed, asset_class) triple. settle_expiry continues to use
-/// admin-mocked prices (the Stage 3 transitional shape).
 pub fn handle_create_market(
     ctx: Context<CreateMarket>,
     asset_name: String,
-    pyth_feed: Pubkey,
+    pyth_feed_id: [u8; 32],
     asset_class: u8,
 ) -> Result<()> {
     // 1. Asset name normalization contract
@@ -69,7 +56,7 @@ pub fn handle_create_market(
     if !market.asset_name.is_empty() {
         require!(
             market.asset_name == asset_name
-                && market.pyth_feed == pyth_feed
+                && market.pyth_feed_id == pyth_feed_id
                 && market.asset_class == asset_class,
             OptaError::AssetMismatch
         );
@@ -79,7 +66,7 @@ pub fn handle_create_market(
 
     // 4. First init — populate fields and bump market counter
     market.asset_name = asset_name.clone();
-    market.pyth_feed = pyth_feed;
+    market.pyth_feed_id = pyth_feed_id;
     market.asset_class = asset_class;
     market.bump = ctx.bumps.market;
 
@@ -90,16 +77,16 @@ pub fn handle_create_market(
         .ok_or(OptaError::MathOverflow)?;
 
     msg!(
-        "Market registered: {} pyth={} class={}",
+        "Market registered: {} feed_id={:?} class={}",
         asset_name,
-        pyth_feed,
+        pyth_feed_id,
         asset_class
     );
     Ok(())
 }
 
 #[derive(Accounts)]
-#[instruction(asset_name: String, pyth_feed: Pubkey, asset_class: u8)]
+#[instruction(asset_name: String, pyth_feed_id: [u8; 32], asset_class: u8)]
 pub struct CreateMarket<'info> {
     /// Permissionless — anyone can call. Pays for account creation on
     /// first init; pays nothing on idempotent re-call because

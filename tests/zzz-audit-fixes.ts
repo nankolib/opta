@@ -33,13 +33,14 @@ import { assert } from "chai";
 import BN from "bn.js";
 
 // =============================================================================
-// Asset registry — must match programs/opta/src/instructions/create_market.rs
-// All audit-fix tests use SOL with strike differentiation per the Stage 4
-// "SOL-for-all in zzz-audit-fixes" decision.
+// Asset registry — 32-byte Pyth Pull feed IDs (mainnet hex from
+// scripts/pyth-feed-ids.csv). All audit-fix tests use SOL with strike
+// differentiation per the Stage 4 "SOL-for-all" decision.
 // =============================================================================
 const REGISTRY = {
-  SOL:  new PublicKey("J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"),
+  SOL: Buffer.from("ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d", "hex"),
 };
+const SOL_ID = Array.from(REGISTRY.SOL);
 
 // =============================================================================
 // Helpers
@@ -311,7 +312,7 @@ describe("audit-fixes", () => {
     // per describe block. opts.assetName is preserved for log clarity but
     // ignored for on-chain identity — every test uses the SOL Market PDA.
     const onChainAssetName = "SOL";
-    const onChainPythFeed = REGISTRY.SOL;
+    const onChainPythFeedId = SOL_ID;
     if (opts.assetName !== onChainAssetName) {
       console.log(`    (test label "${opts.assetName}" → on-chain SOL with strike $${opts.strike.toNumber() / 1_000_000})`);
     }
@@ -320,7 +321,7 @@ describe("audit-fixes", () => {
     const [marketPda] = deriveMarketPda(onChainAssetName);
     try {
       await (program as any).methods
-        .createMarket(onChainAssetName, onChainPythFeed, 0)
+        .createMarket(onChainAssetName, onChainPythFeedId, 0)
         .accounts({
           creator: payer.publicKey,
           protocolState: protocolStatePda,
@@ -816,7 +817,7 @@ describe("audit-fixes", () => {
 
       try {
         await (program as any).methods
-          .createMarket("SOL", REGISTRY.SOL, 0)
+          .createMarket("SOL", SOL_ID, 0)
           .accounts({
             creator: payer.publicKey,
             protocolState: protocolStatePda,
@@ -1069,7 +1070,7 @@ describe("audit-fixes", () => {
 
       try {
         await (program as any).methods
-          .createMarket("SOL", REGISTRY.SOL, 0)
+          .createMarket("SOL", SOL_ID, 0)
           .accounts({
             creator: payer.publicKey,
             protocolState: protocolStatePda,
@@ -1137,7 +1138,7 @@ describe("audit-fixes", () => {
 
       try {
         await (program as any).methods
-          .createMarket("SOL", REGISTRY.SOL, 0)
+          .createMarket("SOL", SOL_ID, 0)
           .accounts({
             creator: payer.publicKey,
             protocolState: protocolStatePda,

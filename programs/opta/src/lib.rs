@@ -33,15 +33,16 @@ pub mod opta {
         instructions::initialize_protocol::handle_initialize_protocol(ctx)
     }
 
-    /// Register a supported asset (admin-only, idempotent).
+    /// Register a supported asset (permissionless, idempotent).
     /// One Market PDA per asset; strike/expiry/type live on SharedVault.
+    /// `pyth_feed_id` is the 32-byte Pyth Pull feed ID for the asset.
     pub fn create_market(
         ctx: Context<CreateMarket>,
         asset_name: String,
-        pyth_feed: Pubkey,
+        pyth_feed_id: [u8; 32],
         asset_class: u8,
     ) -> Result<()> {
-        instructions::create_market::handle_create_market(ctx, asset_name, pyth_feed, asset_class)
+        instructions::create_market::handle_create_market(ctx, asset_name, pyth_feed_id, asset_class)
     }
 
     /// Record the canonical settlement price for an (asset, expiry) tuple

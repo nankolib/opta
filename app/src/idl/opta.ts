@@ -185,462 +185,6 @@ export type Opta = {
       "args": []
     },
     {
-      "name": "buyResale",
-      "docs": [
-        "Buy tokens from a resale listing. amount is how many to buy (partial fills).",
-        "FIX M-03: added max_premium for slippage protection."
-      ],
-      "discriminator": [
-        71,
-        230,
-        159,
-        123,
-        90,
-        231,
-        111,
-        104
-      ],
-      "accounts": [
-        {
-          "name": "buyer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "protocolState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "market",
-          "docs": [
-            "The market this position belongs to — used to check expiry."
-          ]
-        },
-        {
-          "name": "position",
-          "writable": true
-        },
-        {
-          "name": "resaleEscrow",
-          "docs": [
-            "Resale escrow holding option tokens (Token-2022 PDA)."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  115,
-                  97,
-                  108,
-                  101,
-                  95,
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "buyerUsdcAccount",
-          "writable": true
-        },
-        {
-          "name": "sellerUsdcAccount",
-          "writable": true
-        },
-        {
-          "name": "buyerOptionAccount",
-          "docs": [
-            "Buyer's option token account (Token-2022). Frontend creates ATA before calling."
-          ],
-          "writable": true
-        },
-        {
-          "name": "optionMint",
-          "docs": [
-            "Option token mint (Token-2022 mint)."
-          ]
-        },
-        {
-          "name": "treasury",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "tokenProgram",
-          "docs": [
-            "Standard SPL Token program — for USDC transfers."
-          ],
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "docs": [
-            "Token-2022 program — for option token transfers."
-          ],
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "transferHookProgram",
-          "docs": [
-            "Transfer hook program."
-          ]
-        },
-        {
-          "name": "extraAccountMetaList",
-          "docs": [
-            "ExtraAccountMetaList for the transfer hook."
-          ]
-        },
-        {
-          "name": "hookState",
-          "docs": [
-            "HookState with expiry info for the transfer hook."
-          ]
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "rent",
-          "address": "SysvarRent111111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        },
-        {
-          "name": "maxPremium",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "cancelOption",
-      "docs": [
-        "Cancel an unsold option. Burns all tokens, returns collateral."
-      ],
-      "discriminator": [
-        176,
-        215,
-        7,
-        71,
-        184,
-        200,
-        241,
-        217
-      ],
-      "accounts": [
-        {
-          "name": "writer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "protocolState",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "position",
-          "writable": true
-        },
-        {
-          "name": "escrow",
-          "docs": [
-            "USDC collateral escrow (standard Token)."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position.market",
-                "account": "optionPosition"
-              },
-              {
-                "kind": "account",
-                "path": "position.writer",
-                "account": "optionPosition"
-              },
-              {
-                "kind": "account",
-                "path": "position.created_at",
-                "account": "optionPosition"
-              }
-            ]
-          }
-        },
-        {
-          "name": "purchaseEscrow",
-          "docs": [
-            "Purchase escrow holding option tokens (Token-2022)."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  117,
-                  114,
-                  99,
-                  104,
-                  97,
-                  115,
-                  101,
-                  95,
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "optionMint",
-          "docs": [
-            "Option token mint (Token-2022)."
-          ],
-          "writable": true
-        },
-        {
-          "name": "writerUsdcAccount",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "docs": [
-            "Standard SPL Token — for USDC operations."
-          ],
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "docs": [
-            "Token-2022 — for burning option tokens."
-          ],
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "cancelResale",
-      "docs": [
-        "Cancel a resale listing. Returns tokens to seller."
-      ],
-      "discriminator": [
-        215,
-        11,
-        117,
-        119,
-        200,
-        163,
-        110,
-        66
-      ],
-      "accounts": [
-        {
-          "name": "seller",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "protocolState",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "position",
-          "writable": true
-        },
-        {
-          "name": "resaleEscrow",
-          "docs": [
-            "Resale escrow holding option tokens (Token-2022 PDA)."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  115,
-                  97,
-                  108,
-                  101,
-                  95,
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "sellerOptionAccount",
-          "docs": [
-            "Seller's option token account (Token-2022, receives tokens back)."
-          ],
-          "writable": true
-        },
-        {
-          "name": "optionMint",
-          "docs": [
-            "Option token mint (Token-2022 mint)."
-          ]
-        },
-        {
-          "name": "token2022Program",
-          "docs": [
-            "Token-2022 program — for option token transfers."
-          ],
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "transferHookProgram",
-          "docs": [
-            "Transfer hook program."
-          ]
-        },
-        {
-          "name": "extraAccountMetaList",
-          "docs": [
-            "ExtraAccountMetaList for the transfer hook."
-          ]
-        },
-        {
-          "name": "hookState",
-          "docs": [
-            "HookState with expiry info for the transfer hook."
-          ]
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "claimPremium",
       "docs": [
         "Claim earned premium from a shared vault."
@@ -762,6 +306,11 @@ export type Opta = {
     },
     {
       "name": "createMarket",
+      "docs": [
+        "Register a supported asset (permissionless, idempotent).",
+        "One Market PDA per asset; strike/expiry/type live on SharedVault.",
+        "`pyth_feed_id` is the 32-byte Pyth Pull feed ID for the asset."
+      ],
       "discriminator": [
         103,
         226,
@@ -776,8 +325,9 @@ export type Opta = {
         {
           "name": "creator",
           "docs": [
-            "The user creating this market. Anyone can create a market — there's no",
-            "permissioning. They pay the rent for the new account."
+            "Permissionless — anyone can call. Pays for account creation on",
+            "first init; pays nothing on idempotent re-call because",
+            "`init_if_needed` short-circuits when the account already exists."
           ],
           "writable": true,
           "signer": true
@@ -785,7 +335,7 @@ export type Opta = {
         {
           "name": "protocolState",
           "docs": [
-            "The global ProtocolState — we need this to increment total_markets."
+            "Global ProtocolState — mutated to bump total_markets on first init."
           ],
           "writable": true,
           "pda": {
@@ -812,23 +362,31 @@ export type Opta = {
         {
           "name": "market",
           "docs": [
-            "The new OptionsMarket PDA.",
-            "",
-            "Seeds use the asset name as bytes (not an enum discriminant), making",
-            "the protocol open to ANY asset. For example:",
-            "- \"SOL\" + strike + expiry + Call  → one unique PDA",
-            "- \"AAPL\" + strike + expiry + Call → a different PDA",
-            "- \"EUR/USD\" + strike + expiry + Put → yet another",
-            "",
-            "Attempting to create a duplicate combination will fail."
+            "Asset registry PDA. One per supported asset."
           ],
-          "writable": true
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "assetName"
+              }
+            ]
+          }
         },
         {
           "name": "systemProgram",
-          "docs": [
-            "Required for creating new accounts."
-          ],
           "address": "11111111111111111111111111111111"
         }
       ],
@@ -838,24 +396,13 @@ export type Opta = {
           "type": "string"
         },
         {
-          "name": "strikePrice",
-          "type": "u64"
-        },
-        {
-          "name": "expiryTimestamp",
-          "type": "i64"
-        },
-        {
-          "name": "optionType",
+          "name": "pythFeedId",
           "type": {
-            "defined": {
-              "name": "optionType"
-            }
+            "array": [
+              "u8",
+              32
+            ]
           }
-        },
-        {
-          "name": "pythFeed",
-          "type": "pubkey"
         },
         {
           "name": "assetClass",
@@ -1007,6 +554,10 @@ export type Opta = {
               "name": "vaultType"
             }
           }
+        },
+        {
+          "name": "collateralMint",
+          "type": "pubkey"
         }
       ]
     },
@@ -1256,246 +807,6 @@ export type Opta = {
       ]
     },
     {
-      "name": "exerciseOption",
-      "docs": [
-        "Exercise option tokens after settlement. Burns tokens, distributes PnL."
-      ],
-      "discriminator": [
-        231,
-        98,
-        131,
-        183,
-        245,
-        93,
-        122,
-        48
-      ],
-      "accounts": [
-        {
-          "name": "exerciser",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "protocolState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "market"
-        },
-        {
-          "name": "position",
-          "writable": true
-        },
-        {
-          "name": "escrow",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position.market",
-                "account": "optionPosition"
-              },
-              {
-                "kind": "account",
-                "path": "position.writer",
-                "account": "optionPosition"
-              },
-              {
-                "kind": "account",
-                "path": "position.created_at",
-                "account": "optionPosition"
-              }
-            ]
-          }
-        },
-        {
-          "name": "optionMint",
-          "docs": [
-            "Option token mint (Token-2022)."
-          ],
-          "writable": true
-        },
-        {
-          "name": "exerciserOptionAccount",
-          "docs": [
-            "Exerciser's option token account (Token-2022)."
-          ],
-          "writable": true
-        },
-        {
-          "name": "exerciserUsdcAccount",
-          "docs": [
-            "Exerciser's USDC account (receives PnL)."
-          ],
-          "writable": true
-        },
-        {
-          "name": "writerUsdcAccount",
-          "docs": [
-            "Writer's USDC account (receives remaining collateral)."
-          ],
-          "writable": true
-        },
-        {
-          "name": "writer",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "docs": [
-            "Standard SPL Token — for USDC operations."
-          ],
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "docs": [
-            "Token-2022 — for burning option tokens."
-          ],
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        }
-      ],
-      "args": [
-        {
-          "name": "tokensToExercise",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "expireOption",
-      "docs": [
-        "Expire an unexercised option. Returns collateral to writer."
-      ],
-      "discriminator": [
-        38,
-        144,
-        3,
-        237,
-        125,
-        177,
-        141,
-        229
-      ],
-      "accounts": [
-        {
-          "name": "caller",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "protocolState",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "market"
-        },
-        {
-          "name": "position",
-          "writable": true
-        },
-        {
-          "name": "escrow",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position.market",
-                "account": "optionPosition"
-              },
-              {
-                "kind": "account",
-                "path": "position.writer",
-                "account": "optionPosition"
-              },
-              {
-                "kind": "account",
-                "path": "position.created_at",
-                "account": "optionPosition"
-              }
-            ]
-          }
-        },
-        {
-          "name": "writerUsdcAccount",
-          "writable": true
-        },
-        {
-          "name": "writer",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        }
-      ],
-      "args": []
-    },
-    {
       "name": "initializeEpochConfig",
       "docs": [
         "Initialize the epoch schedule (admin-only, one-time setup)."
@@ -1592,71 +903,6 @@ export type Opta = {
           "type": "bool"
         }
       ]
-    },
-    {
-      "name": "initializePricing",
-      "docs": [
-        "Create on-chain pricing account for an option position.",
-        "Called once per position by the crank bot."
-      ],
-      "discriminator": [
-        33,
-        251,
-        52,
-        215,
-        179,
-        153,
-        55,
-        229
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "docs": [
-            "Anyone can create a pricing PDA (pays rent)."
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "position",
-          "docs": [
-            "The option position to create pricing for. Must exist and be active."
-          ]
-        },
-        {
-          "name": "pricingData",
-          "docs": [
-            "The pricing PDA. Created here, owned by this program."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  105,
-                  99,
-                  105,
-                  110,
-                  103
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": []
     },
     {
       "name": "initializeProtocol",
@@ -1760,146 +1006,6 @@ export type Opta = {
         }
       ],
       "args": []
-    },
-    {
-      "name": "listForResale",
-      "docs": [
-        "List option tokens for resale. token_amount is how many to list."
-      ],
-      "discriminator": [
-        235,
-        101,
-        201,
-        204,
-        83,
-        163,
-        213,
-        243
-      ],
-      "accounts": [
-        {
-          "name": "seller",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "protocolState",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "position",
-          "writable": true
-        },
-        {
-          "name": "sellerOptionAccount",
-          "docs": [
-            "Seller's option token account (Token-2022)."
-          ],
-          "writable": true
-        },
-        {
-          "name": "resaleEscrow",
-          "docs": [
-            "Resale escrow for holding listed option tokens (Token-2022 PDA).",
-            "Created in handler if it doesn't exist yet."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  101,
-                  115,
-                  97,
-                  108,
-                  101,
-                  95,
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "optionMint",
-          "docs": [
-            "Option token mint (Token-2022 mint)."
-          ]
-        },
-        {
-          "name": "token2022Program",
-          "docs": [
-            "Token-2022 program — for option token transfers."
-          ],
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "transferHookProgram",
-          "docs": [
-            "Transfer hook program."
-          ]
-        },
-        {
-          "name": "extraAccountMetaList",
-          "docs": [
-            "ExtraAccountMetaList for the transfer hook."
-          ]
-        },
-        {
-          "name": "hookState",
-          "docs": [
-            "HookState with expiry info for the transfer hook."
-          ]
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "rent",
-          "address": "SysvarRent111111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "resalePremium",
-          "type": "u64"
-        },
-        {
-          "name": "tokenAmount",
-          "type": "u64"
-        }
-      ]
     },
     {
       "name": "mintFromVault",
@@ -2450,213 +1556,34 @@ export type Opta = {
       ]
     },
     {
-      "name": "purchaseOption",
+      "name": "settleExpiry",
       "docs": [
-        "Purchase option tokens. Amount is how many tokens to buy (partial fills supported)."
+        "Record the canonical settlement price for an (asset, expiry) tuple",
+        "(admin-only). Permissionless `settle_vault` calls read from this."
       ],
       "discriminator": [
-        146,
-        223,
-        0,
-        55,
-        50,
-        0,
-        11,
-        32
-      ],
-      "accounts": [
-        {
-          "name": "buyer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "protocolState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "market"
-        },
-        {
-          "name": "position",
-          "writable": true
-        },
-        {
-          "name": "purchaseEscrow",
-          "docs": [
-            "Purchase escrow holding option tokens (Token-2022 account)."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  117,
-                  114,
-                  99,
-                  104,
-                  97,
-                  115,
-                  101,
-                  95,
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "buyerUsdcAccount",
-          "writable": true
-        },
-        {
-          "name": "writerUsdcAccount",
-          "writable": true
-        },
-        {
-          "name": "buyerOptionAccount",
-          "docs": [
-            "Buyer's option token account (Token-2022). Frontend creates ATA before calling."
-          ],
-          "writable": true
-        },
-        {
-          "name": "optionMint",
-          "docs": [
-            "Option token mint (Token-2022 mint)."
-          ]
-        },
-        {
-          "name": "treasury",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "tokenProgram",
-          "docs": [
-            "Standard SPL Token program — for USDC transfers."
-          ],
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "docs": [
-            "Token-2022 program — for option token transfers."
-          ],
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "transferHookProgram",
-          "docs": [
-            "Transfer hook program."
-          ]
-        },
-        {
-          "name": "extraAccountMetaList",
-          "docs": [
-            "ExtraAccountMetaList for the transfer hook."
-          ]
-        },
-        {
-          "name": "hookState",
-          "docs": [
-            "HookState with expiry info for the transfer hook."
-          ]
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "rent",
-          "address": "SysvarRent111111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "settleMarket",
-      "docs": [
-        "Settle an expired market with a price (admin-only for hackathon)."
-      ],
-      "discriminator": [
-        193,
-        153,
-        95,
-        216,
-        166,
-        6,
-        144,
-        217
+        75,
+        119,
+        150,
+        43,
+        240,
+        9,
+        203,
+        127
       ],
       "accounts": [
         {
           "name": "admin",
           "docs": [
-            "Only the protocol admin can settle markets (hackathon constraint).",
-            "In production, this would be permissionless with Pyth validation."
+            "Protocol admin (verified inside handler against `protocol_state.admin`)."
           ],
+          "writable": true,
           "signer": true
         },
         {
           "name": "protocolState",
           "docs": [
-            "Protocol state — used to verify admin identity."
+            "Global ProtocolState — read for admin check."
           ],
           "pda": {
             "seeds": [
@@ -2682,14 +1609,80 @@ export type Opta = {
         {
           "name": "market",
           "docs": [
-            "The market to settle. Must be a valid OptionsMarket account."
+            "OptionsMarket — proves the asset_name is registered (and normalized,",
+            "because the market PDA derivation requires the canonical bytes)."
           ],
-          "writable": true
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "assetName"
+              }
+            ]
+          }
+        },
+        {
+          "name": "settlementRecord",
+          "docs": [
+            "The SettlementRecord PDA. Plain `init` — second call for the same",
+            "(asset, expiry) reverts."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "assetName"
+              },
+              {
+                "kind": "arg",
+                "path": "expiry"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "settlementPrice",
+          "name": "assetName",
+          "type": "string"
+        },
+        {
+          "name": "expiry",
+          "type": "i64"
+        },
+        {
+          "name": "price",
           "type": "u64"
         }
       ]
@@ -2697,7 +1690,8 @@ export type Opta = {
     {
       "name": "settleVault",
       "docs": [
-        "Settle a shared vault after market settlement."
+        "Settle a shared vault. Permissionless — reads the canonical price",
+        "from a SettlementRecord PDA written earlier by `settle_expiry`."
       ],
       "discriminator": [
         43,
@@ -2713,7 +1707,8 @@ export type Opta = {
         {
           "name": "authority",
           "docs": [
-            "Anyone can settle a vault (permissionless crank)."
+            "Permissionless — anyone can settle a vault once the SettlementRecord",
+            "for its (asset, expiry) exists."
           ],
           "signer": true
         },
@@ -2727,98 +1722,49 @@ export type Opta = {
         {
           "name": "market",
           "docs": [
-            "The market — must be settled (settlement_price set)."
+            "The vault's market — needed to derive the SettlementRecord PDA from",
+            "`market.asset_name`. Constraint pins it to the vault's recorded market."
           ]
-        }
-      ],
-      "args": []
-    },
-    {
-      "name": "updatePricing",
-      "docs": [
-        "Compute Black-Scholes on-chain and store fair value + Greeks.",
-        "Permissionless — anyone can call with a spot price and implied vol."
-      ],
-      "discriminator": [
-        157,
-        225,
-        208,
-        150,
-        23,
-        153,
-        253,
-        18
-      ],
-      "accounts": [
-        {
-          "name": "caller",
-          "docs": [
-            "Anyone can call update_pricing (permissionless)."
-          ],
-          "signer": true
         },
         {
-          "name": "pricingData",
+          "name": "settlementRecord",
           "docs": [
-            "The pricing PDA to update. Validated via seeds against the position."
+            "The canonical settlement record for this (asset, expiry). If none",
+            "exists, anchor's seed validation + Account deserialization fails",
+            "before the handler runs."
           ],
-          "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
                 "value": [
-                  112,
-                  114,
-                  105,
-                  99,
-                  105,
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
                   110,
-                  103
+                  116
                 ]
               },
               {
                 "kind": "account",
-                "path": "optionPosition"
+                "path": "market.asset_name",
+                "account": "optionsMarket"
+              },
+              {
+                "kind": "account",
+                "path": "shared_vault.expiry",
+                "account": "sharedVault"
               }
             ]
           }
-        },
-        {
-          "name": "optionPosition",
-          "docs": [
-            "The option position being priced."
-          ]
-        },
-        {
-          "name": "market",
-          "docs": [
-            "The market — provides strike, expiry, option_type for BS calculation."
-          ]
-        },
-        {
-          "name": "priceUpdate",
-          "docs": [
-            "Optional Pyth PriceUpdateV2 account. If provided, spot price is read",
-            "from the oracle with a 30-second staleness check. If not provided,",
-            "the spot_price_used parameter is used instead (testing/fallback).",
-            "",
-            "Anchor's Account<PriceUpdateV2> validates ownership by the Pyth program,",
-            "preventing spoofed price accounts."
-          ],
-          "optional": true
         }
       ],
-      "args": [
-        {
-          "name": "spotPriceUsed",
-          "type": "u64"
-        },
-        {
-          "name": "impliedVolBps",
-          "type": "u64"
-        }
-      ]
+      "args": []
     },
     {
       "name": "withdrawFromVault",
@@ -3068,268 +2014,6 @@ export type Opta = {
         }
       ],
       "args": []
-    },
-    {
-      "name": "writeOption",
-      "docs": [
-        "Write an option: lock collateral, mint option tokens to writer."
-      ],
-      "discriminator": [
-        96,
-        144,
-        104,
-        51,
-        39,
-        132,
-        235,
-        38
-      ],
-      "accounts": [
-        {
-          "name": "writer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "protocolState",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  116,
-                  111,
-                  99,
-                  111,
-                  108,
-                  95,
-                  118,
-                  50
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "market"
-        },
-        {
-          "name": "position",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  115,
-                  105,
-                  116,
-                  105,
-                  111,
-                  110
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "writer"
-              },
-              {
-                "kind": "arg",
-                "path": "createdAt"
-              }
-            ]
-          }
-        },
-        {
-          "name": "escrow",
-          "docs": [
-            "USDC escrow for collateral. Authority = protocol PDA.",
-            "This stays on the standard SPL Token program (USDC is not Token-2022)."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "writer"
-              },
-              {
-                "kind": "arg",
-                "path": "createdAt"
-              }
-            ]
-          }
-        },
-        {
-          "name": "optionMint",
-          "docs": [
-            "Option token mint — Token-2022 with TransferHook + PermanentDelegate +",
-            "MetadataPointer extensions. Created manually via CPI in the handler",
-            "because Anchor's `init` doesn't support Token-2022 extensions.",
-            "",
-            "the address matches the expected PDA."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  111,
-                  112,
-                  116,
-                  105,
-                  111,
-                  110,
-                  95,
-                  109,
-                  105,
-                  110,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "purchaseEscrow",
-          "docs": [
-            "Purchase escrow — holds option tokens for buyers. Token-2022 token",
-            "account created manually in the handler (same reason as mint).",
-            "",
-            "the address matches the expected PDA."
-          ],
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  117,
-                  114,
-                  99,
-                  104,
-                  97,
-                  115,
-                  101,
-                  95,
-                  101,
-                  115,
-                  99,
-                  114,
-                  111,
-                  119
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "position"
-              }
-            ]
-          }
-        },
-        {
-          "name": "writerUsdcAccount",
-          "docs": [
-            "Writer's USDC account (source of collateral)."
-          ],
-          "writable": true
-        },
-        {
-          "name": "usdcMint"
-        },
-        {
-          "name": "transferHookProgram",
-          "docs": [
-            "The transfer hook program. Validated against the known program ID."
-          ]
-        },
-        {
-          "name": "extraAccountMetaList",
-          "docs": [
-            "ExtraAccountMetaList PDA — created by the hook program during CPI.",
-            "Seeds: [\"extra-account-metas\", mint] on the hook program."
-          ],
-          "writable": true
-        },
-        {
-          "name": "hookState",
-          "docs": [
-            "HookState PDA — stores expiry + protocol PDA for the transfer hook.",
-            "Seeds: [\"hook-state\", mint] on the hook program."
-          ],
-          "writable": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        },
-        {
-          "name": "tokenProgram",
-          "docs": [
-            "Standard SPL Token program — used for USDC operations only."
-          ],
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "docs": [
-            "Token-2022 program — used for the option mint and token accounts."
-          ],
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "rent",
-          "address": "SysvarRent111111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "collateralAmount",
-          "type": "u64"
-        },
-        {
-          "name": "premium",
-          "type": "u64"
-        },
-        {
-          "name": "contractSize",
-          "type": "u64"
-        },
-        {
-          "name": "createdAt",
-          "type": "i64"
-        }
-      ]
     }
   ],
   "accounts": [
@@ -3347,19 +2031,6 @@ export type Opta = {
       ]
     },
     {
-      "name": "optionPosition",
-      "discriminator": [
-        212,
-        247,
-        167,
-        73,
-        56,
-        224,
-        204,
-        102
-      ]
-    },
-    {
       "name": "optionsMarket",
       "discriminator": [
         67,
@@ -3373,32 +2044,6 @@ export type Opta = {
       ]
     },
     {
-      "name": "priceUpdateV2",
-      "discriminator": [
-        34,
-        241,
-        35,
-        99,
-        157,
-        126,
-        244,
-        205
-      ]
-    },
-    {
-      "name": "pricingData",
-      "discriminator": [
-        107,
-        24,
-        220,
-        255,
-        130,
-        238,
-        193,
-        92
-      ]
-    },
-    {
       "name": "protocolState",
       "discriminator": [
         33,
@@ -3409,6 +2054,19 @@ export type Opta = {
         140,
         195,
         248
+      ]
+    },
+    {
+      "name": "settlementRecord",
+      "discriminator": [
+        172,
+        159,
+        67,
+        74,
+        96,
+        85,
+        37,
+        205
       ]
     },
     {
@@ -3703,33 +2361,33 @@ export type Opta = {
   "errors": [
     {
       "code": 6000,
-      "name": "alreadyInitialized",
-      "msg": "Protocol has already been initialized"
-    },
-    {
-      "code": 6001,
       "name": "unauthorized",
       "msg": "Unauthorized: signer is not the protocol admin"
     },
     {
-      "code": 6002,
+      "code": 6001,
       "name": "expiryInPast",
       "msg": "Expiry timestamp must be in the future"
     },
     {
-      "code": 6003,
+      "code": 6002,
       "name": "invalidStrikePrice",
       "msg": "Strike price must be greater than zero"
     },
     {
+      "code": 6003,
+      "name": "invalidAssetName",
+      "msg": "Asset name must be 1-16 ASCII uppercase letters or digits"
+    },
+    {
       "code": 6004,
-      "name": "invalidPythFeed",
-      "msg": "Invalid Pyth price feed address"
+      "name": "invalidAssetClass",
+      "msg": "Asset class must be 0-4 (crypto, commodity, equity, forex, etf)"
     },
     {
       "code": 6005,
-      "name": "invalidAssetName",
-      "msg": "Asset name must be 1-16 characters"
+      "name": "assetMismatch",
+      "msg": "Market already exists for this asset with different metadata"
     },
     {
       "code": 6006,
@@ -3738,221 +2396,121 @@ export type Opta = {
     },
     {
       "code": 6007,
-      "name": "marketAlreadySettled",
-      "msg": "Market has already been settled"
-    },
-    {
-      "code": 6008,
       "name": "marketNotSettled",
       "msg": "Market has not been settled yet"
     },
     {
-      "code": 6009,
-      "name": "marketExpired",
-      "msg": "Market has already expired"
-    },
-    {
-      "code": 6010,
+      "code": 6008,
       "name": "invalidSettlementPrice",
       "msg": "Settlement price must be greater than zero"
     },
     {
-      "code": 6011,
-      "name": "positionNotActive",
-      "msg": "Position is no longer active"
+      "code": 6009,
+      "name": "unsupportedCollateral",
+      "msg": "Collateral mint must be the protocol's USDC mint"
     },
     {
-      "code": 6012,
+      "code": 6010,
       "name": "insufficientCollateral",
       "msg": "Insufficient collateral for this option"
     },
     {
-      "code": 6013,
+      "code": 6011,
       "name": "invalidContractSize",
       "msg": "Contract size must be greater than zero"
     },
     {
-      "code": 6014,
+      "code": 6012,
       "name": "invalidPremium",
       "msg": "Premium must be greater than zero"
     },
     {
-      "code": 6015,
+      "code": 6013,
       "name": "notWriter",
       "msg": "Only the writer can perform this action"
     },
     {
-      "code": 6016,
-      "name": "notTokenHolder",
-      "msg": "Only the token holder can perform this action"
-    },
-    {
-      "code": 6017,
+      "code": 6014,
       "name": "cannotBuyOwnOption",
       "msg": "Cannot buy your own option"
     },
     {
-      "code": 6018,
+      "code": 6015,
       "name": "insufficientOptionTokens",
       "msg": "Insufficient option tokens to exercise"
     },
     {
-      "code": 6019,
-      "name": "tokensAlreadySold",
-      "msg": "Writer must hold all tokens to cancel (some were sold)"
-    },
-    {
-      "code": 6020,
-      "name": "notListedForResale",
-      "msg": "Option is not listed for resale"
-    },
-    {
-      "code": 6021,
-      "name": "alreadyListedForResale",
-      "msg": "Option is already listed for resale"
-    },
-    {
-      "code": 6022,
-      "name": "notResaleSeller",
-      "msg": "Only the resale seller can cancel the listing"
-    },
-    {
-      "code": 6023,
-      "name": "cannotBuyOwnResale",
-      "msg": "Cannot buy your own resale listing"
-    },
-    {
-      "code": 6024,
-      "name": "invalidAssetClass",
-      "msg": "Asset class must be 0-4 (crypto, commodity, equity, forex, etf)"
-    },
-    {
-      "code": 6025,
-      "name": "cannotExpireItmOption",
-      "msg": "Cannot expire an in-the-money option — holders must exercise first"
-    },
-    {
-      "code": 6026,
-      "name": "premiumTooLow",
-      "msg": "Purchase amount too small — premium rounds to zero"
-    },
-    {
-      "code": 6027,
-      "name": "writePremiumTooLow",
-      "msg": "Premium too low — must be at least 0.1% of collateral"
-    },
-    {
-      "code": 6028,
-      "name": "writePremiumTooHigh",
-      "msg": "Premium too high — must be at most 50% of collateral"
-    },
-    {
-      "code": 6029,
-      "name": "unauthorizedPricingUpdate",
-      "msg": "Only the pricing update authority can update fair values"
-    },
-    {
-      "code": 6030,
-      "name": "volTooLow",
-      "msg": "Volatility too low — must be at least 500 bps (5%)"
-    },
-    {
-      "code": 6031,
-      "name": "volTooHigh",
-      "msg": "Volatility too high — must be at most 50000 bps (500%)"
-    },
-    {
-      "code": 6032,
+      "code": 6016,
       "name": "optionExpired",
       "msg": "Option has already expired — cannot price"
     },
     {
-      "code": 6033,
-      "name": "pricingCalculationFailed",
-      "msg": "solmath pricing calculation failed"
-    },
-    {
-      "code": 6034,
-      "name": "oracleStaleOrInvalid",
-      "msg": "Pyth oracle price is stale or invalid — must be less than 30 seconds old"
-    },
-    {
-      "code": 6035,
+      "code": 6017,
       "name": "mathOverflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6036,
+      "code": 6018,
       "name": "customVaultSingleWriter",
       "msg": "Custom vaults only allow the original creator to deposit"
     },
     {
-      "code": 6037,
+      "code": 6019,
       "name": "vaultAlreadySettled",
       "msg": "Vault has been settled, no more deposits allowed"
     },
     {
-      "code": 6038,
+      "code": 6020,
       "name": "vaultExpired",
       "msg": "Vault expiry has passed"
     },
     {
-      "code": 6039,
+      "code": 6021,
       "name": "invalidEpochExpiry",
       "msg": "Invalid epoch expiry - must fall on configured day and hour"
     },
     {
-      "code": 6040,
+      "code": 6022,
       "name": "insufficientVaultCollateral",
       "msg": "Insufficient free collateral in writer's vault position"
     },
     {
-      "code": 6041,
+      "code": 6023,
       "name": "collateralCommitted",
       "msg": "Collateral is committed to active options and cannot be withdrawn"
     },
     {
-      "code": 6042,
+      "code": 6024,
       "name": "noTokensToBurn",
       "msg": "No unsold tokens to burn"
     },
     {
-      "code": 6043,
+      "code": 6025,
       "name": "nothingToClaim",
       "msg": "Nothing to claim - all premium already withdrawn"
     },
     {
-      "code": 6044,
+      "code": 6026,
       "name": "slippageExceeded",
       "msg": "Premium exceeds buyer's maximum (slippage protection)"
     },
     {
-      "code": 6045,
+      "code": 6027,
       "name": "vaultNotSettled",
       "msg": "Vault not yet settled"
     },
     {
-      "code": 6046,
+      "code": 6028,
       "name": "optionNotInTheMoney",
       "msg": "Option is not in the money - cannot exercise"
     },
     {
-      "code": 6047,
+      "code": 6029,
       "name": "invalidVaultMint",
       "msg": "Option mint does not belong to this vault"
     },
     {
-      "code": 6048,
-      "name": "expiryMismatch",
-      "msg": "Vault expiry must match market expiry"
-    },
-    {
-      "code": 6049,
-      "name": "invalidOptionType",
-      "msg": "Vault option type must match market option type"
-    },
-    {
-      "code": 6050,
+      "code": 6030,
       "name": "claimPremiumFirst",
       "msg": "Claim all premium before withdrawing shares"
     }
@@ -4102,136 +2660,6 @@ export type Opta = {
       }
     },
     {
-      "name": "optionPosition",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "docs": [
-              "The OptionsMarket this position belongs to."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "writer",
-            "docs": [
-              "The writer (seller) who locked collateral to create this position."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "optionMint",
-            "docs": [
-              "The SPL token mint representing ownership of this option."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "totalSupply",
-            "docs": [
-              "Total supply of option tokens minted."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "tokensSold",
-            "docs": [
-              "Number of tokens that have been purchased from the primary sale.",
-              "Position stays active for more purchases until tokens_sold == total_supply."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "collateralAmount",
-            "docs": [
-              "Amount of USDC collateral locked by the writer, scaled by 10^6."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "premium",
-            "docs": [
-              "Total premium price for ALL tokens (scaled by 10^6 USDC).",
-              "Per-token premium = premium / total_supply."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "contractSize",
-            "docs": [
-              "Number of option contracts, scaled by 10^6."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "createdAt",
-            "docs": [
-              "Unix timestamp when this position was created (also PDA seed)."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "isExercised",
-            "docs": [
-              "Whether ALL tokens have been exercised (escrow fully drained)."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "isExpired",
-            "docs": [
-              "Whether the option has expired without being exercised."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "isCancelled",
-            "docs": [
-              "Whether the writer cancelled this position."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "isListedForResale",
-            "docs": [
-              "Whether this option has tokens listed for resale."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "resalePremium",
-            "docs": [
-              "The resale asking price for ALL listed tokens (scaled by 10^6 USDC).",
-              "Per-token resale price = resale_premium / resale_token_amount."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "resaleTokenAmount",
-            "docs": [
-              "How many tokens are currently listed for resale."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "resaleSeller",
-            "docs": [
-              "The seller who listed this for resale."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "bump",
-            "docs": [
-              "PDA bump seed."
-            ],
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
       "name": "optionPurchased",
       "type": {
         "kind": "struct",
@@ -4290,7 +2718,8 @@ export type Opta = {
     {
       "name": "optionType",
       "docs": [
-        "Whether this option is a call (right to buy) or put (right to sell)."
+        "Whether this option is a call (right to buy) or put (right to sell).",
+        "Lives on `SharedVault` post-Stage-2; kept here because vaults import it."
       ],
       "type": {
         "kind": "enum",
@@ -4348,68 +2777,33 @@ export type Opta = {
           {
             "name": "assetName",
             "docs": [
-              "Human-readable asset identifier (e.g. \"SOL\", \"BTC\", \"AAPL\", \"EUR/USD\").",
-              "This is a flexible string — the protocol supports ANY asset that has",
-              "a Pyth oracle feed. Max 16 characters."
+              "Human-readable, normalized asset identifier (\"SOL\", \"BTC\", \"AAPL\", ...).",
+              "Max 16 chars, ASCII-uppercase, alphanumeric only."
             ],
             "type": "string"
           },
           {
-            "name": "strikePrice",
+            "name": "pythFeedId",
             "docs": [
-              "The strike price in USDC, scaled by 10^6.",
-              "Example: $200.00 is stored as 200_000_000."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "expiryTimestamp",
-            "docs": [
-              "Unix timestamp when this option expires. After this time, the option",
-              "can be settled using the Pyth oracle price."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "optionType",
-            "docs": [
-              "Call or Put."
+              "The 32-byte Pyth Pull oracle feed ID for this asset.",
+              "Stage P1: stored without on-chain validation. Stage P2 settle_expiry",
+              "will validate this matches the `feed_id` on a passed-in PriceUpdateV2",
+              "account via `get_price_no_older_than(.., &feed_id)`."
             ],
             "type": {
-              "defined": {
-                "name": "optionType"
-              }
+              "array": [
+                "u8",
+                32
+              ]
             }
-          },
-          {
-            "name": "isSettled",
-            "docs": [
-              "Whether this market has been settled (the Pyth price at expiry has",
-              "been recorded). Once settled, no new positions can be written."
-            ],
-            "type": "bool"
-          },
-          {
-            "name": "settlementPrice",
-            "docs": [
-              "The Pyth oracle price recorded at settlement time, scaled by 10^6.",
-              "Zero until the market is settled."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "pythFeed",
-            "docs": [
-              "The Pyth Network price feed account for this asset.",
-              "Used during settlement to read the current price."
-            ],
-            "type": "pubkey"
           },
           {
             "name": "assetClass",
             "docs": [
               "Asset class for categorizing the underlying asset.",
-              "0 = crypto, 1 = commodity, 2 = equity, 3 = forex, 4 = ETF."
+              "0 = crypto, 1 = commodity, 2 = equity, 3 = forex, 4 = ETF.",
+              "Metadata-only today — no surviving on-chain or frontend pricing",
+              "logic branches on this value."
             ],
             "type": "u8"
           },
@@ -4439,215 +2833,6 @@ export type Opta = {
           {
             "name": "amount",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "priceFeedMessage",
-      "repr": {
-        "kind": "c"
-      },
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "feedId",
-            "docs": [
-              "`FeedId` but avoid the type alias because of compatibility issues with Anchor's `idl-build` feature."
-            ],
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "price",
-            "type": "i64"
-          },
-          {
-            "name": "conf",
-            "type": "u64"
-          },
-          {
-            "name": "exponent",
-            "type": "i32"
-          },
-          {
-            "name": "publishTime",
-            "docs": [
-              "The timestamp of this price update in seconds"
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "prevPublishTime",
-            "docs": [
-              "The timestamp of the previous price update. This field is intended to allow users to",
-              "identify the single unique price update for any moment in time:",
-              "for any time t, the unique update is the one such that prev_publish_time < t <= publish_time.",
-              "",
-              "Note that there may not be such an update while we are migrating to the new message-sending logic,",
-              "as some price updates on pythnet may not be sent to other chains (because the message-sending",
-              "logic may not have triggered). We can solve this problem by making the message-sending mandatory",
-              "(which we can do once publishers have migrated over).",
-              "",
-              "Additionally, this field may be equal to publish_time if the message is sent on a slot where",
-              "where the aggregation was unsuccesful. This problem will go away once all publishers have",
-              "migrated over to a recent version of pyth-agent."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "emaPrice",
-            "type": "i64"
-          },
-          {
-            "name": "emaConf",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "priceUpdateV2",
-      "docs": [
-        "A price update account. This account is used by the Pyth Receiver program to store a verified price update from a Pyth price feed.",
-        "It contains:",
-        "- `write_authority`: The write authority for this account. This authority can close this account to reclaim rent or update the account to contain a different price update.",
-        "- `verification_level`: The [`VerificationLevel`] of this price update. This represents how many Wormhole guardian signatures have been verified for this price update.",
-        "- `price_message`: The actual price update.",
-        "- `posted_slot`: The slot at which this price update was posted."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "writeAuthority",
-            "type": "pubkey"
-          },
-          {
-            "name": "verificationLevel",
-            "type": {
-              "defined": {
-                "name": "verificationLevel"
-              }
-            }
-          },
-          {
-            "name": "priceMessage",
-            "type": {
-              "defined": {
-                "name": "priceFeedMessage"
-              }
-            }
-          },
-          {
-            "name": "postedSlot",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "pricingData",
-      "docs": [
-        "On-chain pricing data for an option position.",
-        "Computed on-chain via solmath's bs_full_hp() Black-Scholes engine.",
-        "",
-        "WHY THIS EXISTS:",
-        "Without this, anyone holding an Opta option token has to call our",
-        "SDK to know what it's worth. With this, the fair value is right there",
-        "on the blockchain — computed deterministically by the smart contract."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "position",
-            "docs": [
-              "The option position this pricing data belongs to."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "fairValuePerToken",
-            "docs": [
-              "Last computed fair value per token, in USDC smallest units (6 decimals).",
-              "Example: 11_160_000 = $11.16 per token."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "spotPriceUsed",
-            "docs": [
-              "The spot price used in the calculation, in USDC smallest units.",
-              "Example: 180_000_000 = $180.00."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "impliedVolBps",
-            "docs": [
-              "The implied volatility used (basis points, e.g. 8500 = 85.00%)."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "deltaBps",
-            "docs": [
-              "Delta (basis points, e.g. 5000 = 0.50 delta).",
-              "Positive for calls, negative for puts."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "gammaBps",
-            "docs": [
-              "Gamma (basis points × 100 for precision)."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "vegaUsdc",
-            "docs": [
-              "Vega in micro-USDC (1 unit = 0.000001 USDC) per unit vol move.",
-              "Stored at higher precision to avoid truncation to zero for small options."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "thetaUsdc",
-            "docs": [
-              "Theta: daily time decay in micro-USDC (1 unit = 0.000001 USDC).",
-              "Typically negative. Stored at higher precision to avoid truncation."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "lastUpdated",
-            "docs": [
-              "Unix timestamp of when this pricing was last updated."
-            ],
-            "type": "i64"
-          },
-          {
-            "name": "lastUpdater",
-            "docs": [
-              "The last account that called update_pricing on this PDA.",
-              "update_pricing is intentionally permissionless — consumers should",
-              "check last_updater to decide whether they trust the data source."
-            ],
-            "type": "pubkey"
-          },
-          {
-            "name": "bump",
-            "docs": [
-              "PDA bump seed."
-            ],
-            "type": "u8"
           }
         ]
       }
@@ -4731,6 +2916,54 @@ export type Opta = {
       }
     },
     {
+      "name": "settlementRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "assetName",
+            "docs": [
+              "Asset this settlement is for. Matches OptionsMarket.asset_name",
+              "(already normalized to ASCII uppercase + alphanumeric by the",
+              "market PDA derivation)."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "expiry",
+            "docs": [
+              "Unix timestamp of the expiry boundary this settlement records."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "settlementPrice",
+            "docs": [
+              "Canonical settlement price for this (asset, expiry), scaled by 1e6",
+              "(USDC decimals). Today this is admin-supplied (Pyth-mocked); in",
+              "production it would be read from a Pyth pull-oracle account."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "settledAt",
+            "docs": [
+              "On-chain timestamp at which `settle_expiry` was called. Useful for",
+              "audit trails and \"settle was X seconds late\" diagnostics."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "sharedVault",
       "type": {
         "kind": "struct",
@@ -4798,6 +3031,18 @@ export type Opta = {
             "docs": [
               "The USDC token account holding this vault's collateral.",
               "Authority = this SharedVault PDA."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "collateralMint",
+            "docs": [
+              "Stage 3: the mint of the collateral token. USDC-only enforced today",
+              "via a runtime check in `create_shared_vault` against",
+              "`protocol_state.usdc_mint`. The field exists so every vault is",
+              "self-describing — the 6 ATA-mint constraints across vault-context",
+              "instructions read from here rather than from protocol_state, which",
+              "keeps the door open for per-vault collateral diversification later."
             ],
             "type": "pubkey"
           },
@@ -5192,39 +3437,6 @@ export type Opta = {
           {
             "name": "shares",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "verificationLevel",
-      "docs": [
-        "Pyth price updates are bridged to all blockchains via Wormhole.",
-        "Using the price updates on another chain requires verifying the signatures of the Wormhole guardians.",
-        "The usual process is to check the signatures for two thirds of the total number of guardians, but this can be cumbersome on Solana because of the transaction size limits,",
-        "so we also allow for partial verification.",
-        "",
-        "This enum represents how much a price update has been verified:",
-        "- If `Full`, we have verified the signatures for two thirds of the current guardians.",
-        "- If `Partial`, only `num_signatures` guardian signatures have been checked.",
-        "",
-        "# Warning",
-        "Using partially verified price updates is dangerous, as it lowers the threshold of guardians that need to collude to produce a malicious price update."
-      ],
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "partial",
-            "fields": [
-              {
-                "name": "numSignatures",
-                "type": "u8"
-              }
-            ]
-          },
-          {
-            "name": "full"
           }
         ]
       }

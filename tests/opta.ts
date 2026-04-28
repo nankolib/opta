@@ -32,15 +32,21 @@ import { assert } from "chai";
 import BN from "bn.js";
 
 // =============================================================================
-// Asset registry — must match programs/opta/src/instructions/create_market.rs
+// Asset registry — 32-byte Pyth Pull feed IDs (mainnet hex from
+// scripts/pyth-feed-ids.csv). Stage P1 stores these verbatim with no
+// on-chain validation; Stage P2 settle_expiry will validate against
+// PriceUpdateV2 accounts. Stage P5 may switch to Beta-cluster feed IDs.
 // =============================================================================
 const REGISTRY = {
-  SOL:  new PublicKey("J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"),
-  BTC:  new PublicKey("HovQMDrbAgAYPCmHVSrezcSmkMtXSSUsLDFANExrZh2J"),
-  ETH:  new PublicKey("EdVCmQ9FSPcVe5YySXDPCRmc8aDQLKJ9GvYRk4HY7y44"),
-  XAU:  new PublicKey("8y3WWjvmSmVGWVKH1rCA7VTRmuU7QbJ9axMK6JUUuCyi"),
-  AAPL: new PublicKey("5yKHAuiDWKUGRgs3s6mYGdfZjFmTfgHVDBwFBDfMuZJH"),
+  SOL:  Buffer.from("ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d", "hex"),
+  BTC:  Buffer.from("e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", "hex"),
 };
+// Anchor TS expects [u8; 32] as a `number[]` of length 32.
+const SOL_ID = Array.from(REGISTRY.SOL);
+const BTC_ID = Array.from(REGISTRY.BTC);
+// Stand-in feed_id for the "anyone can create a market" test that doesn't
+// care about Pyth correctness (pre-P2 only).
+const ZERO_ID: number[] = Array.from(Buffer.alloc(32, 0));
 
 // =============================================================================
 // Helpers
@@ -169,7 +175,7 @@ describe("opta", () => {
       const [marketPda] = deriveMarketPda("SOL");
 
       await program.methods
-        .createMarket("SOL", REGISTRY.SOL, 0)
+        .createMarket("SOL", SOL_ID, 0)
         .accountsStrict({
           creator: admin.publicKey,
           protocolState: protocolStatePda,
@@ -180,7 +186,7 @@ describe("opta", () => {
 
       const market = await program.account.optionsMarket.fetch(marketPda);
       assert.equal(market.assetName, "SOL");
-      assert.ok(market.pythFeed.equals(REGISTRY.SOL));
+      assert.deepEqual(Array.from(market.pythFeedId), SOL_ID);
       assert.equal(market.assetClass, 0);
     });
 
@@ -189,7 +195,7 @@ describe("opta", () => {
 
       // Should not revert
       await program.methods
-        .createMarket("SOL", REGISTRY.SOL, 0)
+        .createMarket("SOL", SOL_ID, 0)
         .accountsStrict({
           creator: admin.publicKey,
           protocolState: protocolStatePda,
@@ -200,7 +206,7 @@ describe("opta", () => {
 
       const market = await program.account.optionsMarket.fetch(marketPda);
       assert.equal(market.assetName, "SOL");
-      assert.ok(market.pythFeed.equals(REGISTRY.SOL));
+      assert.deepEqual(Array.from(market.pythFeedId), SOL_ID);
     });
 
     it("idempotent re-call with different feed reverts AssetMismatch", async () => {
@@ -208,7 +214,7 @@ describe("opta", () => {
 
       try {
         await program.methods
-          .createMarket("SOL", REGISTRY.BTC, 0)  // wrong feed for SOL
+          .createMarket("SOL", BTC_ID, 0)  // wrong feed for SOL
           .accountsStrict({
             creator: admin.publicKey,
             protocolState: protocolStatePda,
@@ -226,7 +232,7 @@ describe("opta", () => {
       const [marketPda] = deriveMarketPda("BTC");
 
       await program.methods
-        .createMarket("BTC", REGISTRY.BTC, 0)
+        .createMarket("BTC", BTC_ID, 0)
         .accountsStrict({
           creator: admin.publicKey,
           protocolState: protocolStatePda,
@@ -237,7 +243,7 @@ describe("opta", () => {
 
       const market = await program.account.optionsMarket.fetch(marketPda);
       assert.equal(market.assetName, "BTC");
-      assert.ok(market.pythFeed.equals(REGISTRY.BTC));
+      assert.deepEqual(Array.from(market.pythFeedId), BTC_ID);
     });
 
     it("anyone can create a market — permissionless", async () => {
@@ -252,7 +258,7 @@ describe("opta", () => {
       const [marketPda] = deriveMarketPda("TEST");
 
       await program.methods
-        .createMarket("TEST", SystemProgram.programId, 0)
+        .createMarket("TEST", ZERO_ID, 0)
         .accountsStrict({
           creator: randomUser.publicKey,
           protocolState: protocolStatePda,
@@ -264,7 +270,7 @@ describe("opta", () => {
 
       const market = await program.account.optionsMarket.fetch(marketPda);
       assert.equal(market.assetName, "TEST");
-      assert.ok(market.pythFeed.equals(SystemProgram.programId));
+      assert.deepEqual(Array.from(market.pythFeedId), ZERO_ID);
       assert.equal(market.assetClass, 0);
     });
 
@@ -273,7 +279,7 @@ describe("opta", () => {
 
       try {
         await program.methods
-          .createMarket("sol", REGISTRY.SOL, 0)
+          .createMarket("sol", SOL_ID, 0)
           .accountsStrict({
             creator: admin.publicKey,
             protocolState: protocolStatePda,
@@ -292,7 +298,7 @@ describe("opta", () => {
 
       try {
         await program.methods
-          .createMarket("", REGISTRY.SOL, 0)
+          .createMarket("", SOL_ID, 0)
           .accountsStrict({
             creator: admin.publicKey,
             protocolState: protocolStatePda,
@@ -323,7 +329,7 @@ describe("opta", () => {
       // Ensure SOL market exists (idempotent).
       const [marketPda] = deriveMarketPda("SOL");
       await program.methods
-        .createMarket("SOL", REGISTRY.SOL, 0)
+        .createMarket("SOL", SOL_ID, 0)
         .accountsStrict({
           creator: admin.publicKey, protocolState: protocolStatePda,
           market: marketPda, systemProgram: SystemProgram.programId,

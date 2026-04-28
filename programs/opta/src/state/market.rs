@@ -16,7 +16,7 @@
 // PDA seed: ["market", normalized_asset_name(bytes)]
 //
 // Asset names are normalized at create time (uppercase, alphanumeric only,
-// 1..=16 chars). Once registered, the (asset_name, pyth_feed, asset_class)
+// 1..=16 chars). Once registered, the (asset_name, pyth_feed_id, asset_class)
 // triple is immutable — re-creating with matching values is a silent Ok
 // (idempotent registry); re-creating with different values reverts with
 // `AssetMismatch`.
@@ -45,9 +45,11 @@ pub struct OptionsMarket {
     #[max_len(16)]
     pub asset_name: String,
 
-    /// The Pyth Network price feed account for this asset.
-    /// Validated against the on-chain hardcoded registry at create time.
-    pub pyth_feed: Pubkey,
+    /// The 32-byte Pyth Pull oracle feed ID for this asset.
+    /// Stage P1: stored without on-chain validation. Stage P2 settle_expiry
+    /// will validate this matches the `feed_id` on a passed-in PriceUpdateV2
+    /// account via `get_price_no_older_than(.., &feed_id)`.
+    pub pyth_feed_id: [u8; 32],
 
     /// Asset class for categorizing the underlying asset.
     /// 0 = crypto, 1 = commodity, 2 = equity, 3 = forex, 4 = ETF.
