@@ -82,11 +82,12 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({
     return { feedIdHex: selected.feedIdHex, assetClass: selected.suggestedAssetClass };
   }, [advancedOpen, pastedHex, pastedClass, selected]);
 
-  // Load catalog on mount.
-  const loadedRef = useRef(false);
+  // Load catalog on mount. React-18-canonical fetch-on-mount: rely on
+  // the per-mount `cancelled` flag to suppress stale-mount setter calls.
+  // A useRef-based "run once" guard would persist across StrictMode's
+  // double-mount and break the cancellation contract — see the failure
+  // mode hunted down in the P4c smoke session.
   useEffect(() => {
-    if (loadedRef.current) return;
-    loadedRef.current = true;
     let cancelled = false;
     getCatalog()
       .then((res) => {
