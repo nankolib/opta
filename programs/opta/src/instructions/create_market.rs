@@ -1,91 +1,110 @@
 // =============================================================================
-// instructions/create_market.rs — Create a new options market
+// instructions/create_market.rs — Register a supported asset (admin-only)
 // =============================================================================
 //
-// Anyone can create a new market for ANY asset that has a Pyth oracle feed.
-// A "market" defines a specific option contract:
-//   - Asset name (flexible string, e.g. "SOL", "BTC", "AAPL", "EUR/USD")
-//   - Strike price (e.g. $200)
-//   - Expiry (Unix timestamp)
-//   - Type (Call or Put)
-//   - Pyth oracle feed pubkey
+// Stage 2 reshape: create_market registers an *asset* (one PDA per asset),
+// not an option specification. Strike, expiry, option type, and settlement
+// state moved to SharedVault and (Stage 3) SettlementRecord.
 //
-// The market PDA is derived from all four identifying parameters, which
-// guarantees each unique combination can only exist once (no duplicates).
+// The instruction is admin-only and idempotent: calling it twice with the
+// same (asset_name, pyth_feed, asset_class) is a silent Ok; calling it with
+// different metadata for an existing asset reverts with AssetMismatch.
+//
+// Asset names must be pre-normalized by the caller: ASCII-uppercase,
+// alphanumeric only, 1..=16 chars. The handler verifies the normalization
+// (it does NOT silently uppercase) so the (asset_name, market_pda) mapping
+// is unambiguous.
+//
+// PDA seed: ["market", asset_name.as_bytes()]
 // =============================================================================
 
 use anchor_lang::prelude::*;
+use std::str::FromStr;
 
 use crate::errors::OptaError;
-use crate::state::{OptionsMarket, OptionType, ProtocolState, MARKET_SEED, MAX_ASSET_CLASS, MAX_ASSET_NAME_LEN, PROTOCOL_SEED};
+use crate::state::{OptionsMarket, ProtocolState, MARKET_SEED, MAX_ASSET_NAME_LEN, PROTOCOL_SEED};
 
-/// Handler: create a new options market with the given parameters.
+/// Hardcoded supported-asset registry. Adding a new asset requires a
+/// program upgrade. Each tuple is
+/// `(normalized_asset_name, pyth_feed_pubkey_str, asset_class)`. The
+/// pyth_feed values are the Solana pull-oracle account pubkeys (shard 0)
+/// derived from the canonical Pyth hex feed IDs.
+const REGISTRY: &[(&str, &str, u8)] = &[
+    ("BTC",  "HovQMDrbAgAYPCmHVSrezcSmkMtXSSUsLDFANExrZh2J", 0),
+    ("SOL",  "J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix", 0),
+    ("ETH",  "EdVCmQ9FSPcVe5YySXDPCRmc8aDQLKJ9GvYRk4HY7y44", 0),
+    ("XAU",  "8y3WWjvmSmVGWVKH1rCA7VTRmuU7QbJ9axMK6JUUuCyi", 1),
+    ("AAPL", "5yKHAuiDWKUGRgs3s6mYGdfZjFmTfgHVDBwFBDfMuZJH", 2),
+];
+
+/// Validate the (asset_name, pyth_feed, asset_class) triple against the
+/// hardcoded registry. Asset name is checked post-normalization.
+fn registry_matches(name: &str, pyth_feed: &Pubkey, asset_class: u8) -> bool {
+    REGISTRY.iter().any(|(n, pk, c)| {
+        if *n != name || *c != asset_class {
+            return false;
+        }
+        match Pubkey::from_str(pk) {
+            Ok(expected) => expected == *pyth_feed,
+            Err(_) => false,
+        }
+    })
+}
+
+/// Verify the asset name conforms to the normalization contract:
+/// 1..=16 ASCII uppercase letters or digits. Caller must pre-normalize.
+fn assert_normalized(name: &str) -> Result<()> {
+    require!(
+        !name.is_empty() && name.len() <= MAX_ASSET_NAME_LEN,
+        OptaError::InvalidAssetName
+    );
+    require!(
+        name.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()),
+        OptaError::InvalidAssetName
+    );
+    Ok(())
+}
+
 pub fn handle_create_market(
     ctx: Context<CreateMarket>,
     asset_name: String,
-    strike_price: u64,
-    expiry_timestamp: i64,
-    option_type: OptionType,
     pyth_feed: Pubkey,
     asset_class: u8,
 ) -> Result<()> {
-    // -------------------------------------------------------------------------
-    // Validation: asset name must be non-empty and <= 16 chars
-    // -------------------------------------------------------------------------
-    require!(!asset_name.is_empty(), OptaError::InvalidAssetName);
+    // 1. Admin-only
     require!(
-        asset_name.len() <= MAX_ASSET_NAME_LEN,
-        OptaError::InvalidAssetName
+        ctx.accounts.creator.key() == ctx.accounts.protocol_state.admin,
+        OptaError::Unauthorized
     );
 
-    // -------------------------------------------------------------------------
-    // Validation: strike price must be positive
-    // -------------------------------------------------------------------------
-    require!(strike_price > 0, OptaError::InvalidStrikePrice);
+    // 2. Asset name normalization contract
+    assert_normalized(&asset_name)?;
 
-    // -------------------------------------------------------------------------
-    // Validation: expiry must be in the future
-    //
-    // We use Solana's Clock sysvar to get the current on-chain timestamp.
-    // This is more reliable than client-side time since validators agree on it.
-    // -------------------------------------------------------------------------
-    let clock = Clock::get()?;
+    // 3. Registry validation: (name, feed, class) must match a known entry
     require!(
-        expiry_timestamp > clock.unix_timestamp,
-        OptaError::ExpiryInPast
+        registry_matches(&asset_name, &pyth_feed, asset_class),
+        OptaError::UnknownAsset
     );
 
-    // -------------------------------------------------------------------------
-    // Validation: Pyth feed must not be the default (zero) pubkey.
-    // A zero pubkey would mean no oracle is configured.
-    // -------------------------------------------------------------------------
-    require!(
-        pyth_feed != Pubkey::default(),
-        OptaError::InvalidPythFeed
-    );
-
-    // -------------------------------------------------------------------------
-    // Validation: asset class must be a known value (0-4)
-    // -------------------------------------------------------------------------
-    require!(asset_class <= MAX_ASSET_CLASS, OptaError::InvalidAssetClass);
-
-    // -------------------------------------------------------------------------
-    // Initialize the market account with the provided parameters.
-    // -------------------------------------------------------------------------
+    // 4. Idempotent init: if account already populated, verify match
     let market = &mut ctx.accounts.market;
+    if !market.asset_name.is_empty() {
+        require!(
+            market.asset_name == asset_name
+                && market.pyth_feed == pyth_feed
+                && market.asset_class == asset_class,
+            OptaError::AssetMismatch
+        );
+        msg!("Market already exists for {} — idempotent Ok", asset_name);
+        return Ok(());
+    }
+
+    // 5. First init — populate fields and bump market counter
     market.asset_name = asset_name.clone();
-    market.strike_price = strike_price;
-    market.expiry_timestamp = expiry_timestamp;
-    market.option_type = option_type;
-    market.is_settled = false;
-    market.settlement_price = 0;
     market.pyth_feed = pyth_feed;
     market.asset_class = asset_class;
     market.bump = ctx.bumps.market;
 
-    // -------------------------------------------------------------------------
-    // Increment the protocol's total market counter.
-    // -------------------------------------------------------------------------
     let protocol = &mut ctx.accounts.protocol_state;
     protocol.total_markets = protocol
         .total_markets
@@ -93,34 +112,25 @@ pub fn handle_create_market(
         .ok_or(OptaError::MathOverflow)?;
 
     msg!(
-        "Market created: {} strike={} expiry={} type={:?}",
+        "Market registered: {} pyth={} class={}",
         asset_name,
-        strike_price,
-        expiry_timestamp,
-        option_type,
+        pyth_feed,
+        asset_class
     );
-
     Ok(())
 }
 
-// =============================================================================
-// Account validation
-// =============================================================================
-
 #[derive(Accounts)]
-#[instruction(
-    asset_name: String,
-    strike_price: u64,
-    expiry_timestamp: i64,
-    option_type: OptionType,
-)]
+#[instruction(asset_name: String, pyth_feed: Pubkey, asset_class: u8)]
 pub struct CreateMarket<'info> {
-    /// The user creating this market. Anyone can create a market — there's no
-    /// permissioning. They pay the rent for the new account.
+    /// Protocol admin (verified inside handler against `protocol_state.admin`).
+    /// Pays for account creation on first init; pays nothing on idempotent re-call
+    /// because `init_if_needed` short-circuits when the account already exists.
     #[account(mut)]
     pub creator: Signer<'info>,
 
-    /// The global ProtocolState — we need this to increment total_markets.
+    /// Global ProtocolState — read for admin check, mutated to bump
+    /// total_markets on first init.
     #[account(
         mut,
         seeds = [PROTOCOL_SEED],
@@ -128,30 +138,15 @@ pub struct CreateMarket<'info> {
     )]
     pub protocol_state: Account<'info, ProtocolState>,
 
-    /// The new OptionsMarket PDA.
-    ///
-    /// Seeds use the asset name as bytes (not an enum discriminant), making
-    /// the protocol open to ANY asset. For example:
-    ///   - "SOL" + strike + expiry + Call  → one unique PDA
-    ///   - "AAPL" + strike + expiry + Call → a different PDA
-    ///   - "EUR/USD" + strike + expiry + Put → yet another
-    ///
-    /// Attempting to create a duplicate combination will fail.
+    /// Asset registry PDA. One per supported asset.
     #[account(
-        init,
-        seeds = [
-            MARKET_SEED,
-            asset_name.as_bytes(),
-            &strike_price.to_le_bytes(),
-            &expiry_timestamp.to_le_bytes(),
-            &[option_type as u8],
-        ],
+        init_if_needed,
+        seeds = [MARKET_SEED, asset_name.as_bytes()],
         bump,
         payer = creator,
         space = 8 + OptionsMarket::INIT_SPACE,
     )]
     pub market: Account<'info, OptionsMarket>,
 
-    /// Required for creating new accounts.
     pub system_program: Program<'info, System>,
 }

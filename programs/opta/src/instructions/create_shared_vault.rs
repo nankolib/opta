@@ -66,11 +66,10 @@ pub fn handle_create_shared_vault(
         }
     }
 
-    // FIX M-01: Validate vault parameters match the market's parameters
-    let market = &ctx.accounts.market;
-    require!(strike_price == market.strike_price, OptaError::InvalidStrikePrice);
-    require!(option_type as u8 == market.option_type as u8, OptaError::InvalidOptionType);
-    require!(expiry == market.expiry_timestamp, OptaError::ExpiryMismatch);
+    // Stage 2: FIX M-01 cross-validations retired — Market no longer
+    // carries strike/expiry/option_type. SharedVault is the authoritative
+    // record for these fields. The (asset, strike, expiry, type) tuple is
+    // already enforced as unique by the SharedVault PDA seed below.
 
     let vault = &mut ctx.accounts.shared_vault;
     vault.market = ctx.accounts.market.key();

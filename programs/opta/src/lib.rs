@@ -5,11 +5,14 @@
 // Options are represented as SPL tokens. Whoever holds the tokens can exercise.
 // This makes options tradeable on the built-in P2P marketplace or any DEX.
 //
-// Instructions:
+// Surface (Stage 2):
 //   1. initialize_protocol  — One-time setup
-//   2. create_market        — Create options market for any asset
-//   3. settle_market        — Set settlement price after expiry
+//   2. create_market        — Register a supported asset (admin-only, idempotent)
 //   v2 vault instructions follow below.
+//
+// Note: Stage 2 transitional shape — settle_vault temporarily takes
+// `settlement_price` as an admin-signed argument (mirroring the deleted
+// settle_market). Stage 3 swaps that arg for a SettlementRecord PDA read.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -33,21 +36,15 @@ pub mod opta {
         instructions::initialize_protocol::handle_initialize_protocol(ctx)
     }
 
+    /// Register a supported asset (admin-only, idempotent).
+    /// One Market PDA per asset; strike/expiry/type live on SharedVault.
     pub fn create_market(
         ctx: Context<CreateMarket>,
         asset_name: String,
-        strike_price: u64,
-        expiry_timestamp: i64,
-        option_type: OptionType,
         pyth_feed: Pubkey,
         asset_class: u8,
     ) -> Result<()> {
-        instructions::create_market::handle_create_market(ctx, asset_name, strike_price, expiry_timestamp, option_type, pyth_feed, asset_class)
-    }
-
-    /// Settle an expired market with a price (admin-only for hackathon).
-    pub fn settle_market(ctx: Context<SettleMarket>, settlement_price: u64) -> Result<()> {
-        instructions::settle_market::handle_settle_market(ctx, settlement_price)
+        instructions::create_market::handle_create_market(ctx, asset_name, pyth_feed, asset_class)
     }
 
     // =========================================================================
@@ -126,9 +123,11 @@ pub mod opta {
         instructions::claim_premium::handle_claim_premium(ctx)
     }
 
-    /// Settle a shared vault after market settlement.
-    pub fn settle_vault(ctx: Context<SettleVault>) -> Result<()> {
-        instructions::settle_vault::handle_settle_vault(ctx)
+    /// Settle a shared vault after expiry. Stage 2 transitional: admin
+    /// passes the settlement price inline. Stage 3 will replace this with
+    /// a SettlementRecord PDA read.
+    pub fn settle_vault(ctx: Context<SettleVault>, settlement_price: u64) -> Result<()> {
+        instructions::settle_vault::handle_settle_vault(ctx, settlement_price)
     }
 
     /// Exercise option tokens from a settled vault.

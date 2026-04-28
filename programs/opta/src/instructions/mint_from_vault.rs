@@ -98,12 +98,13 @@ pub fn handle_mint_from_vault(
     // Format: "OPTA-{ASSET}-{STRIKE}{C/P}-{MONTH}{DAY}"
     // Example: "OPTA-SOL-200C-APR15"
     // =========================================================================
-    let strike_dollars = market.strike_price / 1_000_000;
-    let type_char = match market.option_type {
+    // Stage 2: strike/expiry/option_type read from vault (canonical post-refactor).
+    let strike_dollars = vault.strike_price / 1_000_000;
+    let type_char = match vault.option_type {
         OptionType::Call => "C",
         OptionType::Put => "P",
     };
-    let (month_idx, day) = timestamp_to_month_day(market.expiry_timestamp);
+    let (month_idx, day) = timestamp_to_month_day(vault.expiry);
     let month_name = MONTHS[month_idx];
     let token_name = format!(
         "OPTA-{}-{}{}-{}{}",
@@ -239,14 +240,15 @@ pub fn handle_mint_from_vault(
     // Additional metadata fields (same as write_option + vault reference)
     let collateral_per_token = collateral_per_contract;
 
+    // Stage 2: strike/expiry/option_type sourced from vault.
     let additional_fields: Vec<(&str, String)> = vec![
         ("asset_name", market.asset_name.clone()),
         ("asset_class", market.asset_class.to_string()),
-        ("strike_price", market.strike_price.to_string()),
-        ("expiry", market.expiry_timestamp.to_string()),
+        ("strike_price", vault.strike_price.to_string()),
+        ("expiry", vault.expiry.to_string()),
         (
             "option_type",
-            match market.option_type {
+            match vault.option_type {
                 OptionType::Call => "call",
                 OptionType::Put => "put",
             }
@@ -291,7 +293,7 @@ pub fn handle_mint_from_vault(
     );
     opta_transfer_hook::cpi::initialize_extra_account_meta_list(
         cpi_ctx,
-        market.expiry_timestamp,
+        vault.expiry,
     )?;
 
     // =========================================================================
