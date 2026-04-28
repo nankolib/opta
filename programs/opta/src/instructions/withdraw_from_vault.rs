@@ -175,7 +175,7 @@ pub struct WithdrawFromVault<'info> {
     #[account(
         mut,
         constraint = writer_usdc_account.owner == writer.key(),
-        constraint = writer_usdc_account.mint == protocol_state.usdc_mint,
+        constraint = writer_usdc_account.mint == shared_vault.collateral_mint,
     )]
     pub writer_usdc_account: Box<Account<'info, TokenAccount>>,
 

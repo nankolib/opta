@@ -31,6 +31,7 @@ pub fn handle_create_shared_vault(
     expiry: i64,
     option_type: OptionType,
     vault_type: VaultType,
+    collateral_mint: Pubkey,
 ) -> Result<()> {
     let clock = Clock::get()?;
 
@@ -39,6 +40,17 @@ pub fn handle_create_shared_vault(
 
     // Expiry must be in the future
     require!(expiry > clock.unix_timestamp, OptaError::ExpiryInPast);
+
+    // Stage 3: collateral mint validation. USDC-only today; field stored
+    // on the vault so every downstream ATA constraint reads from there.
+    require!(
+        collateral_mint == ctx.accounts.protocol_state.usdc_mint,
+        OptaError::UnsupportedCollateral
+    );
+    require!(
+        collateral_mint == ctx.accounts.usdc_mint.key(),
+        OptaError::UnsupportedCollateral
+    );
 
     // Validate expiry based on vault type
     match vault_type {
@@ -80,6 +92,7 @@ pub fn handle_create_shared_vault(
     vault.total_collateral = 0;
     vault.total_shares = 0;
     vault.vault_usdc_account = ctx.accounts.vault_usdc_account.key();
+    vault.collateral_mint = collateral_mint;
     vault.total_options_minted = 0;
     vault.total_options_sold = 0;
     vault.net_premium_collected = 0;
@@ -105,7 +118,7 @@ pub fn handle_create_shared_vault(
 }
 
 #[derive(Accounts)]
-#[instruction(strike_price: u64, expiry: i64, option_type: OptionType, vault_type: VaultType)]
+#[instruction(strike_price: u64, expiry: i64, option_type: OptionType, vault_type: VaultType, collateral_mint: Pubkey)]
 pub struct CreateSharedVault<'info> {
     /// The vault creator (first writer). Pays for account creation.
     #[account(mut)]

@@ -65,6 +65,14 @@ pub struct SharedVault {
     /// Authority = this SharedVault PDA.
     pub vault_usdc_account: Pubkey,
 
+    /// Stage 3: the mint of the collateral token. USDC-only enforced today
+    /// via a runtime check in `create_shared_vault` against
+    /// `protocol_state.usdc_mint`. The field exists so every vault is
+    /// self-describing — the 6 ATA-mint constraints across vault-context
+    /// instructions read from here rather than from protocol_state, which
+    /// keeps the door open for per-vault collateral diversification later.
+    pub collateral_mint: Pubkey,
+
     // === Options tracking ===
 
     /// Total option tokens minted from this vault across all writers.

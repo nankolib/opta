@@ -4,6 +4,7 @@
 
 pub mod create_market;
 pub mod initialize_protocol;
+pub mod settle_expiry;
 
 // v2 shared vault instructions
 pub mod initialize_epoch_config;
@@ -20,6 +21,7 @@ pub mod withdraw_post_settlement;
 
 pub use create_market::*;
 pub use initialize_protocol::*;
+pub use settle_expiry::*;
 
 // v2 shared vault instructions
 pub use initialize_epoch_config::*;

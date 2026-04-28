@@ -5,14 +5,11 @@
 // Options are represented as SPL tokens. Whoever holds the tokens can exercise.
 // This makes options tradeable on the built-in P2P marketplace or any DEX.
 //
-// Surface (Stage 2):
-//   1. initialize_protocol  — One-time setup
-//   2. create_market        — Register a supported asset (admin-only, idempotent)
+// Surface (Stage 3):
+//   1. initialize_protocol      — One-time setup
+//   2. create_market            — Register a supported asset (admin-only, idempotent)
+//   3. settle_expiry            — Record canonical price for an (asset, expiry)
 //   v2 vault instructions follow below.
-//
-// Note: Stage 2 transitional shape — settle_vault temporarily takes
-// `settlement_price` as an admin-signed argument (mirroring the deleted
-// settle_market). Stage 3 swaps that arg for a SettlementRecord PDA read.
 // =============================================================================
 
 use anchor_lang::prelude::*;
@@ -47,6 +44,17 @@ pub mod opta {
         instructions::create_market::handle_create_market(ctx, asset_name, pyth_feed, asset_class)
     }
 
+    /// Record the canonical settlement price for an (asset, expiry) tuple
+    /// (admin-only). Permissionless `settle_vault` calls read from this.
+    pub fn settle_expiry(
+        ctx: Context<SettleExpiry>,
+        asset_name: String,
+        expiry: i64,
+        price: u64,
+    ) -> Result<()> {
+        instructions::settle_expiry::handle_settle_expiry(ctx, asset_name, expiry, price)
+    }
+
     // =========================================================================
     // v2 Shared Vault instructions
     // =========================================================================
@@ -70,9 +78,10 @@ pub mod opta {
         expiry: i64,
         option_type: OptionType,
         vault_type: VaultType,
+        collateral_mint: Pubkey,
     ) -> Result<()> {
         instructions::create_shared_vault::handle_create_shared_vault(
-            ctx, strike_price, expiry, option_type, vault_type,
+            ctx, strike_price, expiry, option_type, vault_type, collateral_mint,
         )
     }
 
@@ -123,11 +132,10 @@ pub mod opta {
         instructions::claim_premium::handle_claim_premium(ctx)
     }
 
-    /// Settle a shared vault after expiry. Stage 2 transitional: admin
-    /// passes the settlement price inline. Stage 3 will replace this with
-    /// a SettlementRecord PDA read.
-    pub fn settle_vault(ctx: Context<SettleVault>, settlement_price: u64) -> Result<()> {
-        instructions::settle_vault::handle_settle_vault(ctx, settlement_price)
+    /// Settle a shared vault. Permissionless — reads the canonical price
+    /// from a SettlementRecord PDA written earlier by `settle_expiry`.
+    pub fn settle_vault(ctx: Context<SettleVault>) -> Result<()> {
+        instructions::settle_vault::handle_settle_vault(ctx)
     }
 
     /// Exercise option tokens from a settled vault.

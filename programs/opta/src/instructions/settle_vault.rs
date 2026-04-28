@@ -1,13 +1,14 @@
 // =============================================================================
-// instructions/settle_vault.rs — Settle a SharedVault after expiry
+// instructions/settle_vault.rs — Settle a SharedVault from a SettlementRecord
 // =============================================================================
 //
-// Stage 2 transitional shape: admin passes `settlement_price` inline as an
-// instruction argument. This mirrors the deleted `settle_market` so the
-// build stays green between Stages 2 and 3.
+// Stage 3 final shape: permissionless. Reads the canonical settlement
+// price from a SettlementRecord PDA (written earlier by the admin-only
+// `settle_expiry` instruction) and applies it to this vault.
 //
-// Stage 3 will replace the inline arg with a per-(asset, expiry)
-// `SettlementRecord` PDA read.
+// If no SettlementRecord exists for this vault's (asset, expiry) tuple,
+// anchor's seed validation + Account deserialization fails before the
+// handler runs — caller gets a clear "uninitialized account" error.
 //
 // This does NOT distribute funds. It just marks the vault as settled and
 // records the payout calculations. Individual exercises and writer
@@ -20,21 +21,10 @@ use crate::errors::OptaError;
 use crate::events::VaultSettled;
 use crate::state::*;
 
-pub fn handle_settle_vault(
-    ctx: Context<SettleVault>,
-    settlement_price: u64,
-) -> Result<()> {
+pub fn handle_settle_vault(ctx: Context<SettleVault>) -> Result<()> {
     let vault = &ctx.accounts.shared_vault;
+    let record = &ctx.accounts.settlement_record;
 
-    // Admin-only (Stage 2 transitional — Stage 3 makes this permissionless
-    // by reading from a SettlementRecord written by an admin-only
-    // settle_expiry instruction).
-    require!(
-        ctx.accounts.authority.key() == ctx.accounts.protocol_state.admin,
-        OptaError::Unauthorized
-    );
-
-    require!(settlement_price > 0, OptaError::InvalidSettlementPrice);
     require!(!vault.is_settled, OptaError::VaultAlreadySettled);
 
     let clock = Clock::get()?;
@@ -42,6 +32,9 @@ pub fn handle_settle_vault(
         vault.expiry <= clock.unix_timestamp,
         OptaError::MarketNotExpired
     );
+
+    // Read canonical settlement price from the per-(asset, expiry) record
+    let settlement_price = record.settlement_price;
 
     // Calculate total payout owed to option holders
     let strike_price = vault.strike_price;
@@ -100,17 +93,29 @@ pub fn handle_settle_vault(
 
 #[derive(Accounts)]
 pub struct SettleVault<'info> {
-    /// Admin signer (verified inside handler against `protocol_state.admin`).
+    /// Permissionless — anyone can settle a vault once the SettlementRecord
+    /// for its (asset, expiry) exists.
     pub authority: Signer<'info>,
 
     /// The shared vault to settle.
     #[account(mut)]
     pub shared_vault: Box<Account<'info, SharedVault>>,
 
-    /// Protocol state — for admin check.
+    /// The vault's market — needed to derive the SettlementRecord PDA from
+    /// `market.asset_name`. Constraint pins it to the vault's recorded market.
+    #[account(constraint = market.key() == shared_vault.market)]
+    pub market: Account<'info, OptionsMarket>,
+
+    /// The canonical settlement record for this (asset, expiry). If none
+    /// exists, anchor's seed validation + Account deserialization fails
+    /// before the handler runs.
     #[account(
-        seeds = [PROTOCOL_SEED],
-        bump = protocol_state.bump,
+        seeds = [
+            SETTLEMENT_SEED,
+            market.asset_name.as_bytes(),
+            &shared_vault.expiry.to_le_bytes(),
+        ],
+        bump = settlement_record.bump,
     )]
-    pub protocol_state: Account<'info, ProtocolState>,
+    pub settlement_record: Account<'info, SettlementRecord>,
 }

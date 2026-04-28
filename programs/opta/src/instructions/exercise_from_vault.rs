@@ -186,7 +186,7 @@ pub struct ExerciseFromVault<'info> {
     #[account(
         mut,
         constraint = holder_usdc_account.owner == holder.key(),
-        constraint = holder_usdc_account.mint == protocol_state.usdc_mint,
+        constraint = holder_usdc_account.mint == shared_vault.collateral_mint,
     )]
     pub holder_usdc_account: Box<Account<'info, TokenAccount>>,
 

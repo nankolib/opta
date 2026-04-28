@@ -189,3 +189,97 @@ Commit: `git log --grep "stage-2"` (master)
   not asset_class. Future work: drive vol smile, default vol, and
   dividend assumptions from asset_class to remove the hardcoded
   per-ticker string matching. Not blocking for v2-only refactor.
+
+## Stage 3 — SettlementRecord + collateral_mint
+
+Date: 2026-04-28
+Commit: `git log --grep "stage-3"` (master)
+
+### What changed
+
+- New `SettlementRecord` account: one PDA per (asset, expiry) tuple.
+  Records the canonical settlement price set once by the admin via
+  `settle_expiry`. Every `SharedVault` for that (asset, expiry) reads
+  the same record during `settle_vault` — all vaults agree on the same
+  price.
+- New `settle_expiry` instruction: admin-only, post-expiry,
+  one-shot-per-(asset, expiry). Plain `init` on the SettlementRecord
+  PDA, so a second call for the same tuple reverts naturally.
+- `SharedVault` gains a `collateral_mint: Pubkey` field. Stored on the
+  vault so every USDC ATA-mint constraint is self-describing. USDC-only
+  enforced via runtime check in `create_shared_vault`.
+- `settle_vault` rewritten: dropped its Stage 2 transitional inline
+  `settlement_price` argument and admin-only check. Now permissionless;
+  reads price from the SettlementRecord PDA via cross-account seeds
+  `[SETTLEMENT_SEED, market.asset_name.as_bytes(), &shared_vault.expiry.to_le_bytes()]`.
+  If no record exists, anchor's seed validation + Account
+  deserialization fails before the handler runs.
+- `create_shared_vault` takes a new `collateral_mint: Pubkey` argument
+  (validated against `protocol_state.usdc_mint` and
+  `usdc_mint.key()`), writes it to `vault.collateral_mint`. The
+  pre-existing `usdc_mint.key() == protocol_state.usdc_mint` account
+  constraint stays as belt-and-braces (option (a) in the proposal).
+
+### What was added
+
+- `programs/opta/src/state/settlement_record.rs` (new account type +
+  `SETTLEMENT_SEED` constant)
+- `programs/opta/src/instructions/settle_expiry.rs` (new instruction)
+- `SharedVault.collateral_mint: Pubkey` field
+- 1 new handler in `lib.rs` (`settle_expiry`)
+
+### What was modified
+
+- `programs/opta/src/state/mod.rs` (registered settlement_record module)
+- `programs/opta/src/state/shared_vault.rs` (added collateral_mint)
+- `programs/opta/src/instructions/mod.rs` (registered settle_expiry)
+- `programs/opta/src/instructions/create_shared_vault.rs` (added
+  collateral_mint arg + 2 validations + field write + #[instruction] update)
+- `programs/opta/src/instructions/settle_vault.rs` (full rewrite — drops
+  price arg + admin check; adds market + settlement_record accounts)
+- 6 vault-context instructions: ATA-mint constraint repointed from
+  `protocol_state.usdc_mint` → `shared_vault.collateral_mint`:
+  `deposit_to_vault.rs:153`, `claim_premium.rs:123`,
+  `exercise_from_vault.rs:189`, `purchase_from_vault.rs:263`,
+  `withdraw_from_vault.rs:178`, `withdraw_post_settlement.rs:185`
+- `programs/opta/src/lib.rs` (added settle_expiry handler, updated
+  create_shared_vault signature, dropped settle_vault price arg)
+
+### What to watch for if something breaks later
+
+- The 6 ATA-mint repoints are wire-to-wire identical effect today
+  (USDC enforced everywhere, just from a different source pubkey). If
+  a future caller passes a non-USDC ATA, the error will surface from
+  `shared_vault.collateral_mint` rather than `protocol_state.usdc_mint`
+  — same constraint message ("constraint was violated"), different
+  source field.
+- `create_shared_vault` clients now need to forward `collateral_mint`
+  as the 5th positional arg (after `vault_type`). Frontend
+  (`useWriteSubmit.ts`) still passes only 4 args — updated in Stage 5.
+- `settle_vault` clients now need to provide the `market` and
+  `settlement_record` accounts and drop the inline price arg. Tests
+  rewritten in Stage 4.
+- The SettlementRecord PDA seed includes `expiry.to_le_bytes()`. TS
+  clients deriving this PDA must use the same little-endian 8-byte
+  encoding (`new BN(expiry).toArrayLike(Buffer, "le", 8)`).
+- `settle_vault` is now permissionless. Any caller can settle any
+  vault once its (asset, expiry) record exists. This is intentional —
+  reduces operator load and matches the original v2 design before the
+  Stage 2 transitional shim made it admin-only.
+
+### Edge cases handled
+
+- Duplicate `settle_expiry` for same (asset, expiry): plain `init`
+  reverts.
+- `settle_vault` before `settle_expiry`: anchor seed-derives a PDA that
+  doesn't exist on-chain → Account deserialization fails →
+  instruction reverts.
+- `settle_vault` already-settled vault: `require!(!vault.is_settled)`
+  reverts with `VaultAlreadySettled`.
+- `settle_expiry` pre-expiry: handler reverts with `MarketNotExpired`.
+- `settle_expiry` zero price: handler reverts with `InvalidSettlementPrice`.
+- `settle_expiry` non-admin signer: handler reverts with `Unauthorized`.
+- `settle_expiry` for an unregistered asset: market PDA derivation
+  fails (no such Market account) → instruction reverts before handler.
+- `create_shared_vault` with non-USDC `collateral_mint`: handler
+  reverts with `UnsupportedCollateral`.

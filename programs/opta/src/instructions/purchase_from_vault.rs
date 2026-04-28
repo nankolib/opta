@@ -260,7 +260,7 @@ pub struct PurchaseFromVault<'info> {
     #[account(
         mut,
         constraint = buyer_usdc_account.owner == buyer.key(),
-        constraint = buyer_usdc_account.mint == protocol_state.usdc_mint,
+        constraint = buyer_usdc_account.mint == shared_vault.collateral_mint,
     )]
     pub buyer_usdc_account: Box<Account<'info, TokenAccount>>,
 

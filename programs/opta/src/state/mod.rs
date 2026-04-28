@@ -9,6 +9,7 @@
 pub mod epoch_config;
 pub mod market;
 pub mod protocol;
+pub mod settlement_record;
 pub mod shared_vault;
 pub mod vault_mint;
 pub mod writer_position;
@@ -16,6 +17,7 @@ pub mod writer_position;
 pub use epoch_config::*;
 pub use market::*;
 pub use protocol::*;
+pub use settlement_record::*;
 pub use shared_vault::*;
 pub use vault_mint::*;
 pub use writer_position::*;
