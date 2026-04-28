@@ -20,8 +20,11 @@ import "@solana/wallet-adapter-react-ui/styles.css";
 export const WalletContextProvider: FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  // Devnet endpoint — switch to mainnet-beta for production
-  const endpoint = useMemo(() => clusterApiUrl("devnet"), []);
+  // VITE_RPC_URL from app/.env.local — falls back to public devnet if unset
+  const endpoint = useMemo(
+    () => import.meta.env.VITE_RPC_URL || clusterApiUrl("devnet"),
+    [],
+  );
 
   // Wallets to support. Phantom is the primary wallet for Solana.
   const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
