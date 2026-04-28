@@ -1,55 +1,28 @@
 // =============================================================================
-// instructions/create_market.rs — Register a supported asset (admin-only)
+// instructions/create_market.rs — Register an asset (permissionless placeholder)
 // =============================================================================
 //
-// Stage 2 reshape: create_market registers an *asset* (one PDA per asset),
-// not an option specification. Strike, expiry, option type, and settlement
-// state moved to SharedVault and (Stage 3) SettlementRecord.
+// Stage 2-amend-lite shape: create_market is permissionless. Anyone can
+// register an asset. The pyth_feed: Pubkey field is stored opaquely with
+// no on-chain validation. This is a deliberate PLACEHOLDER — see the
+// per-handler comment below.
 //
-// The instruction is admin-only and idempotent: calling it twice with the
-// same (asset_name, pyth_feed, asset_class) is a silent Ok; calling it with
-// different metadata for an existing asset reverts with AssetMismatch.
+// Strike, expiry, option type, and settlement state moved to SharedVault
+// and (Stage 3) SettlementRecord. The Market PDA is a per-asset registry
+// record only.
 //
 // Asset names must be pre-normalized by the caller: ASCII-uppercase,
 // alphanumeric only, 1..=16 chars. The handler verifies the normalization
-// (it does NOT silently uppercase) so the (asset_name, market_pda) mapping
-// is unambiguous.
+// (it does NOT silently uppercase) so the (asset_name, market_pda)
+// mapping is unambiguous.
 //
 // PDA seed: ["market", asset_name.as_bytes()]
 // =============================================================================
 
 use anchor_lang::prelude::*;
-use std::str::FromStr;
 
 use crate::errors::OptaError;
-use crate::state::{OptionsMarket, ProtocolState, MARKET_SEED, MAX_ASSET_NAME_LEN, PROTOCOL_SEED};
-
-/// Hardcoded supported-asset registry. Adding a new asset requires a
-/// program upgrade. Each tuple is
-/// `(normalized_asset_name, pyth_feed_pubkey_str, asset_class)`. The
-/// pyth_feed values are the Solana pull-oracle account pubkeys (shard 0)
-/// derived from the canonical Pyth hex feed IDs.
-const REGISTRY: &[(&str, &str, u8)] = &[
-    ("BTC",  "HovQMDrbAgAYPCmHVSrezcSmkMtXSSUsLDFANExrZh2J", 0),
-    ("SOL",  "J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix", 0),
-    ("ETH",  "EdVCmQ9FSPcVe5YySXDPCRmc8aDQLKJ9GvYRk4HY7y44", 0),
-    ("XAU",  "8y3WWjvmSmVGWVKH1rCA7VTRmuU7QbJ9axMK6JUUuCyi", 1),
-    ("AAPL", "5yKHAuiDWKUGRgs3s6mYGdfZjFmTfgHVDBwFBDfMuZJH", 2),
-];
-
-/// Validate the (asset_name, pyth_feed, asset_class) triple against the
-/// hardcoded registry. Asset name is checked post-normalization.
-fn registry_matches(name: &str, pyth_feed: &Pubkey, asset_class: u8) -> bool {
-    REGISTRY.iter().any(|(n, pk, c)| {
-        if *n != name || *c != asset_class {
-            return false;
-        }
-        match Pubkey::from_str(pk) {
-            Ok(expected) => expected == *pyth_feed,
-            Err(_) => false,
-        }
-    })
-}
+use crate::state::{OptionsMarket, ProtocolState, MARKET_SEED, MAX_ASSET_CLASS, MAX_ASSET_NAME_LEN, PROTOCOL_SEED};
 
 /// Verify the asset name conforms to the normalization contract:
 /// 1..=16 ASCII uppercase letters or digits. Caller must pre-normalize.
@@ -65,28 +38,33 @@ fn assert_normalized(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// PLACEHOLDER (pre-Pyth-Pull migration): pyth_feed: Pubkey is stored
+/// without on-chain validation. The legacy push oracle that this field
+/// originally pointed at was sunsetted by Pyth on 2024-06-30 and has been
+/// frozen on devnet since 2024-08-30 (verified empirically).
+///
+/// The next session migrates to the Pyth Pull oracle: pyth_feed will be
+/// replaced with a 32-byte hex feed_id, settle_expiry will accept a
+/// PriceUpdateV2 account from pyth-solana-receiver-sdk with a staleness
+/// check, and a migrate_pyth_feed admin instruction will handle the rare
+/// case where Pyth rotates a feed ID.
+///
+/// Until then: anyone can call create_market with any (asset_name,
+/// pyth_feed, asset_class) triple. settle_expiry continues to use
+/// admin-mocked prices (the Stage 3 transitional shape).
 pub fn handle_create_market(
     ctx: Context<CreateMarket>,
     asset_name: String,
     pyth_feed: Pubkey,
     asset_class: u8,
 ) -> Result<()> {
-    // 1. Admin-only
-    require!(
-        ctx.accounts.creator.key() == ctx.accounts.protocol_state.admin,
-        OptaError::Unauthorized
-    );
-
-    // 2. Asset name normalization contract
+    // 1. Asset name normalization contract
     assert_normalized(&asset_name)?;
 
-    // 3. Registry validation: (name, feed, class) must match a known entry
-    require!(
-        registry_matches(&asset_name, &pyth_feed, asset_class),
-        OptaError::UnknownAsset
-    );
+    // 2. Asset class bound (0..=4)
+    require!(asset_class <= MAX_ASSET_CLASS, OptaError::InvalidAssetClass);
 
-    // 4. Idempotent init: if account already populated, verify match
+    // 3. Idempotent init: if account already populated, verify match
     let market = &mut ctx.accounts.market;
     if !market.asset_name.is_empty() {
         require!(
@@ -99,7 +77,7 @@ pub fn handle_create_market(
         return Ok(());
     }
 
-    // 5. First init — populate fields and bump market counter
+    // 4. First init — populate fields and bump market counter
     market.asset_name = asset_name.clone();
     market.pyth_feed = pyth_feed;
     market.asset_class = asset_class;
@@ -123,14 +101,13 @@ pub fn handle_create_market(
 #[derive(Accounts)]
 #[instruction(asset_name: String, pyth_feed: Pubkey, asset_class: u8)]
 pub struct CreateMarket<'info> {
-    /// Protocol admin (verified inside handler against `protocol_state.admin`).
-    /// Pays for account creation on first init; pays nothing on idempotent re-call
-    /// because `init_if_needed` short-circuits when the account already exists.
+    /// Permissionless — anyone can call. Pays for account creation on
+    /// first init; pays nothing on idempotent re-call because
+    /// `init_if_needed` short-circuits when the account already exists.
     #[account(mut)]
     pub creator: Signer<'info>,
 
-    /// Global ProtocolState — read for admin check, mutated to bump
-    /// total_markets on first init.
+    /// Global ProtocolState — mutated to bump total_markets on first init.
     #[account(
         mut,
         seeds = [PROTOCOL_SEED],

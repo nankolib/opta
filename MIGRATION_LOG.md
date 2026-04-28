@@ -414,3 +414,113 @@ frontend refactor. Identified ~30-40 frontend edit operations split
 into Stage 5a (IDL + write/create flows) and Stage 5b (read-side +
 portfolio). Open question flagged: AdminTools.tsx keep-or-delete
 decision needed before Stage 5b.
+
+## Stage 2-amend-lite — Strip hardcoded registry and admin gate
+
+Date: 2026-04-28
+Commit: `git log --grep "stage-2-amend-lite"` (master)
+
+### Why amend-lite, not full Pyth Pull migration
+
+Stage 2's create_market gated calls to admin only and validated
+(asset_name, pyth_feed, asset_class) against a hardcoded 5-entry
+SUPPORTED_ASSETS array. Pre-amendment verification (this session)
+discovered that the legacy Pyth push oracle this design depended on
+is dead on devnet:
+
+- Pyth officially sunsetted the legacy push oracle on **2024-06-30**
+  (per [Pyth Pull Oracle Launches on Solana blog post](https://www.pyth.network/blog/pyth-network-pull-oracle-on-solana))
+- Devnet feed accounts (SOL `J83w...`, BTC `HovQ...`) have been
+  **frozen since 2024-08-30** — verified empirically with 5 reads
+  ~12s apart all returning identical timestamps (1724967841)
+- ETH/XAU/AAPL pubkeys hardcoded in the frontend SUPPORTED_ASSETS
+  table don't even exist on devnet (`AccountNotFound`)
+
+A full migration to the Pyth Pull oracle (pyth-solana-receiver-sdk
+PriceUpdateV2 accounts, 32-byte hex feed IDs, off-chain Hermes
+client) is the right answer but requires a dedicated session — too
+much new architecture (ephemeral price-update accounts, staleness
+enforcement, admin migrate_pyth_feed instruction, crank rewrite
+against Hermes) to fold into this block.
+
+This amend-lite leaves create_market in an honest placeholder state
+until that session lands.
+
+### What changed
+
+- `create_market`: removed admin signer check; removed SUPPORTED_ASSETS
+  array; removed registry_matches helper; removed UnknownAsset revert.
+  Added an explicit `asset_class <= MAX_ASSET_CLASS` check (was
+  implicit-via-registry before; now explicit since registry is gone).
+- Top-of-file doc comment rewritten to describe the placeholder state
+  and reference the upcoming Pyth Pull session.
+- Per-handler `///` comment block added explaining: pyth_feed stored
+  opaquely without on-chain validation, settle_expiry continues to use
+  admin-mocked prices, next session migrates to Pyth Pull.
+
+### Errors
+
+- Removed: `OptaError::UnknownAsset` (no longer triggered)
+- Re-added: `OptaError::InvalidAssetClass` (was pruned in original
+  Stage 2 alongside other v1-only variants because the registry made
+  the check redundant; now needed as an explicit check)
+
+### Tests
+
+- Deleted: `it("rejects non-admin signer (Unauthorized)")` from the
+  `create_market` describe block — admin gating is no longer the
+  design.
+  - Note: the `it("rejects non-admin signer (Unauthorized)")` test in
+    the `settle_expiry` describe block STAYS — settle_expiry remains
+    admin-only (Stage 3 design, unchanged).
+- Deleted: `it("rejects unknown asset / wrong Pyth feed (UnknownAsset)")`
+  — registry is gone, can't trigger the error.
+- Tightened: `it("idempotent re-call with different feed reverts
+  AssetMismatch")` — was tolerantly accepting either UnknownAsset or
+  AssetMismatch; now strictly asserts AssetMismatch (the only correct
+  outcome).
+- Added: `it("anyone can create a market — permissionless")` — uses a
+  non-admin keypair, asset name "TEST", `SystemProgram.programId` as
+  a stand-in pyth_feed pubkey. Demonstrates the new permissionless
+  contract.
+
+### What did NOT change
+
+- Stage 3 SettlementRecord / settle_expiry / settle_vault /
+  collateral_mint — independent of the Pyth question, untouched.
+- Stage 4 test infrastructure — manual ts-mocha workflow unchanged.
+- Frontend — `SUPPORTED_ASSETS` still has 5 entries with phantom
+  ETH/XAU/AAPL pubkeys. Per the user's spec, Stage 5 picks up the
+  frontend after Pyth Pull lands.
+- Cargo.toml — `pyth-solana-receiver-sdk = "1.1.0"` already present
+  from earlier work; will be used in the next session.
+
+### Verification
+
+- 72 tests passing (was 73 before amend-lite). Delta: -1 admin test
+  -1 unknown-asset test +1 permissionless test = net -1.
+- anchor build green.
+- Manual ts-mocha workflow confirmed (anchor test still broken on
+  this WSL setup, per Stage 4 finding).
+
+### Known abuse vector (deferred)
+
+With admin gating removed and no Pyth validation, anyone with ~0.01
+SOL on devnet can spam Market PDAs ("AAAA", "AAAB", ...). Mitigation
+options for the Pyth Pull session: (a) per-asset rent burn at
+create_market, (b) restore admin gating once we have a real
+validation gate, (c) leave permissionless and accept the spam risk
+on a public protocol. Locked decision deferred to next session.
+
+### Open Items 3 + 4 picture
+
+Both depend on Pyth Pull being real first:
+
+- Item 3 crank: must iterate all OptionsMarket PDAs dynamically
+  (locked decision from today — no hardcoded asset list), pull fresh
+  Hermes price updates, call settle_expiry, sweep vaults.
+- Item 4 v2 resale: VaultResaleListing PDA, three new instructions,
+  requires settled vaults to behave cleanly.
+
+Neither can begin until create_market has its Pyth Pull shape
+locked.

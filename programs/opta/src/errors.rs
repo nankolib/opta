@@ -21,8 +21,8 @@ pub enum OptaError {
     InvalidStrikePrice,
     #[msg("Asset name must be 1-16 ASCII uppercase letters or digits")]
     InvalidAssetName,
-    #[msg("Asset not in supported registry — contact protocol admin to add")]
-    UnknownAsset,
+    #[msg("Asset class must be 0-4 (crypto, commodity, equity, forex, etf)")]
+    InvalidAssetClass,
     #[msg("Market already exists for this asset with different metadata")]
     AssetMismatch,
     #[msg("Market has not expired yet")]

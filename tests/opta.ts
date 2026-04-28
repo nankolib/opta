@@ -216,16 +216,9 @@ describe("opta", () => {
             systemProgram: SystemProgram.programId,
           })
           .rpc();
-        assert.fail("Should have thrown");
+        assert.fail("Should have thrown AssetMismatch");
       } catch (err: any) {
-        // Either UnknownAsset (registry rejects (SOL, BTC-feed, 0)) or
-        // AssetMismatch (PDA exists with different feed). Both are correct
-        // refusals; the registry check fires first.
-        const s = err.toString();
-        assert.ok(
-          s.includes("UnknownAsset") || s.includes("AssetMismatch"),
-          `expected UnknownAsset or AssetMismatch, got: ${s.slice(0, 200)}`,
-        );
+        assert.include(err.toString(), "AssetMismatch");
       }
     });
 
@@ -247,48 +240,32 @@ describe("opta", () => {
       assert.ok(market.pythFeed.equals(REGISTRY.BTC));
     });
 
-    it("rejects non-admin signer (Unauthorized)", async () => {
-      const fakeAdmin = Keypair.generate();
-      const sig = await connection.requestAirdrop(fakeAdmin.publicKey, LAMPORTS_PER_SOL);
+    it("anyone can create a market — permissionless", async () => {
+      // Stage 2-amend-lite: create_market is permissionless. Use a fresh
+      // (non-admin) keypair, an asset name not used elsewhere in tests
+      // ("TEST"), and SystemProgram as a stand-in pyth_feed pubkey to
+      // make explicit "this is opaque, not validated".
+      const randomUser = Keypair.generate();
+      const sig = await connection.requestAirdrop(randomUser.publicKey, LAMPORTS_PER_SOL);
       await connection.confirmTransaction(sig, "confirmed");
 
-      const [marketPda] = deriveMarketPda("ETH");
+      const [marketPda] = deriveMarketPda("TEST");
 
-      try {
-        await program.methods
-          .createMarket("ETH", REGISTRY.ETH, 0)
-          .accountsStrict({
-            creator: fakeAdmin.publicKey,
-            protocolState: protocolStatePda,
-            market: marketPda,
-            systemProgram: SystemProgram.programId,
-          })
-          .signers([fakeAdmin])
-          .rpc();
-        assert.fail("Should have thrown Unauthorized");
-      } catch (err: any) {
-        assert.include(err.toString(), "Unauthorized");
-      }
-    });
+      await program.methods
+        .createMarket("TEST", SystemProgram.programId, 0)
+        .accountsStrict({
+          creator: randomUser.publicKey,
+          protocolState: protocolStatePda,
+          market: marketPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([randomUser])
+        .rpc();
 
-    it("rejects unknown asset / wrong Pyth feed (UnknownAsset)", async () => {
-      // Asset name "XYZ" is not in the registry.
-      const [marketPda] = deriveMarketPda("XYZ");
-
-      try {
-        await program.methods
-          .createMarket("XYZ", REGISTRY.SOL, 0)
-          .accountsStrict({
-            creator: admin.publicKey,
-            protocolState: protocolStatePda,
-            market: marketPda,
-            systemProgram: SystemProgram.programId,
-          })
-          .rpc();
-        assert.fail("Should have thrown UnknownAsset");
-      } catch (err: any) {
-        assert.include(err.toString(), "UnknownAsset");
-      }
+      const market = await program.account.optionsMarket.fetch(marketPda);
+      assert.equal(market.assetName, "TEST");
+      assert.ok(market.pythFeed.equals(SystemProgram.programId));
+      assert.equal(market.assetClass, 0);
     });
 
     it("rejects lowercase asset name (InvalidAssetName)", async () => {
