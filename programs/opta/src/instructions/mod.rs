@@ -4,6 +4,7 @@
 
 pub mod create_market;
 pub mod initialize_protocol;
+pub mod migrate_pyth_feed;
 pub mod settle_expiry;
 
 // v2 shared vault instructions
@@ -21,6 +22,7 @@ pub mod withdraw_post_settlement;
 
 pub use create_market::*;
 pub use initialize_protocol::*;
+pub use migrate_pyth_feed::*;
 pub use settle_expiry::*;
 
 // v2 shared vault instructions

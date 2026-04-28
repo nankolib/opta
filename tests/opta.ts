@@ -562,4 +562,119 @@ describe("opta", () => {
       }
     });
   });
+
+  // ===========================================================================
+  // 4. migrate_pyth_feed — admin-only feed_id rotation
+  // ===========================================================================
+  // Uses BTC (not SOL) for the happy-path mutation: SOL has many downstream
+  // consumers across this file and zzz-audit-fixes.ts that depend on its
+  // current feed_id matching the SOL fixtures. BTC has no downstream
+  // consumers post-create_market, so rotating it is a safe isolated test.
+  describe("migrate_pyth_feed", () => {
+    // A new 32-byte feed_id we rotate BTC to. Non-zero, distinguishable
+    // from the original BTC mainnet feed_id so we can assert the swap.
+    const NEW_BTC_ID: number[] = Array.from(
+      Buffer.from("0".repeat(63) + "1", "hex"), // 32 bytes ending in 0x01
+    );
+
+    it("admin migrates BTC feed_id to a new value", async () => {
+      const [marketPda] = deriveMarketPda("BTC");
+
+      const before = await program.account.optionsMarket.fetch(marketPda);
+      assert.deepEqual(
+        Array.from(before.pythFeedId),
+        BTC_ID,
+        "precondition: BTC market currently holds the original mainnet feed_id",
+      );
+
+      await program.methods
+        .migratePythFeed("BTC", NEW_BTC_ID)
+        .accountsStrict({
+          admin: admin.publicKey,
+          protocolState: protocolStatePda,
+          market: marketPda,
+        })
+        .rpc();
+
+      const after = await program.account.optionsMarket.fetch(marketPda);
+      assert.deepEqual(
+        Array.from(after.pythFeedId),
+        NEW_BTC_ID,
+        "postcondition: BTC feed_id rotated to NEW_BTC_ID",
+      );
+      assert.equal(after.assetName, "BTC", "asset_name unchanged");
+      assert.equal(after.assetClass, 0, "asset_class unchanged");
+    });
+
+    it("idempotent re-call with same feed_id succeeds silently", async () => {
+      const [marketPda] = deriveMarketPda("BTC");
+
+      // BTC currently holds NEW_BTC_ID from the prior test. Re-call with
+      // the same value — must not throw.
+      await program.methods
+        .migratePythFeed("BTC", NEW_BTC_ID)
+        .accountsStrict({
+          admin: admin.publicKey,
+          protocolState: protocolStatePda,
+          market: marketPda,
+        })
+        .rpc();
+
+      const after = await program.account.optionsMarket.fetch(marketPda);
+      assert.deepEqual(
+        Array.from(after.pythFeedId),
+        NEW_BTC_ID,
+        "feed_id stays at NEW_BTC_ID (no-op re-call)",
+      );
+    });
+
+    it("rejects non-admin signer (Unauthorized)", async () => {
+      const [marketPda] = deriveMarketPda("BTC");
+
+      // Spin up a wallet that is not the protocol admin and fund it so it
+      // can pay for the transaction.
+      const fakeAdmin = Keypair.generate();
+      const sig = await provider.connection.requestAirdrop(
+        fakeAdmin.publicKey,
+        LAMPORTS_PER_SOL,
+      );
+      await provider.connection.confirmTransaction(sig, "confirmed");
+
+      try {
+        await program.methods
+          .migratePythFeed("BTC", BTC_ID) // any feed_id; gate triggers first
+          .accountsStrict({
+            admin: fakeAdmin.publicKey,
+            protocolState: protocolStatePda,
+            market: marketPda,
+          })
+          .signers([fakeAdmin])
+          .rpc();
+        assert.fail("Should have thrown Unauthorized");
+      } catch (err: any) {
+        assert.include(err.toString(), "Unauthorized");
+      }
+    });
+
+    it("rejects nonexistent market — anchor seed validation fails", async () => {
+      // "GHOST" was never registered via create_market; its market PDA is
+      // therefore uninitialized and Anchor's seed/account validation must
+      // reject the call before our handler even runs.
+      const [ghostPda] = deriveMarketPda("GHOST");
+
+      try {
+        await program.methods
+          .migratePythFeed("GHOST", NEW_BTC_ID)
+          .accountsStrict({
+            admin: admin.publicKey,
+            protocolState: protocolStatePda,
+            market: ghostPda,
+          })
+          .rpc();
+        assert.fail("Should have thrown — market does not exist");
+      } catch (err: any) {
+        assert.ok(err, "anchor must reject the call");
+      }
+    });
+  });
 });

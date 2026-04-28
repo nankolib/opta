@@ -661,3 +661,89 @@ No new variants. All failure modes propagate via existing types:
 
 Neither can begin until create_market has its Pyth Pull shape
 locked.
+
+---
+
+## Stage P3 — `migrate_pyth_feed` admin instruction (2026-04-28)
+
+A one-shot admin-only instruction to rotate the `pyth_feed_id` on an
+existing `OptionsMarket`. Intended for the rare case where Pyth retires
+or re-issues a feed (e.g. asset re-listing). 99% of the time this
+instruction is never called; markets are immutable in practice.
+
+### Why this exists
+
+Stage P2 made `OptionsMarket.pyth_feed_id` the single source of truth for
+which Pyth feed `settle_expiry` consumes. Without a migration path, a
+feed retirement upstream would orphan every market for that asset.
+
+### What changed
+
+- `programs/opta/src/instructions/migrate_pyth_feed.rs` (new ~75 lines):
+  - Handler `handle_migrate_pyth_feed(ctx, asset_name, new_pyth_feed_id)`.
+  - Admin gate: `require_keys_eq!(admin.key(), protocol_state.admin,
+    OptaError::Unauthorized)`. Reuses the existing `Unauthorized`
+    variant — no new error code.
+  - Idempotent: if `market.pyth_feed_id == new_pyth_feed_id`, returns
+    `Ok(())` silently. Otherwise overwrites and logs the rotation.
+  - No `PriceUpdateV2` in context — pure registry mutation, no oracle
+    consultation. The next `settle_expiry` call picks up the new
+    feed_id naturally.
+- `programs/opta/src/instructions/mod.rs`: added `pub mod
+  migrate_pyth_feed;` and `pub use migrate_pyth_feed::*;` alongside
+  `settle_expiry`.
+- `programs/opta/src/lib.rs`: added the dispatch wrapper after
+  `settle_expiry` (~10 lines).
+- IDL regenerated and copied to `app/src/idl/{opta.json,opta.ts}`
+  (frontend wiring follows in Stage P4).
+
+### Test changes
+
+`tests/opta.ts`: new `describe("migrate_pyth_feed")` block placed AFTER
+`settle_expiry` so SOL-dependent tests run first against an unrotated
+feed_id. Four tests:
+
+1. Admin migrates BTC feed_id to a new value (verifies pre/postcondition
+   on `OptionsMarket.pythFeedId`).
+2. Idempotent re-call with same feed_id (no-op, `Ok` silently).
+3. Rejects non-admin signer — funds a fresh `Keypair`, expects
+   `Unauthorized`.
+4. Rejects nonexistent market — passes a `GHOST` PDA that was never
+   initialized; Anchor's account validation rejects before the handler
+   runs.
+
+BTC was chosen for the happy-path mutation because no other test
+in the suite reads BTC's `pyth_feed_id` after creation. SOL, by
+contrast, has dependent tests in both `opta.ts::settle_expiry` and
+`zzz-audit-fixes.ts` that would break if rotated.
+
+### Tooling tweak
+
+`tests/_write_fixtures.ts` updated:
+
+- Now accepts `outDir` from `process.argv[2]` or `OPTA_FIXTURE_DIR`
+  env var (default `/tmp`). Mitigates WSL2 auto-clearing `/tmp`
+  between sessions — fixtures can live in `~/.opta_fixtures` instead.
+- CLI body wrapped in `if (require.main === module) { ... }` because
+  ts-mocha globs `tests/**/*.ts` and imports this file before tests
+  run; without the guard the import would try to write fixtures into
+  `mocha`'s argv[2] (which is `--require`) and crash the suite.
+
+### What did NOT change
+
+- `state/market.rs` — `pyth_feed_id` field shape unchanged.
+- `errors.rs` — no new variants (reuses `Unauthorized`).
+- `Cargo.toml` / `package.json` — no new deps.
+- All other instructions — untouched.
+- Frontend — Stage P4 (still broken since P1).
+
+### Verification
+
+- 77 tests passing (was 73; +4 from new `migrate_pyth_feed` block).
+- anchor build green.
+
+### Next session preview (Stage P4)
+
+- Frontend rebuild for new IDL shape: NewMarketModal,
+  useWriteSubmit, useFetchAccounts, read-side files. ~30-40 edits.
+- Stage P5: deploy to devnet + reseed + update HANDOFF.md.

@@ -1002,6 +1002,102 @@
       "args": []
     },
     {
+      "name": "migrate_pyth_feed",
+      "docs": [
+        "Rotate the Pyth Pull feed_id stored on an existing OptionsMarket.",
+        "Admin-only; idempotent on same feed_id; overwrites on different.",
+        "No oracle call — only mutates registry metadata."
+      ],
+      "discriminator": [
+        30,
+        207,
+        203,
+        67,
+        14,
+        109,
+        162,
+        226
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Must match `protocol_state.admin`. Verified in the handler."
+          ],
+          "signer": true
+        },
+        {
+          "name": "protocol_state",
+          "docs": [
+            "Global ProtocolState — read-only here, used to verify the admin key."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "docs": [
+            "The market whose Pyth feed_id is being rotated. PDA seeds enforce",
+            "existence — passing an unknown asset_name fails seed validation",
+            "(AccountNotInitialized)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "asset_name"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "asset_name",
+          "type": "string"
+        },
+        {
+          "name": "new_pyth_feed_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "mint_from_vault",
       "docs": [
         "Mint Living Option Tokens from a shared vault using writer's collateral share."

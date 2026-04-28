@@ -57,6 +57,19 @@ pub mod opta {
         instructions::settle_expiry::handle_settle_expiry(ctx, asset_name, expiry)
     }
 
+    /// Rotate the Pyth Pull feed_id stored on an existing OptionsMarket.
+    /// Admin-only; idempotent on same feed_id; overwrites on different.
+    /// No oracle call — only mutates registry metadata.
+    pub fn migrate_pyth_feed(
+        ctx: Context<MigratePythFeed>,
+        asset_name: String,
+        new_pyth_feed_id: [u8; 32],
+    ) -> Result<()> {
+        instructions::migrate_pyth_feed::handle_migrate_pyth_feed(
+            ctx, asset_name, new_pyth_feed_id,
+        )
+    }
+
     // =========================================================================
     // v2 Shared Vault instructions
     // =========================================================================
