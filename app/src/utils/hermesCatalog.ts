@@ -21,7 +21,11 @@
 // =============================================================================
 
 const HERMES_BASE = "https://hermes-beta.pyth.network";
-const CATALOG_PATH = "/v2/price_feeds?asset_type=all";
+// Bare `/v2/price_feeds` returns the full multi-class catalog. Hermes
+// REJECTS `?asset_type=all` with HTTP 400 — `all` is not a valid variant.
+// Valid variants are: crypto, fx, equity, metal, rates, commodities,
+// crypto_redemption_rate, crypto_index, crypto_nav, eco, kalshi.
+const CATALOG_PATH = "/v2/price_feeds";
 const CACHE_KEY = "opta:hermes-catalog-beta";
 const FETCH_TIMEOUT_MS = 3000;
 const DEFAULT_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
@@ -215,7 +219,7 @@ export async function getCatalog(
     const entries = await fetchCatalog();
     writeCache(entries);
     return { entries, isStale: false, lastRefresh: Date.now() };
-  } catch (err) {
+  } catch (err: any) {
     if (cached) {
       console.warn("[hermesCatalog] live fetch failed, returning cache:", err);
       return {
@@ -224,8 +228,11 @@ export async function getCatalog(
         lastRefresh: cached.timestamp,
       };
     }
+    // Cold-start no-cache path. Log loudly so DevTools shows the actual
+    // network failure instead of leaving the modal looking like it hung.
+    console.error("[hermesCatalog] fetch failed (no cache):", err);
     throw new Error(
-      "Hermes unreachable, no cached catalog. Use Advanced → paste feed_id hex.",
+      `Hermes unreachable, no cached catalog (${err?.message ?? "unknown"}). Use Advanced → paste feed_id hex.`,
     );
   }
 }

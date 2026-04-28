@@ -747,3 +747,60 @@ contrast, has dependent tests in both `opta.ts::settle_expiry` and
 - Frontend rebuild for new IDL shape: NewMarketModal,
   useWriteSubmit, useFetchAccounts, read-side files. ~30-40 edits.
 - Stage P5: deploy to devnet + reseed + update HANDOFF.md.
+
+---
+
+## Operational issue logged 2026-04-28 — Solana public devnet RPC rate-limiting
+
+During the P4c smoke test the public devnet endpoint
+`https://api.devnet.solana.com` returned HTTP 429 (rate-limited) on
+several `getProgramAccounts` calls fired by `safeFetchAll`. The frontend
+currently has no retry / fallback wired, so a 429 surfaces as a
+load-time fetch failure (Markets/Trade/Portfolio show empty rows).
+
+**Not blocking P4d.** Documenting here so we pick a remediation in P4e
+or P5 before any public demo.
+
+### Remediation options (one decision needed)
+
+1. **Switch the default RPC endpoint.** Helius, QuickNode, and Alchemy
+   all hand out devnet endpoints with much higher limits on free tier.
+   Lowest-effort fix — change one URL in the provider config and add
+   the API key as a Vercel env var. Trade-off: introduces an external
+   service dependency the user has to provision.
+
+2. **Add exponential-backoff retry.** Wrap `safeFetchAll`'s
+   `connection.getProgramAccounts` call in a retry loop that re-attempts
+   on 429 with a small backoff (e.g. 250ms → 500ms → 1s → give up after
+   3 tries). Keeps the public RPC, just makes us a friendlier consumer.
+   Trade-off: slower load when limits are hit; doesn't help under
+   sustained load.
+
+3. **Reduce concurrent RPC calls.** Today every page that needs both
+   markets + positions + vaults + vault mints fires those concurrently
+   via `Promise.all`. Serializing or batching them via `getMultipleAccountsInfo`
+   would cut RPC load. Trade-off: more invasive refactor across multiple
+   hooks; partial benefit only.
+
+Recommended pairing: **(1) + (2)**. Switch to a free-tier provider for
+demo reliability, keep retry logic as a backstop. Park option (3) for
+when we're at production scale.
+
+---
+
+## Stage P4c hotfix 2026-04-28 — Hermes-Beta catalog URL
+
+The P4b catalog fetch used `/v2/price_feeds?asset_type=all`, which
+Hermes rejects with HTTP 400 (`"all"` is not a valid asset_type variant
+— Hermes recognises `crypto`, `fx`, `equity`, `metal`, `rates`,
+`commodities`, `crypto_redemption_rate`, `crypto_index`, `crypto_nav`,
+`eco`, `kalshi`). Phase 0 never live-probed this exact URL, so the bug
+landed unnoticed until the P4c smoke test.
+
+**Fix:** drop the query parameter entirely; bare `/v2/price_feeds`
+returns the full multi-class catalog with the same response shape
+`parseEntries` already handles. Plus added a `console.error` on the
+cold-start no-cache failure path so DevTools shows the underlying
+network error instead of leaving the modal looking hung.
+
+Single-file change to `app/src/utils/hermesCatalog.ts`.
