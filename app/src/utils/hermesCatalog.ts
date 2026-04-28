@@ -36,7 +36,7 @@ const CATALOG_PATH = "/v2/price_feeds";
 // parser (which dropped ALL FX pairs to a few colliding tickers and
 // rejected hyphenated equity tickers + the 5 unmapped asset_type variants).
 const CACHE_KEY = "opta:hermes-catalog-beta-v2";
-const FETCH_TIMEOUT_MS = 3000;
+const FETCH_TIMEOUT_MS = 15000;
 const DEFAULT_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
 
 const ETF_TICKERS = new Set([
