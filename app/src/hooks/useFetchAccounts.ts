@@ -23,11 +23,14 @@ const DISCRIMINATORS: Record<string, number[]> = {
   writerPosition: [195, 252, 56, 77, 221, 13, 8, 69],
   vaultMint: [219, 139, 146, 175, 62, 90, 224, 254],
   epochConfig: [190, 66, 87, 197, 214, 153, 144, 193],
+  // Stage P2 — per-(asset, expiry) settlement record
+  settlementRecord: [172, 159, 67, 74, 96, 85, 37, 205],
 };
 
 export type AccountName =
   | "optionsMarket" | "optionPosition" | "protocolState"
-  | "sharedVault" | "writerPosition" | "vaultMint" | "epochConfig";
+  | "sharedVault" | "writerPosition" | "vaultMint" | "epochConfig"
+  | "settlementRecord";
 
 export async function safeFetchAll<T>(
   program: Program<any>,

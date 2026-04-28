@@ -804,3 +804,54 @@ cold-start no-cache failure path so DevTools shows the underlying
 network error instead of leaving the modal looking hung.
 
 Single-file change to `app/src/utils/hermesCatalog.ts`.
+
+---
+
+## Stage P4d — Permissionless settle button (2026-04-29)
+
+Replaced the broken admin-only `settleMarket(price)` flow with a
+permissionless Pyth Pull settle button on the Portfolio page. Clicking
+"Settle" on any expired (asset, expiry) tuple submits an atomic tx
+that posts a fresh Hermes `PriceUpdateV2` and calls `settle_expiry`
+to create the canonical `SettlementRecord` PDA. The same click then
+fires N batched `settle_vault` IXs (chunked at 5 per tx) to flip
+every vault's `is_settled` flag.
+
+The client-side `settle_vault` batching is the **temporary manual
+replacement for the not-yet-built crank bot**. Once a crank exists
+(post-Colosseum), Phase 2 of `settleAllForExpiry` becomes redundant —
+the crank watches for `SettlementRecord` events and fires
+`settle_vault` per vault in the background. Phase 1 (the atomic
+Pyth tx) stays user-triggered either way.
+
+Resume path: if the atomic tx already ran on a previous attempt
+(`SettlementRecord` exists but some vaults still have
+`is_settled = false` due to a partial-failure mid-batch), clicking
+"Settle" again skips Phase 1 and only runs Phase 2 against the
+remaining stuck vaults. The confirmation modal heading flips from
+"Settled" to "Resumed" in that case.
+
+Files touched:
+
+- NEW `app/src/utils/pythPullPost.ts` (~270 lines): Pyth SDK wrapper
+  around `addPostPriceUpdates` (atomic via `closeUpdateAccounts: true`),
+  plus the `settleAllForExpiry` orchestrator.
+- REWRITE `app/src/components/portfolio/AdminTools.tsx`: dropped admin
+  gate, dropped manual price input, dropped loss-color "danger zone"
+  framing. Tuple-grouped UI with post-click confirmation modal.
+- RENAME `app/src/pages/portfolio/AdminToolsSection.tsx` →
+  `SettleExpiriesSection.tsx`: dropped `protocolState.admin` gate;
+  section title now "Settle expired markets".
+- MODIFY `app/src/pages/portfolio/PortfolioPage.tsx`: eager
+  `safeFetchAll` for `settlementRecord` accounts; pass to renamed
+  section.
+- MODIFY `app/src/hooks/useFetchAccounts.ts`: added
+  `settlementRecord` to the discriminator hardcode and `AccountName`
+  union (discriminator: `[172, 159, 67, 74, 96, 85, 37, 205]` =
+  `sha256("account:SettlementRecord")[..8]`).
+- New npm dep: `@pythnetwork/pyth-solana-receiver` `0.14.0` (exact
+  pin via `-E`).
+
+Known minor UX: while the confirmation modal is open, other "Settle"
+buttons in the list remain technically clickable through the
+overlay. Not blocking; deferred to P4e polish.

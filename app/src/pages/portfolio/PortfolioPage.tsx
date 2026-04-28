@@ -18,7 +18,7 @@ import { SummaryBand, type SummaryCell } from "./SummaryBand";
 import { OpenPositionsSection } from "./OpenPositionsSection";
 import { ClosedPositionsSection } from "./ClosedPositionsSection";
 import { ResaleModal } from "./ResaleModal";
-import { AdminToolsSection } from "./AdminToolsSection";
+import { SettleExpiriesSection } from "./SettleExpiriesSection";
 import { buildPositions, type Position, type PositionAction } from "./positions";
 import { usePortfolioActions } from "./usePortfolioActions";
 
@@ -59,6 +59,9 @@ export const PortfolioPage: FC = () => {
   const { program } = useProgram();
   const [positionsRaw, setPositionsRaw] = useState<PositionAccount[]>([]);
   const [markets, setMarkets] = useState<MarketAccount[]>([]);
+  const [settlementRecords, setSettlementRecords] = useState<
+    { publicKey: PublicKey; account: any }[]
+  >([]);
   const [heldBalances, setHeldBalances] = useState<Map<string, number>>(new Map());
   const [denomination, setDenomination] = useState<Denomination>("USDC");
   const [resaleTarget, setResaleTarget] = useState<Position | null>(null);
@@ -80,12 +83,16 @@ export const PortfolioPage: FC = () => {
   const refetchAll = useCallback(async () => {
     if (!program) return;
     try {
-      const [posns, mkts] = await Promise.all([
+      const [posns, mkts, settles] = await Promise.all([
         safeFetchAll(program, "optionPosition"),
         safeFetchAll(program, "optionsMarket"),
+        safeFetchAll(program, "settlementRecord"),
       ]);
       setPositionsRaw(posns as PositionAccount[]);
       setMarkets(mkts as MarketAccount[]);
+      setSettlementRecords(
+        settles as { publicKey: PublicKey; account: any }[],
+      );
       if (publicKey) {
         const accts = await program.provider.connection.getTokenAccountsByOwner(publicKey, {
           programId: TOKEN_2022_PROGRAM_ID,
@@ -341,7 +348,12 @@ export const PortfolioPage: FC = () => {
               onAction={handleAction}
               busyId={actions.busyId}
             />
-            <AdminToolsSection markets={markets} onRefetch={refetchAll} />
+            <SettleExpiriesSection
+              vaults={vaults}
+              markets={markets}
+              settlementRecords={settlementRecords}
+              onRefetch={refetchAll}
+            />
           </>
         )}
 

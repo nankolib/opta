@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
+    "@pythnetwork/pyth-solana-receiver": "0.14.0",
     "@solana/spl-token": "^0.4.14",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-react": "^0.15.39",
@@ -28,6 +29,10 @@
     "rehype-slug": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "tailwindcss": "^4.2.2"
+  },
+  "overrides": {
+    "rpc-websockets": "9.3.7",
+    "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
