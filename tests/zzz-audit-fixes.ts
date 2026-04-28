@@ -33,6 +33,15 @@ import { assert } from "chai";
 import BN from "bn.js";
 
 // =============================================================================
+// Asset registry — must match programs/opta/src/instructions/create_market.rs
+// All audit-fix tests use SOL with strike differentiation per the Stage 4
+// "SOL-for-all in zzz-audit-fixes" decision.
+// =============================================================================
+const REGISTRY = {
+  SOL:  new PublicKey("J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"),
+};
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -94,19 +103,28 @@ describe("audit-fixes", () => {
     );
   }
 
+  // Stage 2: Market PDA is asset-only. Strike/expiry/optionType are now
+  // ignored here (kept in signature for API compatibility — every call
+  // resolves to the same per-asset Market PDA).
   function deriveMarketPda(
     assetName: string,
-    strike: BN,
-    expiry: BN,
-    optionTypeIndex: number,
+    _strike?: BN,
+    _expiry?: BN,
+    _optionTypeIndex?: number,
   ): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(assetName)],
+      program.programId,
+    );
+  }
+
+  // Stage 3: SettlementRecord PDA seeds.
+  function deriveSettlementPda(assetName: string, expiry: BN): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
       [
-        Buffer.from("market"),
+        Buffer.from("settlement"),
         Buffer.from(assetName),
-        strike.toArrayLike(Buffer, "le", 8),
         expiry.toArrayLike(Buffer, "le", 8),
-        Buffer.from([optionTypeIndex]),
       ],
       program.programId,
     );
@@ -212,13 +230,13 @@ describe("audit-fixes", () => {
     try {
       const existingProtocol = await program.account.protocolState.fetch(protocolStatePda);
       usdcMint = existingProtocol.usdcMint;
-    } catch (e) {
+    } catch (e: any) {
       // Protocol doesn't exist yet — create
       usdcMint = await createMint(
         connection, payer, payer.publicKey, null, 6,
         undefined, undefined, TOKEN_PROGRAM_ID,
       );
-      await program.methods
+      await (program as any).methods
         .initializeProtocol()
         .accounts({
           admin: payer.publicKey,
@@ -236,8 +254,8 @@ describe("audit-fixes", () => {
     // Ensure epoch config exists
     try {
       await program.account.epochConfig.fetch(epochConfigPda);
-    } catch (e) {
-      await program.methods
+    } catch (e: any) {
+      await (program as any).methods
         .initializeEpochConfig(5, 8, true)
         .accounts({
           admin: payer.publicKey,
@@ -289,25 +307,38 @@ describe("audit-fixes", () => {
     // Short expiry
     const expiry = new BN(Math.floor(Date.now() / 1000) + opts.expirySeconds);
 
-    // Create market
-    const [marketPda] = deriveMarketPda(opts.assetName, opts.strike, expiry, opts.optionTypeIndex);
-    await program.methods
-      .createMarket(opts.assetName, opts.strike, expiry, opts.optionType, Keypair.generate().publicKey, 0)
-      .accounts({
-        admin: payer.publicKey,
-        protocolState: protocolStatePda,
-        market: marketPda,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([payer])
-      .rpc();
+    // Stage 4: SOL-for-all in audit-fix tests with strike differentiation
+    // per describe block. opts.assetName is preserved for log clarity but
+    // ignored for on-chain identity — every test uses the SOL Market PDA.
+    const onChainAssetName = "SOL";
+    const onChainPythFeed = REGISTRY.SOL;
+    if (opts.assetName !== onChainAssetName) {
+      console.log(`    (test label "${opts.assetName}" → on-chain SOL with strike $${opts.strike.toNumber() / 1_000_000})`);
+    }
+
+    // Create market — Stage 2 idempotent. First describe creates; rest are no-ops.
+    const [marketPda] = deriveMarketPda(onChainAssetName);
+    try {
+      await (program as any).methods
+        .createMarket(onChainAssetName, onChainPythFeed, 0)
+        .accounts({
+          creator: payer.publicKey,
+          protocolState: protocolStatePda,
+          market: marketPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([payer])
+        .rpc();
+    } catch (e: any) {
+      // Idempotent — second call may surface "already in use"
+    }
 
     // Create vault
     const [vaultPda] = deriveSharedVaultPda(marketPda, opts.strike, expiry, opts.optionTypeIndex);
     const [vaultUsdcPda] = deriveVaultUsdcPda(vaultPda);
 
-    await program.methods
-      .createSharedVault(opts.strike, expiry, opts.optionType, { custom: {} })
+    await (program as any).methods
+      .createSharedVault(opts.strike, expiry, opts.optionType, { custom: {} }, usdcMint)
       .accounts({
         creator: writer.publicKey,
         market: marketPda,
@@ -324,7 +355,7 @@ describe("audit-fixes", () => {
 
     // Deposit
     const [writerPosPda] = deriveWriterPositionPda(vaultPda, writer.publicKey);
-    await program.methods
+    await (program as any).methods
       .depositToVault(opts.depositAmount)
       .accounts({
         writer: writer.publicKey,
@@ -349,7 +380,7 @@ describe("audit-fixes", () => {
 
     {
       const tx = new Transaction().add(EXTRA_CU);
-      const ix = await program.methods
+      const ix = await (program as any).methods
         .mintFromVault(new BN(opts.mintQuantity), opts.premiumPerContract, mintCreatedAt)
         .accounts({
           writer: writer.publicKey,
@@ -380,7 +411,7 @@ describe("audit-fixes", () => {
       );
 
       const tx = new Transaction().add(EXTRA_CU);
-      const ix = await program.methods
+      const ix = await (program as any).methods
         .purchaseFromVault(new BN(opts.buyQuantity), usdc(999_999)) // high slippage tolerance
         .accounts({
           buyer: buyer.publicKey,
@@ -414,6 +445,7 @@ describe("audit-fixes", () => {
       optionMintPda, purchaseEscrowPda, vaultMintRecordPda,
       extraAccountMetaList, hookState,
       expiry, mintCreatedAt,
+      assetName: onChainAssetName, // Stage 4: always "SOL" on-chain
     };
   }
 
@@ -445,32 +477,38 @@ describe("audit-fixes", () => {
       await sleep(12_000);
     });
 
-    it("settles market deep ITM ($250 settlement on $100 strike call)", async function () {
+    it("records SettlementRecord deep ITM ($250 on $100 strike call)", async function () {
       this.timeout(30_000);
-      // Settle market at $250 — deep ITM, payout = $150 per contract
-      await program.methods
-        .settleMarket(usdc(250))
+      // Stage 3: settle_expiry writes SettlementRecord PDA. Payout for ITM
+      // calls = $150/contract.
+      const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
+      await (program as any).methods
+        .settleExpiry(ctx.assetName, ctx.expiry, usdc(250))
         .accounts({
           admin: payer.publicKey,
           protocolState: protocolStatePda,
           market: ctx.marketPda,
+          settlementRecord: settlementPda,
+          systemProgram: SystemProgram.programId,
         })
         .signers([payer])
         .rpc();
 
-      const market = await program.account.optionsMarket.fetch(ctx.marketPda);
-      assert.isTrue(market.isSettled);
-      assert.equal(market.settlementPrice.toNumber(), usdc(250).toNumber());
+      const record = await program.account.settlementRecord.fetch(settlementPda);
+      assert.equal(record.assetName, ctx.assetName);
+      assert.equal(record.settlementPrice.toNumber(), usdc(250).toNumber());
     });
 
     it("settles vault — collateral_remaining equals total_collateral (no pre-deduction)", async function () {
       this.timeout(30_000);
-      await program.methods
+      const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
+      await (program as any).methods
         .settleVault()
         .accounts({
           authority: payer.publicKey,
           sharedVault: ctx.vaultPda,
           market: ctx.marketPda,
+          settlementRecord: settlementPda,
         })
         .signers([payer])
         .rpc();
@@ -490,7 +528,7 @@ describe("audit-fixes", () => {
       );
       const beforeBalance = await getAccount(connection, ctx.buyerUsdcAccount);
 
-      await program.methods
+      await (program as any).methods
         .exerciseFromVault(new BN(quantity))
         .accounts({
           holder: ctx.buyer.publicKey,
@@ -520,7 +558,7 @@ describe("audit-fixes", () => {
       this.timeout(30_000);
       const beforeBalance = await getAccount(connection, ctx.writerUsdcAccount);
 
-      await program.methods
+      await (program as any).methods
         .withdrawPostSettlement()
         .accounts({
           writer: ctx.writer.publicKey,
@@ -555,8 +593,8 @@ describe("audit-fixes", () => {
   // ==========================================================================
   describe("CRITICAL-01: OTM settlement — writers get everything back", () => {
     let ctx: Awaited<ReturnType<typeof setupVaultScenario>>;
-    const strike = usdc(100); // $100 strike
-    const deposit = usdc(1000);
+    const strike = usdc(110); // $110 — differentiated from ITM ($100) for vault PDA uniqueness
+    const deposit = usdc(1200); // 5 contracts × $110 × 2x = $1100 collateral required
 
     before(async function () {
       this.timeout(120_000);
@@ -576,14 +614,17 @@ describe("audit-fixes", () => {
       await sleep(12_000);
     });
 
-    it("settles market OTM ($50 settlement on $100 strike call)", async function () {
+    it("records SettlementRecord OTM ($50 on $110 strike call)", async function () {
       this.timeout(30_000);
-      await program.methods
-        .settleMarket(usdc(50))
+      const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
+      await (program as any).methods
+        .settleExpiry(ctx.assetName, ctx.expiry, usdc(50))
         .accounts({
           admin: payer.publicKey,
           protocolState: protocolStatePda,
           market: ctx.marketPda,
+          settlementRecord: settlementPda,
+          systemProgram: SystemProgram.programId,
         })
         .signers([payer])
         .rpc();
@@ -591,12 +632,14 @@ describe("audit-fixes", () => {
 
     it("settles vault OTM", async function () {
       this.timeout(30_000);
-      await program.methods
+      const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
+      await (program as any).methods
         .settleVault()
         .accounts({
           authority: payer.publicKey,
           sharedVault: ctx.vaultPda,
           market: ctx.marketPda,
+          settlementRecord: settlementPda,
         })
         .signers([payer])
         .rpc();
@@ -606,7 +649,7 @@ describe("audit-fixes", () => {
       this.timeout(30_000);
       const beforeBalance = await getAccount(connection, ctx.writerUsdcAccount);
 
-      await program.methods
+      await (program as any).methods
         .withdrawPostSettlement()
         .accounts({
           writer: ctx.writer.publicKey,
@@ -639,8 +682,8 @@ describe("audit-fixes", () => {
   // ==========================================================================
   describe("HIGH-01: withdraw_post_settlement auto-claims unclaimed premium", () => {
     let ctx: Awaited<ReturnType<typeof setupVaultScenario>>;
-    const strike = usdc(100);
-    const deposit = usdc(1000);
+    const strike = usdc(120); // $120 — differentiated for vault PDA uniqueness
+    const deposit = usdc(1300); // 5 contracts × $120 × 2x = $1200 collateral required
     const premiumPerContract = usdc(10); // $10 premium each
 
     before(async function () {
@@ -660,23 +703,28 @@ describe("audit-fixes", () => {
       console.log("    Waiting 12s for HAUTO market expiry...");
       await sleep(12_000);
 
-      // Settle market OTM so writer gets everything back
-      await program.methods
-        .settleMarket(usdc(50))
+      // Settle OTM so writer gets everything back. Stage 3: settle_expiry
+      // writes the SettlementRecord, then settle_vault reads from it.
+      const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
+      await (program as any).methods
+        .settleExpiry(ctx.assetName, ctx.expiry, usdc(50))
         .accounts({
           admin: payer.publicKey,
           protocolState: protocolStatePda,
           market: ctx.marketPda,
+          settlementRecord: settlementPda,
+          systemProgram: SystemProgram.programId,
         })
         .signers([payer])
         .rpc();
 
-      await program.methods
+      await (program as any).methods
         .settleVault()
         .accounts({
           authority: payer.publicKey,
           sharedVault: ctx.vaultPda,
           market: ctx.marketPda,
+          settlementRecord: settlementPda,
         })
         .signers([payer])
         .rpc();
@@ -696,7 +744,7 @@ describe("audit-fixes", () => {
       const beforeBalance = await getAccount(connection, ctx.writerUsdcAccount);
 
       // Withdraw post settlement WITHOUT claiming premium first
-      await program.methods
+      await (program as any).methods
         .withdrawPostSettlement()
         .accounts({
           writer: ctx.writer.publicKey,
@@ -738,7 +786,7 @@ describe("audit-fixes", () => {
     let vaultUsdcPda: PublicKey;
     let writerPosPda: PublicKey;
     let marketPda: PublicKey;
-    const strike = usdc(100);
+    const strike = usdc(130); // $130 — differentiated for vault PDA uniqueness (was MCLM)
 
     before(async function () {
       this.timeout(120_000);
@@ -763,24 +811,27 @@ describe("audit-fixes", () => {
 
       // Long expiry so we can test withdrawal before settlement
       const expiry = new BN(Math.floor(Date.now() / 1000) + 3600);
-      [marketPda] = deriveMarketPda("MCLM", strike, expiry, 0);
+      // Stage 4: SOL-for-all (was "MCLM"); idempotent createMarket.
+      [marketPda] = deriveMarketPda("SOL");
 
-      await program.methods
-        .createMarket("MCLM", strike, expiry, { call: {} }, Keypair.generate().publicKey, 0)
-        .accounts({
-          admin: payer.publicKey,
-          protocolState: protocolStatePda,
-          market: marketPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([payer])
-        .rpc();
+      try {
+        await (program as any).methods
+          .createMarket("SOL", REGISTRY.SOL, 0)
+          .accounts({
+            creator: payer.publicKey,
+            protocolState: protocolStatePda,
+            market: marketPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([payer])
+          .rpc();
+      } catch (e: any) { /* idempotent */ }
 
       [vaultPda] = deriveSharedVaultPda(marketPda, strike, expiry, 0);
       [vaultUsdcPda] = deriveVaultUsdcPda(vaultPda);
 
-      await program.methods
-        .createSharedVault(strike, expiry, { call: {} }, { custom: {} })
+      await (program as any).methods
+        .createSharedVault(strike, expiry, { call: {} }, { custom: {} }, usdcMint)
         .accounts({
           creator: writer.publicKey,
           market: marketPda,
@@ -797,7 +848,7 @@ describe("audit-fixes", () => {
 
       // Deposit $10,000
       [writerPosPda] = deriveWriterPositionPda(vaultPda, writer.publicKey);
-      await program.methods
+      await (program as any).methods
         .depositToVault(usdc(10_000))
         .accounts({
           writer: writer.publicKey,
@@ -822,7 +873,7 @@ describe("audit-fixes", () => {
 
       {
         const tx = new Transaction().add(EXTRA_CU);
-        const ix = await program.methods
+        const ix = await (program as any).methods
           .mintFromVault(new BN(5), usdc(5), mintCreatedAt)
           .accounts({
             writer: writer.publicKey,
@@ -853,7 +904,7 @@ describe("audit-fixes", () => {
 
       {
         const tx = new Transaction().add(EXTRA_CU);
-        const ix = await program.methods
+        const ix = await (program as any).methods
           .purchaseFromVault(new BN(3), usdc(999_999))
           .accounts({
             buyer: buyer.publicKey,
@@ -882,7 +933,7 @@ describe("audit-fixes", () => {
       }
 
       // Burn unsold (2 remaining)
-      await program.methods
+      await (program as any).methods
         .burnUnsoldFromVault()
         .accounts({
           writer: writer.publicKey,
@@ -911,7 +962,7 @@ describe("audit-fixes", () => {
       // Try to withdraw free collateral (writer has 3 options minted * $200 = $600 committed)
       // Free = $10,000 - $600 = $9,400 — try to withdraw a small amount
       try {
-        await program.methods
+        await (program as any).methods
           .withdrawFromVault(usdc(100)) // withdraw 100 shares (small amount)
           .accounts({
             writer: writer.publicKey,
@@ -925,7 +976,7 @@ describe("audit-fixes", () => {
           .signers([writer])
           .rpc();
         assert.fail("Should have failed with ClaimPremiumFirst");
-      } catch (e) {
+      } catch (e: any) {
         assert.include(e.toString(), "ClaimPremiumFirst",
           "MEDIUM-01: withdraw_from_vault should require premium claimed first");
       }
@@ -935,7 +986,7 @@ describe("audit-fixes", () => {
       this.timeout(30_000);
 
       // Step 1: Claim premium
-      await program.methods
+      await (program as any).methods
         .claimPremium()
         .accounts({
           writer: writer.publicKey,
@@ -952,7 +1003,7 @@ describe("audit-fixes", () => {
       // Step 2: Now withdraw should succeed
       const beforeBalance = await getAccount(connection, writerUsdcAccount);
 
-      await program.methods
+      await (program as any).methods
         .withdrawFromVault(usdc(100))
         .accounts({
           writer: writer.publicKey,
@@ -989,7 +1040,7 @@ describe("audit-fixes", () => {
     let vaultMintRecordPda: PublicKey;
     let extraAccountMetaList: PublicKey;
     let hookState: PublicKey;
-    const strike = usdc(100);
+    const strike = usdc(140); // $140 — differentiated for vault PDA uniqueness (was PREM)
 
     before(async function () {
       this.timeout(120_000);
@@ -1013,24 +1064,27 @@ describe("audit-fixes", () => {
       await mintTo(connection, payer, usdcMint, buyerUsdcAccount, payer, 100_000_000_000);
 
       const expiry = new BN(Math.floor(Date.now() / 1000) + 3600);
-      [marketPda] = deriveMarketPda("PREM", strike, expiry, 0);
+      // Stage 4: SOL-for-all (was "PREM"); idempotent createMarket.
+      [marketPda] = deriveMarketPda("SOL");
 
-      await program.methods
-        .createMarket("PREM", strike, expiry, { call: {} }, Keypair.generate().publicKey, 0)
-        .accounts({
-          admin: payer.publicKey,
-          protocolState: protocolStatePda,
-          market: marketPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([payer])
-        .rpc();
+      try {
+        await (program as any).methods
+          .createMarket("SOL", REGISTRY.SOL, 0)
+          .accounts({
+            creator: payer.publicKey,
+            protocolState: protocolStatePda,
+            market: marketPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([payer])
+          .rpc();
+      } catch (e: any) { /* idempotent */ }
 
       [vaultPda] = deriveSharedVaultPda(marketPda, strike, expiry, 0);
       [vaultUsdcPda] = deriveVaultUsdcPda(vaultPda);
 
-      await program.methods
-        .createSharedVault(strike, expiry, { call: {} }, { custom: {} })
+      await (program as any).methods
+        .createSharedVault(strike, expiry, { call: {} }, { custom: {} }, usdcMint)
         .accounts({
           creator: writer.publicKey,
           market: marketPda,
@@ -1047,7 +1101,7 @@ describe("audit-fixes", () => {
 
       // Step 1: Writer deposits 100 USDC
       [writerPosPda] = deriveWriterPositionPda(vaultPda, writer.publicKey);
-      await program.methods
+      await (program as any).methods
         .depositToVault(usdc(100))
         .accounts({
           writer: writer.publicKey,
@@ -1075,27 +1129,30 @@ describe("audit-fixes", () => {
       // Redesign: use $10 strike so 2x collateral = $20/contract. $100 deposit = max 5 contracts.
       // But the market is already created with $100 strike. We need a new market.
 
-      // Create a new market with $10 strike
+      // Create a new vault with $10 strike on the SOL market (asset-only PDA).
       const smallStrike = usdc(10);
       const expiry = new BN(Math.floor(Date.now() / 1000) + 3600);
-      const [mktPda] = deriveMarketPda("PRMS", smallStrike, expiry, 0);
+      // Stage 4: SOL-for-all (was "PRMS"); idempotent createMarket.
+      const [mktPda] = deriveMarketPda("SOL");
 
-      await program.methods
-        .createMarket("PRMS", smallStrike, expiry, { call: {} }, Keypair.generate().publicKey, 0)
-        .accounts({
-          admin: payer.publicKey,
-          protocolState: protocolStatePda,
-          market: mktPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([payer])
-        .rpc();
+      try {
+        await (program as any).methods
+          .createMarket("SOL", REGISTRY.SOL, 0)
+          .accounts({
+            creator: payer.publicKey,
+            protocolState: protocolStatePda,
+            market: mktPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([payer])
+          .rpc();
+      } catch (e: any) { /* idempotent */ }
 
       const [vPda] = deriveSharedVaultPda(mktPda, smallStrike, expiry, 0);
       const [vUsdcPda] = deriveVaultUsdcPda(vPda);
 
-      await program.methods
-        .createSharedVault(smallStrike, expiry, { call: {} }, { custom: {} })
+      await (program as any).methods
+        .createSharedVault(smallStrike, expiry, { call: {} }, { custom: {} }, usdcMint)
         .accounts({
           creator: writer.publicKey,
           market: mktPda,
@@ -1112,7 +1169,7 @@ describe("audit-fixes", () => {
 
       // Writer deposits 100 USDC → 100,000,000 shares (1:1 with micro-USDC)
       const [wPosPda] = deriveWriterPositionPda(vPda, writer.publicKey);
-      await program.methods
+      await (program as any).methods
         .depositToVault(usdc(100))
         .accounts({
           writer: writer.publicKey,
@@ -1137,7 +1194,7 @@ describe("audit-fixes", () => {
 
       {
         const tx = new Transaction().add(EXTRA_CU);
-        const ix = await program.methods
+        const ix = await (program as any).methods
           .mintFromVault(new BN(1), usdc(10), mintCreatedAt1) // $10 premium
           .accounts({
             writer: writer.publicKey,
@@ -1168,7 +1225,7 @@ describe("audit-fixes", () => {
 
       {
         const tx = new Transaction().add(EXTRA_CU);
-        const ix = await program.methods
+        const ix = await (program as any).methods
           .purchaseFromVault(new BN(1), usdc(999_999))
           .accounts({
             buyer: buyer.publicKey,
@@ -1198,7 +1255,7 @@ describe("audit-fixes", () => {
 
       // Step 3: Writer claims first round of premium
       const beforeClaim1 = await getAccount(connection, writerUsdcAccount);
-      await program.methods
+      await (program as any).methods
         .claimPremium()
         .accounts({
           writer: writer.publicKey,
@@ -1222,7 +1279,7 @@ describe("audit-fixes", () => {
       // Writer has $100 deposited, $20 committed, $80 free.
       // Withdraw 50M shares (half of 100M) = $50 withdrawal. $50 > free($80) check passes.
       const halfShares = usdc(50); // 50,000,000 shares
-      await program.methods
+      await (program as any).methods
         .withdrawFromVault(halfShares)
         .accounts({
           writer: writer.publicKey,
@@ -1251,7 +1308,7 @@ describe("audit-fixes", () => {
 
       {
         const tx = new Transaction().add(EXTRA_CU);
-        const ix = await program.methods
+        const ix = await (program as any).methods
           .mintFromVault(new BN(1), usdc(10), mintCreatedAt2) // another $10 premium option
           .accounts({
             writer: writer.publicKey,
@@ -1281,7 +1338,7 @@ describe("audit-fixes", () => {
 
       {
         const tx = new Transaction().add(EXTRA_CU);
-        const ix = await program.methods
+        const ix = await (program as any).methods
           .purchaseFromVault(new BN(1), usdc(999_999))
           .accounts({
             buyer: buyer.publicKey,
@@ -1311,7 +1368,7 @@ describe("audit-fixes", () => {
 
       // Step 6: Writer claims second round of premium
       const beforeClaim2 = await getAccount(connection, writerUsdcAccount);
-      await program.methods
+      await (program as any).methods
         .claimPremium()
         .accounts({
           writer: writer.publicKey,
@@ -1345,7 +1402,7 @@ describe("audit-fixes", () => {
   // ==========================================================================
   describe("Last writer withdrawal succeeds with premium rounding dust", () => {
     let ctx: Awaited<ReturnType<typeof setupVaultScenario>>;
-    const strike = usdc(100);
+    const strike = usdc(150); // $150 — differentiated for vault PDA uniqueness (was PRMS)
 
     before(async function () {
       this.timeout(120_000);
@@ -1364,7 +1421,7 @@ describe("audit-fixes", () => {
       });
 
       // Claim premium so the vault holds only collateral + any rounding remainder
-      await program.methods
+      await (program as any).methods
         .claimPremium()
         .accounts({
           writer: ctx.writer.publicKey,
@@ -1394,23 +1451,27 @@ describe("audit-fixes", () => {
       console.log("    Waiting 12s for DUST market expiry...");
       await sleep(12_000);
 
-      // Settle market OTM so all collateral returns
-      await program.methods
-        .settleMarket(usdc(50))
+      // Settle OTM so all collateral returns. Stage 3 settle flow.
+      const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
+      await (program as any).methods
+        .settleExpiry(ctx.assetName, ctx.expiry, usdc(50))
         .accounts({
           admin: payer.publicKey,
           protocolState: protocolStatePda,
           market: ctx.marketPda,
+          settlementRecord: settlementPda,
+          systemProgram: SystemProgram.programId,
         })
         .signers([payer])
         .rpc();
 
-      await program.methods
+      await (program as any).methods
         .settleVault()
         .accounts({
           authority: payer.publicKey,
           sharedVault: ctx.vaultPda,
           market: ctx.marketPda,
+          settlementRecord: settlementPda,
         })
         .signers([payer])
         .rpc();
@@ -1425,7 +1486,7 @@ describe("audit-fixes", () => {
 
       // Without the dust sweep fix, this would revert because close_account
       // requires exact zero balance, but 3 micro-USDC of dust remains.
-      await program.methods
+      await (program as any).methods
         .withdrawPostSettlement()
         .accounts({
           writer: ctx.writer.publicKey,

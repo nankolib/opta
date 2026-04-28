@@ -41,12 +41,19 @@ import { assert } from "chai";
 import BN from "bn.js";
 
 // =============================================================================
+// Asset registry — must match programs/opta/src/instructions/create_market.rs
+// =============================================================================
+const REGISTRY = {
+  SOL:  new PublicKey("J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"),
+  BTC:  new PublicKey("HovQMDrbAgAYPCmHVSrezcSmkMtXSSUsLDFANExrZh2J"),
+  ETH:  new PublicKey("EdVCmQ9FSPcVe5YySXDPCRmc8aDQLKJ9GvYRk4HY7y44"),
+  XAU:  new PublicKey("8y3WWjvmSmVGWVKH1rCA7VTRmuU7QbJ9axMK6JUUuCyi"),
+  AAPL: new PublicKey("5yKHAuiDWKUGRgs3s6mYGdfZjFmTfgHVDBwFBDfMuZJH"),
+};
+
+// =============================================================================
 // Helpers
 // =============================================================================
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function usdc(amount: number): BN {
   return new BN(amount * 1_000_000);
@@ -86,7 +93,10 @@ describe("shared-vaults", () => {
   let epochConfigPda: PublicKey;
   let marketPda: PublicKey;
 
-  const fakePythFeed = Keypair.generate().publicKey;
+  // Use the canonical SOL Pyth feed pubkey from the on-chain registry.
+  // Stage 2's create_market validates (asset, feed, class) against the
+  // hardcoded registry — random pubkeys revert with UnknownAsset.
+  const solPythFeed = REGISTRY.SOL;
 
   // =========================================================================
   // PDA derivation helpers
@@ -113,19 +123,28 @@ describe("shared-vaults", () => {
     );
   }
 
+  // Stage 2: Market PDA is now asset-only. Strike/expiry/optionType are
+  // ignored here (kept in the signature for API compatibility with existing
+  // call sites — every call resolves to the same per-asset Market PDA).
   function deriveMarketPda(
     assetName: string,
-    strike: BN,
-    expiry: BN,
-    optionTypeIndex: number,
+    _strike?: BN,
+    _expiry?: BN,
+    _optionTypeIndex?: number,
   ): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
+      [Buffer.from("market"), Buffer.from(assetName)],
+      program.programId,
+    );
+  }
+
+  // Stage 3: SettlementRecord PDA derivation helper.
+  function deriveSettlementPda(assetName: string, expiry: BN): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
       [
-        Buffer.from("market"),
+        Buffer.from("settlement"),
         Buffer.from(assetName),
-        strike.toArrayLike(Buffer, "le", 8),
         expiry.toArrayLike(Buffer, "le", 8),
-        Buffer.from([optionTypeIndex]),
       ],
       program.programId,
     );
@@ -263,7 +282,7 @@ describe("shared-vaults", () => {
       const existingProtocol = await program.account.protocolState.fetch(protocolStatePda);
       usdcMint = existingProtocol.usdcMint;
       protocolExists = true;
-    } catch (e) {
+    } catch (e: any) {
       // Protocol doesn't exist yet — create USDC mint and initialize
       usdcMint = await createMint(
         connection,
@@ -278,7 +297,7 @@ describe("shared-vaults", () => {
     }
 
     if (!protocolExists) {
-      await program.methods
+      await (program as any).methods
         .initializeProtocol()
         .accounts({
           admin: payer.publicKey,
@@ -328,21 +347,22 @@ describe("shared-vaults", () => {
     // Custom expiry: 2 hours from now
     customExpiry = new BN(Math.floor(Date.now() / 1000) + 7200);
 
-    // Create market
-    [marketPda] = deriveMarketPda("SOL", strike, fridayExpiry, 0);
+    // Create market (asset-only registry — Stage 2)
+    [marketPda] = deriveMarketPda("SOL");
     try {
-      await program.methods
-        .createMarket("SOL", strike, fridayExpiry, { call: {} }, fakePythFeed, 0)
+      await (program as any).methods
+        .createMarket("SOL", solPythFeed, 0)
         .accounts({
-          admin: payer.publicKey,
+          creator: payer.publicKey,
           protocolState: protocolStatePda,
           market: marketPda,
           systemProgram: SystemProgram.programId,
         })
         .signers([payer])
         .rpc();
-    } catch (e) {
-      // Might already exist
+    } catch (e: any) {
+      // Idempotent — second call is a silent Ok at the program level,
+      // but anchor may still surface "already in use" depending on cluster state.
     }
 
     // Derive vault PDAs
@@ -357,7 +377,7 @@ describe("shared-vaults", () => {
   // =========================================================================
   describe("1. Epoch Config + Vault Creation", () => {
     it("initializes epoch config (Friday 08:00 UTC)", async () => {
-      await program.methods
+      await (program as any).methods
         .initializeEpochConfig(5, 8, true) // Friday, 08:00, monthly enabled
         .accounts({
           admin: payer.publicKey,
@@ -375,8 +395,8 @@ describe("shared-vaults", () => {
     });
 
     it("creates epoch vault (valid Friday expiry)", async () => {
-      await program.methods
-        .createSharedVault(strike, fridayExpiry, { call: {} }, { epoch: {} })
+      await (program as any).methods
+        .createSharedVault(strike, fridayExpiry, { call: {} }, { epoch: {} }, usdcMint)
         .accounts({
           creator: writerA.publicKey,
           market: marketPda,
@@ -401,28 +421,29 @@ describe("shared-vaults", () => {
 
     it("creates custom vault (arbitrary future expiry)", async () => {
       // Need a separate market for custom expiry
-      const [customMarketPda] = deriveMarketPda("SOL", strike, customExpiry, 0);
+      // Stage 2: Market PDA is asset-only — same PDA as the top-level marketPda.
+      const [customMarketPda] = deriveMarketPda("SOL");
       try {
-        await program.methods
-          .createMarket("SOL", strike, customExpiry, { call: {} }, fakePythFeed, 0)
+        await (program as any).methods
+          .createMarket("SOL", solPythFeed, 0)
           .accounts({
-            admin: payer.publicKey,
+            creator: payer.publicKey,
             protocolState: protocolStatePda,
             market: customMarketPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([payer])
           .rpc();
-      } catch (e) {
-        // already exists
+      } catch (e: any) {
+        // already exists / idempotent
       }
 
       // Derive custom vault with the custom market
       [customVaultPda] = deriveSharedVaultPda(customMarketPda, strike, customExpiry, 0);
       [customVaultUsdcPda] = deriveVaultUsdcPda(customVaultPda);
 
-      await program.methods
-        .createSharedVault(strike, customExpiry, { call: {} }, { custom: {} })
+      await (program as any).methods
+        .createSharedVault(strike, customExpiry, { call: {} }, { custom: {} }, usdcMint)
         .accounts({
           creator: writerA.publicKey,
           market: customMarketPda,
@@ -444,28 +465,29 @@ describe("shared-vaults", () => {
     it("FAIL: epoch vault with non-Friday expiry", async () => {
       // Tuesday expiry
       const tuesdayExpiry = new BN(fridayExpiry.toNumber() - 3 * 86400);
-      const [badMarketPda] = deriveMarketPda("SOL", strike, tuesdayExpiry, 0);
+      // Stage 2: same Market PDA as top-level (asset-only).
+      const [badMarketPda] = deriveMarketPda("SOL");
       try {
-        await program.methods
-          .createMarket("SOL", strike, tuesdayExpiry, { call: {} }, fakePythFeed, 0)
+        await (program as any).methods
+          .createMarket("SOL", solPythFeed, 0)
           .accounts({
-            admin: payer.publicKey,
+            creator: payer.publicKey,
             protocolState: protocolStatePda,
             market: badMarketPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([payer])
           .rpc();
-      } catch (e) {
-        // might already exist
+      } catch (e: any) {
+        // already exists / idempotent
       }
 
       const [badVaultPda] = deriveSharedVaultPda(badMarketPda, strike, tuesdayExpiry, 0);
       const [badVaultUsdcPda] = deriveVaultUsdcPda(badVaultPda);
 
       try {
-        await program.methods
-          .createSharedVault(strike, tuesdayExpiry, { call: {} }, { epoch: {} })
+        await (program as any).methods
+          .createSharedVault(strike, tuesdayExpiry, { call: {} }, { epoch: {} }, usdcMint)
           .accounts({
             creator: writerA.publicKey,
             market: badMarketPda,
@@ -480,8 +502,15 @@ describe("shared-vaults", () => {
           .signers([writerA])
           .rpc();
         assert.fail("Should have failed");
-      } catch (e) {
-        assert.include(e.toString(), "InvalidEpochExpiry");
+      } catch (e: any) {
+        // Either InvalidEpochExpiry (when Tuesday is future) or ExpiryInPast
+        // (when Tuesday is in the past — depends on which weekday the test
+        // runs on). Either is a correct refusal.
+        const msg = e.toString();
+        assert.ok(
+          msg.includes("InvalidEpochExpiry") || msg.includes("ExpiryInPast"),
+          `expected InvalidEpochExpiry or ExpiryInPast, got: ${msg.slice(0, 200)}`,
+        );
       }
     });
 
@@ -492,8 +521,8 @@ describe("shared-vaults", () => {
       const [pastVaultUsdcPda] = deriveVaultUsdcPda(pastVaultPda);
 
       try {
-        await program.methods
-          .createSharedVault(strike, pastExpiry, { call: {} }, { custom: {} })
+        await (program as any).methods
+          .createSharedVault(strike, pastExpiry, { call: {} }, { custom: {} }, usdcMint)
           .accounts({
             creator: writerA.publicKey,
             market: pastMarketPda, // This market won't exist, but we hit expiry check first
@@ -508,9 +537,45 @@ describe("shared-vaults", () => {
           .signers([writerA])
           .rpc();
         assert.fail("Should have failed");
-      } catch (e) {
+      } catch (e: any) {
         // Will fail — either market doesn't exist or expiry in past
         assert.ok(e);
+      }
+    });
+
+    it("FAIL: vault with non-USDC collateral_mint (UnsupportedCollateral)", async () => {
+      // Stage 3: collateral_mint must equal protocol_state.usdc_mint.
+      // Trick: pass the real USDC mint as the `usdc_mint` account (so the
+      // account-level constraint passes) and pass a fake pubkey as the
+      // `collateral_mint` ARG (so the handler-body check fires first).
+      const fakeMint = await createMint(
+        connection, payer, payer.publicKey, null, 6,
+        undefined, undefined, TOKEN_PROGRAM_ID,
+      );
+      // Use a unique strike to avoid PDA collision with the epoch vault.
+      const altStrike = usdc(123);
+      const [altVaultPda] = deriveSharedVaultPda(marketPda, altStrike, fridayExpiry, 0);
+      const [altVaultUsdcPda] = deriveVaultUsdcPda(altVaultPda);
+
+      try {
+        await (program as any).methods
+          .createSharedVault(altStrike, fridayExpiry, { call: {} }, { epoch: {} }, fakeMint)
+          .accounts({
+            creator: writerA.publicKey,
+            market: marketPda,
+            sharedVault: altVaultPda,
+            vaultUsdcAccount: altVaultUsdcPda,
+            usdcMint,          // real USDC — account constraint passes
+            protocolState: protocolStatePda,
+            epochConfig: epochConfigPda,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([writerA])
+          .rpc();
+        assert.fail("Should have thrown UnsupportedCollateral");
+      } catch (e: any) {
+        assert.include(e.toString(), "UnsupportedCollateral");
       }
     });
   });
@@ -522,7 +587,7 @@ describe("shared-vaults", () => {
     it("Writer A deposits 10,000 USDC → gets 10,000,000,000 shares (1:1)", async () => {
       const [writerAPosPda] = deriveWriterPositionPda(epochVaultPda, writerA.publicKey);
 
-      await program.methods
+      await (program as any).methods
         .depositToVault(usdc(10_000))
         .accounts({
           writer: writerA.publicKey,
@@ -550,7 +615,7 @@ describe("shared-vaults", () => {
     it("Writer B deposits 5,000 USDC → gets proportional shares", async () => {
       const [writerBPosPda] = deriveWriterPositionPda(epochVaultPda, writerB.publicKey);
 
-      await program.methods
+      await (program as any).methods
         .depositToVault(usdc(5_000))
         .accounts({
           writer: writerB.publicKey,
@@ -576,7 +641,7 @@ describe("shared-vaults", () => {
     it("FAIL: Writer B deposits into Writer A's custom vault", async () => {
       // First, writer A deposits into custom vault to make it non-empty
       const [writerACustomPosPda] = deriveWriterPositionPda(customVaultPda, writerA.publicKey);
-      await program.methods
+      await (program as any).methods
         .depositToVault(usdc(1_000))
         .accounts({
           writer: writerA.publicKey,
@@ -594,7 +659,7 @@ describe("shared-vaults", () => {
       // Now writer B tries to deposit — should fail
       const [writerBCustomPosPda] = deriveWriterPositionPda(customVaultPda, writerB.publicKey);
       try {
-        await program.methods
+        await (program as any).methods
           .depositToVault(usdc(500))
           .accounts({
             writer: writerB.publicKey,
@@ -609,7 +674,7 @@ describe("shared-vaults", () => {
           .signers([writerB])
           .rpc();
         assert.fail("Should have failed");
-      } catch (e) {
+      } catch (e: any) {
         assert.include(e.toString(), "CustomVaultSingleWriter");
       }
     });
@@ -631,7 +696,7 @@ describe("shared-vaults", () => {
       const [hookState] = deriveHookStatePda(optionMintPda);
 
       const tx = new Transaction().add(EXTRA_CU);
-      const ix = await program.methods
+      const ix = await (program as any).methods
         .mintFromVault(new BN(10), usdc(5), mintCreatedAt) // 10 contracts at $5 premium each
         .accounts({
           writer: writerA.publicKey,
@@ -686,7 +751,7 @@ describe("shared-vaults", () => {
       );
 
       const tx = new Transaction().add(EXTRA_CU);
-      const ix = await program.methods
+      const ix = await (program as any).methods
         .purchaseFromVault(new BN(5), usdc(50)) // buy 5, max premium $50
         .accounts({
           buyer: buyer.publicKey,
@@ -737,7 +802,7 @@ describe("shared-vaults", () => {
 
       try {
         const tx = new Transaction().add(EXTRA_CU);
-        const ix = await program.methods
+        const ix = await (program as any).methods
           .mintFromVault(new BN(1000), usdc(1), bigMintCreatedAt) // 1000 contracts — way too many
           .accounts({
             writer: writerA.publicKey,
@@ -760,7 +825,7 @@ describe("shared-vaults", () => {
         tx.add(ix);
         await provider.sendAndConfirm(tx, [writerA]);
         assert.fail("Should have failed");
-      } catch (e) {
+      } catch (e: any) {
         assert.include(e.toString(), "InsufficientVaultCollateral");
       }
     });
@@ -781,7 +846,7 @@ describe("shared-vaults", () => {
 
       try {
         const tx = new Transaction().add(EXTRA_CU);
-        const ix = await program.methods
+        const ix = await (program as any).methods
           .purchaseFromVault(new BN(1), usdc(10))
           .accounts({
             buyer: writerA.publicKey,
@@ -808,7 +873,7 @@ describe("shared-vaults", () => {
         tx.add(ix);
         await provider.sendAndConfirm(tx, [writerA]);
         assert.fail("Should have failed");
-      } catch (e) {
+      } catch (e: any) {
         assert.include(e.toString(), "CannotBuyOwnOption");
       }
     });
@@ -824,7 +889,7 @@ describe("shared-vaults", () => {
 
       try {
         const tx = new Transaction().add(EXTRA_CU);
-        const ix = await program.methods
+        const ix = await (program as any).methods
           .purchaseFromVault(new BN(3), usdc(1)) // max premium $1 but 3*$5 = $15
           .accounts({
             buyer: buyer.publicKey,
@@ -851,7 +916,7 @@ describe("shared-vaults", () => {
         tx.add(ix);
         await provider.sendAndConfirm(tx, [buyer]);
         assert.fail("Should have failed");
-      } catch (e) {
+      } catch (e: any) {
         assert.include(e.toString(), "SlippageExceeded");
       }
     });
@@ -864,7 +929,7 @@ describe("shared-vaults", () => {
     it("Writer A burns 5 unsold tokens", async () => {
       const [writerAPosPda] = deriveWriterPositionPda(epochVaultPda, writerA.publicKey);
 
-      await program.methods
+      await (program as any).methods
         .burnUnsoldFromVault()
         .accounts({
           writer: writerA.publicKey,
@@ -901,7 +966,7 @@ describe("shared-vaults", () => {
 
       const beforeBalance = await getAccount(connection, writerAUsdcAccount);
 
-      await program.methods
+      await (program as any).methods
         .claimPremium()
         .accounts({
           writer: writerA.publicKey,
@@ -932,7 +997,7 @@ describe("shared-vaults", () => {
 
       const beforeBalance = await getAccount(connection, writerBUsdcAccount);
 
-      await program.methods
+      await (program as any).methods
         .claimPremium()
         .accounts({
           writer: writerB.publicKey,
@@ -958,7 +1023,7 @@ describe("shared-vaults", () => {
       const [writerAPosPda] = deriveWriterPositionPda(epochVaultPda, writerA.publicKey);
 
       try {
-        await program.methods
+        await (program as any).methods
           .claimPremium()
           .accounts({
             writer: writerA.publicKey,
@@ -972,7 +1037,7 @@ describe("shared-vaults", () => {
           .signers([writerA])
           .rpc();
         assert.fail("Should have failed");
-      } catch (e) {
+      } catch (e: any) {
         assert.include(e.toString(), "NothingToClaim");
       }
     });
@@ -989,7 +1054,7 @@ describe("shared-vaults", () => {
 
       // Writer B has 5M shares, no options minted, so all collateral is free
       // Withdraw half: 2.5M shares
-      await program.methods
+      await (program as any).methods
         .withdrawFromVault(usdc(2_500))
         .accounts({
           writer: writerB.publicKey,
@@ -1018,7 +1083,7 @@ describe("shared-vaults", () => {
       // But they deposited $10,000 so should have free collateral
       // Try to withdraw MORE than free (all shares)
       try {
-        await program.methods
+        await (program as any).methods
           .withdrawFromVault(usdc(10_000)) // All shares — but some are committed
           .accounts({
             writer: writerA.publicKey,
@@ -1032,7 +1097,7 @@ describe("shared-vaults", () => {
           .signers([writerA])
           .rpc();
         assert.fail("Should have failed");
-      } catch (e) {
+      } catch (e: any) {
         assert.include(e.toString(), "CollateralCommitted");
       }
     });
@@ -1047,21 +1112,27 @@ describe("shared-vaults", () => {
     // Since we can't easily warp time in localnet, we'll test the settle_vault
     // and exercise_from_vault logic indirectly by checking error paths.
 
-    it("FAIL: settle vault before market is settled", async () => {
+    it("FAIL: settle vault before SettlementRecord exists", async () => {
+      // Stage 3: settle_vault now reads from a SettlementRecord PDA. Calling
+      // it before settle_expiry has been called will fail at anchor's seed
+      // validation / account deserialization layer (PDA does not exist).
+      const [settlementPda] = deriveSettlementPda("SOL", fridayExpiry);
+
       try {
-        await program.methods
+        await (program as any).methods
           .settleVault()
           .accounts({
             authority: payer.publicKey,
             sharedVault: epochVaultPda,
             market: marketPda,
+            settlementRecord: settlementPda,
           })
           .signers([payer])
           .rpc();
         assert.fail("Should have failed");
-      } catch (e) {
-        // Market not settled yet
-        assert.include(e.toString(), "MarketNotSettled");
+      } catch (e: any) {
+        // Anchor reports an account-not-initialized error; exact text varies.
+        assert.ok(e, "settle_vault must revert when SettlementRecord absent");
       }
     });
 
@@ -1071,7 +1142,7 @@ describe("shared-vaults", () => {
       );
 
       try {
-        await program.methods
+        await (program as any).methods
           .exerciseFromVault(new BN(1))
           .accounts({
             holder: buyer.publicKey,
@@ -1089,7 +1160,7 @@ describe("shared-vaults", () => {
           .signers([buyer])
           .rpc();
         assert.fail("Should have failed");
-      } catch (e) {
+      } catch (e: any) {
         assert.include(e.toString(), "VaultNotSettled");
       }
     });
@@ -1098,7 +1169,7 @@ describe("shared-vaults", () => {
       const [writerAPosPda] = deriveWriterPositionPda(epochVaultPda, writerA.publicKey);
 
       try {
-        await program.methods
+        await (program as any).methods
           .withdrawPostSettlement()
           .accounts({
             writer: writerA.publicKey,
@@ -1113,7 +1184,7 @@ describe("shared-vaults", () => {
           .signers([writerA])
           .rpc();
         assert.fail("Should have failed");
-      } catch (e) {
+      } catch (e: any) {
         assert.include(e.toString(), "VaultNotSettled");
       }
     });

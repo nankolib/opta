@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD024 -->
 # Migration Log — v2-Only Refactor (Items 1+2)
 
 Tracks the structural shift from v1 P2P + v2 vaults to v2-only.
@@ -283,3 +284,133 @@ Commit: `git log --grep "stage-3"` (master)
   fails (no such Market account) → instruction reverts before handler.
 - `create_shared_vault` with non-USDC `collateral_mint`: handler
   reverts with `UnsupportedCollateral`.
+
+## Stage 4 — Tests refactor + frontend audit
+
+Date: 2026-04-28
+Commit: `git log --grep "stage-4"` (master)
+
+### What changed
+
+- Test suite refactored to v2-only. `tests/opta.ts` reduced from 2083
+  lines (95 v1 + v2 tests) to 396 lines (16 v2-only tests covering
+  `initialize_protocol`, `create_market` registry validation, and
+  `settle_expiry`). All v1 describe blocks deleted: write_option,
+  purchase_option, cancel_option, post-expiry, list_for_resale +
+  buy_resale, partial fills, Token-2022 extension verification (v1
+  flow), premium-bounds (v1 write_option bounds), pricing-pda (v1
+  initialize_pricing/update_pricing).
+- `tests/shared-vaults.ts` and `tests/zzz-audit-fixes.ts` updated
+  surgically:
+  - `deriveMarketPda` helper switched to 1-seed form (extra params kept
+    for API compatibility with existing call sites).
+  - `deriveSettlementPda` helper added.
+  - All `createMarket(...)` calls switched to 3-arg signature with the
+    real Solana Pyth feed pubkeys (`REGISTRY.SOL` from the on-chain
+    Stage 2 hardcoded registry).
+  - `admin: payer.publicKey` field renamed to `creator: payer.publicKey`
+    in createMarket account blocks.
+  - All `createSharedVault(...)` calls now pass `usdcMint` as the new
+    5th positional `collateral_mint` argument.
+  - All `settleMarket(...)` calls (4 sites) replaced with
+    `settleExpiry(assetName, expiry, price)` calls. The corresponding
+    `settleVault()` calls drop their old `protocolState` account ref
+    and add `settlementRecord` (Stage 3 SettlementRecord PDA).
+  - All zzz-audit-fixes.ts test scenarios switched to SOL-for-all per
+    Stage 4 design decision. Strike values differentiated per describe
+    block ($100 / $110 / $120 / $130 / $140 / $150) so vault PDAs stay
+    unique under the asset-only Market PDA. Two deposits bumped to
+    accommodate the new strikes (CRITICAL-01-OTM at $110 needs $1200
+    deposit for 5 contracts; HIGH-01 at $120 needs $1300).
+  - `tests/poc-C1-expire-before-settle.ts` deleted entirely (412 lines,
+    v1-only PoC).
+  - `tests/pricing.ts` and `tests/token2022-smoke.ts` unchanged — pure
+    JS / pure Token-2022 tests with no opta program calls.
+- TypeScript IDL strict-typing escape: every `program.methods` call in
+  `shared-vaults.ts` and `zzz-audit-fixes.ts` cast to
+  `(program as any).methods` to bypass anchor 0.32's strict
+  `ResolvedAccounts` typing. Pragmatic test-file workaround that
+  preserves runtime correctness; production code (frontend) will use
+  proper IDL types in Stage 5.
+- New tests added per Stage 4 plan:
+  - `create_market`: idempotent, idempotent-mismatch (AssetMismatch),
+    non-admin (Unauthorized), unknown asset (UnknownAsset), lowercase
+    name (InvalidAssetName), empty name (InvalidAssetName), second
+    asset (BTC).
+  - `settle_expiry`: pre-expiry reject (MarketNotExpired), zero-price
+    reject (InvalidSettlementPrice), non-admin reject (Unauthorized),
+    unregistered-asset reject (market PDA fails), happy-path post-expiry
+    record creation, double-settle reject (init duplicate).
+  - `create_shared_vault`: non-USDC collateral_mint reject
+    (UnsupportedCollateral) — uses real USDC for `usdc_mint` account
+    so the line-149 constraint passes, but a fake pubkey for the
+    `collateral_mint` arg so the handler-body check fires first.
+  - `settle_vault`: missing-SettlementRecord reject (anchor seed
+    validation fails before handler).
+
+### What was added
+
+- 13 net-new test cases across opta.ts (12) and shared-vaults.ts (1).
+- TS asset-registry constants in opta.ts, shared-vaults.ts, and
+  zzz-audit-fixes.ts mirroring the on-chain hardcoded list.
+- `deriveSettlementPda(assetName, expiry)` helpers in shared-vaults.ts
+  and zzz-audit-fixes.ts.
+- This file got `<!-- markdownlint-disable MD024 -->` at the very top
+  to silence the duplicate-heading warnings each stage entry produces
+  (each stage uses the same locked template — duplicates by design).
+
+### What was deleted
+
+- `tests/poc-C1-expire-before-settle.ts` entirely (v1 PoC, 412 lines).
+- ~1700 lines of v1 describe blocks from `tests/opta.ts`.
+
+### What to watch for if something breaks later
+
+- `anchor test` itself fails to start the validator on this Windows/WSL
+  setup ("Unable to get latest blockhash" — the validator initializes
+  successfully but anchor's startup-detection times out). Workaround:
+  run `solana-test-validator` manually with the BPF programs loaded,
+  then run `npx ts-mocha` directly with `ANCHOR_PROVIDER_URL` and
+  `ANCHOR_WALLET` env vars set. Documented in this entry for future
+  stages — Stage 6 deploy uses `anchor deploy` (different code path)
+  which is known to work.
+- The `(program as any).methods` casts in shared-vaults.ts and
+  zzz-audit-fixes.ts work around anchor's strict IDL typing. If the
+  IDL changes shape again (e.g. Item 4 adding new instructions), the
+  TS strictness won't catch missing/extra account fields in those
+  files. Verify against the IDL by hand or revert to typed `.accounts`
+  for new test code.
+- Asset rotation in zzz-audit-fixes.ts: every audit-fix test now uses
+  `"SOL"` on-chain. The `setupVaultScenario` helper logs the original
+  test label (e.g. "CITM") but the on-chain identity is always SOL.
+  If a future test author adds a new describe block, they must pick a
+  unique strike (≥ $160 to avoid colliding with $100-$150) to keep
+  the vault PDA unique within the same test run.
+- `Anchor.toml` `bind_address = "127.0.0.1"` and `startup_wait = 60000`
+  restored to original values after debug attempts. Neither change
+  fixed the anchor test issue. If `anchor test` is needed in the
+  future, try removing bind_address or setting startup_wait to a
+  large value (120000+).
+
+### Verification
+
+- 73 tests passing, 0 failing under the manual-validator + ts-mocha
+  workaround. Test-count breakdown:
+  - opta.ts: 16 (Stage 4 v2-only)
+  - shared-vaults.ts: 23 (Stage 3 + Stage 4 collateral_mint test)
+  - zzz-audit-fixes.ts: 13 (Stage 3 settle path + Stage 4 strike
+    differentiation)
+  - pricing.ts: 19 (unchanged)
+  - token2022-smoke.ts: 2 (unchanged)
+- Test count delta: 73 vs original 95. Reduction is entirely from v1
+  surface deletion, not from skipped tests. Every v2 path that had
+  test coverage before still has coverage; new SettlementRecord and
+  collateral_mint paths got new coverage.
+
+### Stage 5 audit deliverable
+
+`/tmp/STAGE_5_PLAN.md` produced with full file:line edit map for the
+frontend refactor. Identified ~30-40 frontend edit operations split
+into Stage 5a (IDL + write/create flows) and Stage 5b (read-side +
+portfolio). Open question flagged: AdminTools.tsx keep-or-delete
+decision needed before Stage 5b.
