@@ -522,5 +522,142 @@ Both depend on Pyth Pull being real first:
 - Item 4 v2 resale: VaultResaleListing PDA, three new instructions,
   requires settled vaults to behave cleanly.
 
+## Stage P2 — settle_expiry consumes PriceUpdateV2, permissionless
+
+Date: 2026-04-28
+Commit: `git log --grep "stage-p2"` (master)
+
+### What changed
+
+- `settle_expiry` rewritten:
+  - Drops the inline `price: u64` argument
+  - Drops the admin-only signer check — now permissionless
+  - Adds `price_update: Account<'info, PriceUpdateV2>` to the accounts
+    struct (from `pyth-solana-receiver-sdk` 1.1.0, already in Cargo.toml)
+  - Drops `protocol_state` from the accounts struct (no admin check)
+  - Renames `admin` field to `caller`
+  - Body calls `price_update.get_price_no_older_than(&clock,
+    PYTH_MAX_AGE_SECS, &market.pyth_feed_id)` which enforces (in one
+    call) feed_id match (`MismatchedFeedId`), publish_time freshness
+    (`PriceTooOld`), and verification level == Full
+    (`InsufficientVerificationLevel`)
+  - Adds `pub const PYTH_MAX_AGE_SECS: u64 = 300` at top of the file
+  - Reuses `crate::utils::solmath_bridge::pyth_price_to_usdc` to
+    normalize Pyth's `(i64 price, i32 exponent)` to USDC 6-dec u64.
+    `solmath_bridge.rs` was dead code from Stage 1; it's now
+    load-bearing again.
+
+### Test infrastructure (new)
+
+- `tests/_pyth_fixtures.ts`: deterministic Borsh serializer for
+  PriceUpdateV2 + matching deserializer (self-consistency roundtrip).
+  No new npm deps — uses Node built-ins only.
+- `tests/_write_fixtures.ts`: CLI entry point that emits 5 fixture
+  JSON files under `/tmp/pyth_*.json` and prints the
+  `--account <PUBKEY> <FILE>` arguments solana-test-validator needs.
+- `tests/opta.ts`: added a "pyth fixture roundtrip" describe block as
+  the first test. Catches Borsh layout drift in the serializer before
+  any settle_expiry test runs.
+- 5 fixtures pre-loaded at validator startup:
+  - `sol-180-fresh` (publish_time = launch-time - 30s)
+  - `sol-180-stale` (publish_time = launch-time - 400s)
+  - `btc-fresh` (BTC feed_id, used for wrong-feed test)
+  - `sol-250-fresh` (zzz CRITICAL-ITM)
+  - `sol-50-fresh` (zzz CRITICAL-OTM, HIGH-01, DUST)
+
+### Test runner workflow (new)
+
+`anchor test` is still broken on Windows/WSL (Stage 4 finding). The
+manual ts-mocha workflow now requires a fixture-write preflight:
+
+```bash
+cd /mnt/d/claude\ everything/butter_options
+
+# 1. Preflight — write 5 fixtures + capture --account args
+PYTH_ARGS=$(npx ts-node tests/_write_fixtures.ts)
+
+# 2. Launch validator with fixture --account flags + program flags
+rm -rf .anchor/test-ledger
+solana-test-validator --reset --quiet \
+  --bpf-program CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq target/deploy/opta.so \
+  --bpf-program 83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG target/deploy/opta_transfer_hook.so \
+  $PYTH_ARGS \
+  --ledger .anchor/test-ledger > /tmp/validator.log 2>&1 &
+sleep 15
+
+# 3. Run tests
+ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 \
+  ANCHOR_WALLET=/home/nanko/.config/solana/id.json \
+  npx ts-mocha -p ./tsconfig.json -t 1000000 "tests/**/*.ts"
+```
+
+The fixture file timestamps are wall-clock-relative; regenerating
+before each test run keeps the "fresh" / "stale" distinction valid.
+
+### Test changes per file
+
+- `tests/opta.ts`: settle_expiry describe rewritten end-to-end.
+  Deleted: `rejects zero price (InvalidSettlementPrice)`,
+  `rejects non-admin signer (Unauthorized)`. Added: `rejects stale
+  PriceUpdateV2 (PriceTooOld)`, `rejects wrong-feed PriceUpdateV2
+  (MismatchedFeedId)`. Plus the new fixture-roundtrip smoke test.
+- `tests/zzz-audit-fixes.ts`: 4 settleExpiry call sites updated
+  (drop price arg, swap `admin` for `caller`, drop `protocolState`,
+  add `priceUpdate` referencing the matching SOL_*_FRESH fixture).
+
+### Errors
+
+No new variants. All failure modes propagate via existing types:
+
+- `OptaError::MarketNotExpired` — pre-expiry call (unchanged)
+- `OptaError::InvalidSettlementPrice` — `price <= 0` after Pyth read
+  (rejected inside `solmath_bridge::pyth_price_to_usdc`)
+- `OptaError::MathOverflow` — exponent normalization overflow
+- `GetPriceError::PriceTooOld` (Pyth, error code 10000+) — staleness
+- `GetPriceError::MismatchedFeedId` — feed_id mismatch
+- `GetPriceError::InsufficientVerificationLevel` — partial-verification
+  rejection (only triggered if a fixture sets verification_level to
+  Partial; our fixtures all use Full)
+
+### What did NOT change
+
+- `OptionsMarket.pyth_feed_id` still `[u8; 32]` (P1 shape preserved)
+- `errors.rs` — no new variants
+- `Cargo.toml` — no new deps (Receiver SDK already there from earlier)
+- `package.json` — no new deps (fixture helper uses Node built-ins)
+- `tsconfig.json` — unchanged (BigInt literals avoided via `BigInt(...)`
+  ctor calls; ES6 target preserved)
+- All other instruction files — untouched
+- Frontend — broken since P1, fixed in P4
+
+### Verification
+
+- 73 tests passing (was 72; +1 from fixture-roundtrip smoke test).
+- anchor build green.
+
+### What to watch for if something breaks later
+
+- The fixture roundtrip smoke test runs FIRST in the suite. If it
+  fails, every settle_expiry test fails downstream — fix the
+  serializer in `_pyth_fixtures.ts` first, then re-run.
+- The Pyth Receiver SDK's `PriceUpdateV2` struct layout could change
+  in a future SDK version. If the on-chain code starts rejecting
+  fixtures even though the smoke test passes, that's the signal — the
+  serializer matches itself but no longer matches the SDK.
+- Fixture timestamps are launch-time-relative. If a test run takes
+  more than ~10 minutes (validator + fixture preflight + all tests),
+  the "fresh" fixture (-30s at launch) could drift past the 300s
+  staleness threshold by the end. Mitigation: keep test runs fast
+  (current full run is ~2 minutes).
+- `solmath_bridge.rs` was dead code from Stage 1 onward; P2 brings it
+  back to life via `pyth_price_to_usdc`. If P0's Investigation 6 was
+  wrong about the helper's correctness, the smoke test catches it.
+
+### Next session preview (Stage P3)
+
+- New `migrate_pyth_feed` admin instruction for the rare case where
+  Pyth rotates a feed_id. Single-line update of
+  `OptionsMarket.pyth_feed_id`. Admin-gated.
+
 Neither can begin until create_market has its Pyth Pull shape
 locked.

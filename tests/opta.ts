@@ -30,6 +30,12 @@ import {
 } from "@solana/spl-token";
 import { assert } from "chai";
 import BN from "bn.js";
+import {
+  fixturePubkey,
+  serializePriceUpdateV2,
+  deserializePriceUpdateV2,
+  FEED_ID_HEX,
+} from "./_pyth_fixtures";
 
 // =============================================================================
 // Asset registry — 32-byte Pyth Pull feed IDs (mainnet hex from
@@ -314,15 +320,81 @@ describe("opta", () => {
   });
 
   // ===========================================================================
-  // 3. settle_expiry — per-(asset, expiry) settlement record
+  // 3. Pyth fixture roundtrip smoke test (Stage P2)
+  // ===========================================================================
+  // First test in the suite — catches Borsh layout drift in
+  // _pyth_fixtures.ts the moment it happens. If this test fails, every
+  // downstream settle_expiry test would fail with cryptic errors; failing
+  // here gives one clear "fixture layout broken" signal.
+  describe("pyth fixture roundtrip", () => {
+    it("anchor decoder reads back every field of a serialized PriceUpdateV2", async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const fixture = {
+        feedIdHex: FEED_ID_HEX.SOL,
+        price: BigInt("18000000000"),
+        conf: BigInt("1000000"),
+        exponent: -8,
+        publishTime: BigInt(now - 30),
+        prevPublishTime: BigInt(now - 31),
+        emaPrice: BigInt("18010000000"),
+        emaConf: BigInt("999999"),
+      };
+      const body = serializePriceUpdateV2(fixture);
+
+      // Self-consistency roundtrip: deserialize via our mirror decoder and
+      // assert every field. This catches off-by-N / endianness / int-size
+      // bugs in our serializer the moment they happen. Cross-side drift
+      // (Pyth SDK changing PriceFeedMessage layout) is caught downstream
+      // by the end-to-end settle_expiry tests, which fail loudly if the
+      // program rejects fixtures of the wrong shape.
+      const decoded = deserializePriceUpdateV2(body);
+
+      // Discriminator length sanity
+      assert.equal(decoded.discriminator.length, 8);
+      // write_authority — wrote 32 zero bytes
+      assert.deepEqual(Array.from(decoded.writeAuthority), Array.from(Buffer.alloc(32, 0)));
+      // verification_level — Full = tag 1
+      assert.equal(decoded.verificationLevelTag, 1);
+      // price_message fields, every one
+      assert.deepEqual(
+        Array.from(decoded.feedId),
+        Array.from(Buffer.from(FEED_ID_HEX.SOL, "hex")),
+      );
+      assert.equal(decoded.price.toString(), fixture.price.toString());
+      assert.equal(decoded.conf.toString(), fixture.conf.toString());
+      assert.equal(decoded.exponent, fixture.exponent);
+      assert.equal(decoded.publishTime.toString(), fixture.publishTime.toString());
+      assert.equal(decoded.prevPublishTime.toString(), fixture.prevPublishTime.toString());
+      assert.equal(decoded.emaPrice.toString(), fixture.emaPrice.toString());
+      assert.equal(decoded.emaConf.toString(), fixture.emaConf.toString());
+      // posted_slot — wrote 0
+      assert.equal(decoded.postedSlot.toString(), "0");
+    });
+  });
+
+  // ===========================================================================
+  // 4. settle_expiry — per-(asset, expiry) Pyth-validated settlement record
   // ===========================================================================
   describe("settle_expiry", () => {
-    // Use unique short expiry so we can wait it out within the test.
-    const expiryWindow = 8;
-    let expiry: BN;
+    // Pre-loaded fixture pubkeys (see tests/_pyth_fixtures.ts).
+    const SOL_FRESH_PK = fixturePubkey("sol-180-fresh");
+    const SOL_STALE_PK = fixturePubkey("sol-180-stale");
+    const BTC_FRESH_PK = fixturePubkey("btc-fresh");
+
+    // Per-test unique expiry so SettlementRecord PDAs don't collide.
+    let happyExpiry: BN;
+    let staleExpiry: BN;
+    let wrongFeedExpiry: BN;
+    let doubleSettleExpiry: BN;
 
     before(() => {
-      expiry = new BN(Math.floor(Date.now() / 1000) + expiryWindow);
+      // All expiries 8 seconds out so the pre-expiry test (using a
+      // far-future stamp) is unaffected.
+      const base = Math.floor(Date.now() / 1000) + 8;
+      happyExpiry         = new BN(base + 0);
+      staleExpiry         = new BN(base + 1);
+      wrongFeedExpiry     = new BN(base + 2);
+      doubleSettleExpiry  = new BN(base + 3);
     });
 
     it("rejects pre-expiry call (MarketNotExpired)", async () => {
@@ -336,17 +408,17 @@ describe("opta", () => {
         })
         .rpc();
 
-      // Use far-future expiry — will not have elapsed yet.
+      // Far-future expiry — won't have elapsed yet.
       const farFuture = new BN(Math.floor(Date.now() / 1000) + 86400);
       const [settlementPda] = deriveSettlementPda("SOL", farFuture);
 
       try {
         await program.methods
-          .settleExpiry("SOL", farFuture, usdc(180))
+          .settleExpiry("SOL", farFuture)
           .accountsStrict({
-            admin: admin.publicKey,
-            protocolState: protocolStatePda,
+            caller: admin.publicKey,
             market: marketPda,
+            priceUpdate: SOL_FRESH_PK,
             settlementRecord: settlementPda,
             systemProgram: SystemProgram.programId,
           })
@@ -357,111 +429,128 @@ describe("opta", () => {
       }
     });
 
-    it("rejects zero price (InvalidSettlementPrice)", async () => {
-      const [marketPda] = deriveMarketPda("SOL");
-
-      // Wait for expiry
-      await sleep((expiryWindow + 2) * 1000);
-      const [settlementPda] = deriveSettlementPda("SOL", expiry);
-
-      try {
-        await program.methods
-          .settleExpiry("SOL", expiry, new BN(0))
-          .accountsStrict({
-            admin: admin.publicKey,
-            protocolState: protocolStatePda,
-            market: marketPda,
-            settlementRecord: settlementPda,
-            systemProgram: SystemProgram.programId,
-          })
-          .rpc();
-        assert.fail("Should have thrown InvalidSettlementPrice");
-      } catch (err: any) {
-        assert.include(err.toString(), "InvalidSettlementPrice");
-      }
-    });
-
-    it("rejects non-admin signer (Unauthorized)", async () => {
-      const fakeAdmin = Keypair.generate();
-      const sig = await connection.requestAirdrop(fakeAdmin.publicKey, LAMPORTS_PER_SOL);
-      await connection.confirmTransaction(sig, "confirmed");
-
-      const [marketPda] = deriveMarketPda("SOL");
-      const [settlementPda] = deriveSettlementPda("SOL", expiry);
-
-      try {
-        await program.methods
-          .settleExpiry("SOL", expiry, usdc(180))
-          .accountsStrict({
-            admin: fakeAdmin.publicKey,
-            protocolState: protocolStatePda,
-            market: marketPda,
-            settlementRecord: settlementPda,
-            systemProgram: SystemProgram.programId,
-          })
-          .signers([fakeAdmin])
-          .rpc();
-        assert.fail("Should have thrown Unauthorized");
-      } catch (err: any) {
-        assert.include(err.toString(), "Unauthorized");
-      }
-    });
-
     it("rejects unregistered asset — market PDA does not resolve", async () => {
       const [fakeMarketPda] = deriveMarketPda("XYZ");
-      const [settlementPda] = deriveSettlementPda("XYZ", expiry);
+      const [settlementPda] = deriveSettlementPda("XYZ", happyExpiry);
 
       try {
         await program.methods
-          .settleExpiry("XYZ", expiry, usdc(180))
+          .settleExpiry("XYZ", happyExpiry)
           .accountsStrict({
-            admin: admin.publicKey,
-            protocolState: protocolStatePda,
+            caller: admin.publicKey,
             market: fakeMarketPda,
+            priceUpdate: SOL_FRESH_PK,
             settlementRecord: settlementPda,
             systemProgram: SystemProgram.programId,
           })
           .rpc();
         assert.fail("Should have thrown");
       } catch (err: any) {
-        // Anchor: account does not exist for the derived market PDA
+        // Anchor: market PDA doesn't resolve to an initialized account
         assert.ok(err);
       }
     });
 
-    it("admin records settlement post-expiry", async () => {
+    it("permissionless caller settles with fresh PriceUpdateV2", async () => {
       const [marketPda] = deriveMarketPda("SOL");
-      const [settlementPda] = deriveSettlementPda("SOL", expiry);
+
+      // Wait long enough for ALL settle_expiry per-test expiries to elapse
+      // (max offset from `before()` is base+3 = now+11). 15s is safe.
+      await sleep(15_000);
+
+      const [settlementPda] = deriveSettlementPda("SOL", happyExpiry);
+
+      // Use a non-admin signer to prove permissionless.
+      const randomCaller = Keypair.generate();
+      const sig = await connection.requestAirdrop(randomCaller.publicKey, LAMPORTS_PER_SOL);
+      await connection.confirmTransaction(sig, "confirmed");
 
       await program.methods
-        .settleExpiry("SOL", expiry, usdc(180))
+        .settleExpiry("SOL", happyExpiry)
         .accountsStrict({
-          admin: admin.publicKey,
-          protocolState: protocolStatePda,
+          caller: randomCaller.publicKey,
           market: marketPda,
+          priceUpdate: SOL_FRESH_PK,
+          settlementRecord: settlementPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([randomCaller])
+        .rpc();
+
+      const record = await program.account.settlementRecord.fetch(settlementPda);
+      assert.equal(record.assetName, "SOL");
+      assert.ok(record.expiry.eq(happyExpiry));
+      // Pyth fixture: price=18_000_000_000, expo=-8 → $180.00 in USDC 6-dec.
+      assert.equal(record.settlementPrice.toString(), "180000000");
+      assert.ok(record.settledAt.toNumber() > 0);
+    });
+
+    it("rejects stale PriceUpdateV2 (PriceTooOld)", async () => {
+      const [marketPda] = deriveMarketPda("SOL");
+      const [settlementPda] = deriveSettlementPda("SOL", staleExpiry);
+
+      try {
+        await program.methods
+          .settleExpiry("SOL", staleExpiry)
+          .accountsStrict({
+            caller: admin.publicKey,
+            market: marketPda,
+            priceUpdate: SOL_STALE_PK,
+            settlementRecord: settlementPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+        assert.fail("Should have thrown PriceTooOld");
+      } catch (err: any) {
+        assert.include(err.toString(), "PriceTooOld");
+      }
+    });
+
+    it("rejects wrong-feed PriceUpdateV2 (MismatchedFeedId)", async () => {
+      const [marketPda] = deriveMarketPda("SOL");
+      const [settlementPda] = deriveSettlementPda("SOL", wrongFeedExpiry);
+
+      try {
+        await program.methods
+          .settleExpiry("SOL", wrongFeedExpiry)
+          .accountsStrict({
+            caller: admin.publicKey,
+            market: marketPda,
+            priceUpdate: BTC_FRESH_PK,  // BTC feed_id ≠ SOL feed_id
+            settlementRecord: settlementPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+        assert.fail("Should have thrown MismatchedFeedId");
+      } catch (err: any) {
+        assert.include(err.toString(), "MismatchedFeedId");
+      }
+    });
+
+    it("rejects double-settle — plain init reverts", async () => {
+      const [marketPda] = deriveMarketPda("SOL");
+      const [settlementPda] = deriveSettlementPda("SOL", doubleSettleExpiry);
+
+      // First call succeeds.
+      await program.methods
+        .settleExpiry("SOL", doubleSettleExpiry)
+        .accountsStrict({
+          caller: admin.publicKey,
+          market: marketPda,
+          priceUpdate: SOL_FRESH_PK,
           settlementRecord: settlementPda,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
 
-      const record = await program.account.settlementRecord.fetch(settlementPda);
-      assert.equal(record.assetName, "SOL");
-      assert.ok(record.expiry.eq(expiry));
-      assert.ok(record.settlementPrice.eq(usdc(180)));
-      assert.ok(record.settledAt.toNumber() > 0);
-    });
-
-    it("rejects double-settle — plain init reverts", async () => {
-      const [marketPda] = deriveMarketPda("SOL");
-      const [settlementPda] = deriveSettlementPda("SOL", expiry);
-
+      // Second call must fail (account already initialized).
       try {
         await program.methods
-          .settleExpiry("SOL", expiry, usdc(200))
+          .settleExpiry("SOL", doubleSettleExpiry)
           .accountsStrict({
-            admin: admin.publicKey,
-            protocolState: protocolStatePda,
+            caller: admin.publicKey,
             market: marketPda,
+            priceUpdate: SOL_FRESH_PK,
             settlementRecord: settlementPda,
             systemProgram: SystemProgram.programId,
           })

@@ -32,6 +32,8 @@ import {
 import { assert } from "chai";
 import BN from "bn.js";
 
+import { fixturePubkey } from "./_pyth_fixtures";
+
 // =============================================================================
 // Asset registry — 32-byte Pyth Pull feed IDs (mainnet hex from
 // scripts/pyth-feed-ids.csv). All audit-fix tests use SOL with strike
@@ -41,6 +43,10 @@ const REGISTRY = {
   SOL: Buffer.from("ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d", "hex"),
 };
 const SOL_ID = Array.from(REGISTRY.SOL);
+
+// Pre-loaded PriceUpdateV2 fixture pubkeys (see tests/_pyth_fixtures.ts).
+const SOL_250_FRESH = fixturePubkey("sol-250-fresh");
+const SOL_50_FRESH = fixturePubkey("sol-50-fresh");
 
 // =============================================================================
 // Helpers
@@ -484,11 +490,11 @@ describe("audit-fixes", () => {
       // calls = $150/contract.
       const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
       await (program as any).methods
-        .settleExpiry(ctx.assetName, ctx.expiry, usdc(250))
+        .settleExpiry(ctx.assetName, ctx.expiry)
         .accounts({
-          admin: payer.publicKey,
-          protocolState: protocolStatePda,
+          caller: payer.publicKey,
           market: ctx.marketPda,
+          priceUpdate: SOL_250_FRESH,
           settlementRecord: settlementPda,
           systemProgram: SystemProgram.programId,
         })
@@ -619,11 +625,11 @@ describe("audit-fixes", () => {
       this.timeout(30_000);
       const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
       await (program as any).methods
-        .settleExpiry(ctx.assetName, ctx.expiry, usdc(50))
+        .settleExpiry(ctx.assetName, ctx.expiry)
         .accounts({
-          admin: payer.publicKey,
-          protocolState: protocolStatePda,
+          caller: payer.publicKey,
           market: ctx.marketPda,
+          priceUpdate: SOL_50_FRESH,
           settlementRecord: settlementPda,
           systemProgram: SystemProgram.programId,
         })
@@ -704,15 +710,16 @@ describe("audit-fixes", () => {
       console.log("    Waiting 12s for HAUTO market expiry...");
       await sleep(12_000);
 
-      // Settle OTM so writer gets everything back. Stage 3: settle_expiry
-      // writes the SettlementRecord, then settle_vault reads from it.
+      // Settle OTM so writer gets everything back. Stage P2: settle_expiry
+      // reads from a fresh PriceUpdateV2 fixture; settle_vault then reads
+      // from the resulting SettlementRecord.
       const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
       await (program as any).methods
-        .settleExpiry(ctx.assetName, ctx.expiry, usdc(50))
+        .settleExpiry(ctx.assetName, ctx.expiry)
         .accounts({
-          admin: payer.publicKey,
-          protocolState: protocolStatePda,
+          caller: payer.publicKey,
           market: ctx.marketPda,
+          priceUpdate: SOL_50_FRESH,
           settlementRecord: settlementPda,
           systemProgram: SystemProgram.programId,
         })
@@ -1452,14 +1459,15 @@ describe("audit-fixes", () => {
       console.log("    Waiting 12s for DUST market expiry...");
       await sleep(12_000);
 
-      // Settle OTM so all collateral returns. Stage 3 settle flow.
+      // Settle OTM so all collateral returns. Stage P2 settle flow uses
+      // a pre-loaded PriceUpdateV2 fixture for deterministic price input.
       const [settlementPda] = deriveSettlementPda(ctx.assetName, ctx.expiry);
       await (program as any).methods
-        .settleExpiry(ctx.assetName, ctx.expiry, usdc(50))
+        .settleExpiry(ctx.assetName, ctx.expiry)
         .accounts({
-          admin: payer.publicKey,
-          protocolState: protocolStatePda,
+          caller: payer.publicKey,
           market: ctx.marketPda,
+          priceUpdate: SOL_50_FRESH,
           settlementRecord: settlementPda,
           systemProgram: SystemProgram.programId,
         })

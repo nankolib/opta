@@ -46,14 +46,15 @@ pub mod opta {
     }
 
     /// Record the canonical settlement price for an (asset, expiry) tuple
-    /// (admin-only). Permissionless `settle_vault` calls read from this.
+    /// from a Pyth Pull `PriceUpdateV2` account. Permissionless — anyone
+    /// can call once the (asset, expiry) is past expiry and a fresh Pyth
+    /// update is on-chain.
     pub fn settle_expiry(
         ctx: Context<SettleExpiry>,
         asset_name: String,
         expiry: i64,
-        price: u64,
     ) -> Result<()> {
-        instructions::settle_expiry::handle_settle_expiry(ctx, asset_name, expiry, price)
+        instructions::settle_expiry::handle_settle_expiry(ctx, asset_name, expiry)
     }
 
     // =========================================================================
