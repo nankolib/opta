@@ -1,17 +1,11 @@
 import type { FC } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useProgram } from "../../hooks/useProgram";
-import { usePythPrices } from "../../hooks/usePythPrices";
 import { showToast } from "../../components/Toast";
 import { decodeError } from "../../utils/errorDecoder";
-import {
-  applyVolSmile,
-  calculateCallPremium,
-  calculatePutPremium,
-  getDefaultVolatility,
-} from "../../utils/blackScholes";
-import { HairlineRule } from "../../components/layout";
+import { hexFromBytes, hexToBytes32 } from "../../utils/format";
 import {
   getCatalog,
   searchAssets,
@@ -24,16 +18,6 @@ type NewMarketModalProps = {
   onCreated: () => void;
 };
 
-type ExpiryPreset = "7D" | "14D" | "30D" | "FRIDAY" | "CUSTOM";
-
-const EXPIRY_PRESETS: ReadonlyArray<{ id: ExpiryPreset; label: string }> = [
-  { id: "7D", label: "7D" },
-  { id: "14D", label: "14D" },
-  { id: "30D", label: "30D" },
-  { id: "FRIDAY", label: "Next Fri" },
-  { id: "CUSTOM", label: "Custom" },
-];
-
 const ASSET_CLASS_LABEL: Record<number, string> = {
   0: "Crypto",
   1: "Commodity",
@@ -41,6 +25,12 @@ const ASSET_CLASS_LABEL: Record<number, string> = {
   3: "FX",
   4: "ETF",
 };
+
+// On-chain seed constants — must match Rust (programs/opta/src/state/).
+//   MARKET_SEED   = b"market"        (programs/opta/src/state/market.rs:65)
+//   PROTOCOL_SEED = b"protocol_v2"   (programs/opta/src/state/protocol.rs:48)
+const MARKET_SEED = "market";
+const PROTOCOL_SEED = "protocol_v2";
 
 type CatalogState =
   | { kind: "loading" }
@@ -51,18 +41,22 @@ type CatalogState =
 /**
  * Paper-aesthetic New Market modal.
  *
- * Stage P4b: asset picker is driven by a live Hermes-Beta catalog instead
- * of a hardcoded 5-asset table. Users search the catalog by ticker or
- * full Hermes symbol; an Advanced toggle lets them paste a feed_id hex
- * directly for assets the catalog can't surface (or as a fallback when
- * Hermes is unreachable). asset_name is auto-derived from the symbol but
- * remains editable; submit logic stays stubbed until P4c.
+ * Stage P4c: markets are asset-only after Stage 2 — strike/expiry/side
+ * live on Write Option, not here. The modal collects exactly three
+ * things: (asset_name, pyth_feed_id, asset_class), then calls the
+ * permissionless on-chain `create_market` instruction.
+ *
+ * Asset picker is driven by a live Hermes-Beta catalog (P4b). Submit
+ * does a pre-check via getAccountInfo to detect collisions:
+ *   - same feed_id    → succeed silently (idempotent — chain agrees)
+ *   - different feed_id → friendly error, suggest different name or admin migrate
+ *   - none yet         → submit the create_market RPC
  *
  * Esc and click-outside dismiss the modal.
  */
 export const NewMarketModal: FC<NewMarketModalProps> = ({
   onClose,
-  onCreated: _onCreated,
+  onCreated,
 }) => {
   const { program, provider } = useProgram();
   const { publicKey } = useWallet();
@@ -74,11 +68,6 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [pastedHex, setPastedHex] = useState("");
   const [pastedClass, setPastedClass] = useState<number>(0);
-
-  const [side, setSide] = useState<"call" | "put">("call");
-  const [strikeStr, setStrikeStr] = useState("");
-  const [expiryPreset, setExpiryPreset] = useState<ExpiryPreset>("7D");
-  const [customExpiry, setCustomExpiry] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   // Resolve the active (feedIdHex, assetClass) pair from either the
@@ -162,37 +151,7 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({
     return searchAssets(entries, query).slice(0, 12);
   }, [catalogState, query]);
 
-  // Live spot for the chosen feed (single-element batch).
-  const spotFeeds = useMemo(() => {
-    if (!activeFeed || !assetName) return [];
-    return [{ ticker: assetName, feedIdHex: activeFeed.feedIdHex }];
-  }, [activeFeed, assetName]);
-  const { prices } = usePythPrices(spotFeeds);
-  const spot: number = assetName ? prices[assetName] ?? 0 : 0;
-
-  const expiryUnix = useMemo(
-    () => computeExpiryUnix(expiryPreset, customExpiry),
-    [expiryPreset, customExpiry],
-  );
-
-  const strike = parseFloat(strikeStr) || 0;
-  const moneyness = useMemo(
-    () => computeMoneyness(side, spot, strike),
-    [side, spot, strike],
-  );
-
   const assetNameValid = /^[A-Z0-9]{1,16}$/.test(assetName);
-
-  const premiumPreview = useMemo(() => {
-    if (!expiryUnix || strike <= 0 || spot <= 0 || !assetName) return null;
-    const days = Math.max(0, (expiryUnix - Date.now() / 1000) / 86400);
-    if (days <= 0) return null;
-    const baseVol = getDefaultVolatility(assetName);
-    const vol = applyVolSmile(baseVol, spot, strike, assetName);
-    return side === "call"
-      ? calculateCallPremium(spot, strike, days, vol)
-      : calculatePutPremium(spot, strike, days, vol);
-  }, [assetName, side, spot, strike, expiryUnix]);
 
   const canSubmit =
     !submitting &&
@@ -200,19 +159,98 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({
     !!provider &&
     !!publicKey &&
     !!activeFeed &&
-    assetNameValid &&
-    strike > 0 &&
-    !!expiryUnix &&
-    expiryUnix > Date.now() / 1000;
+    assetNameValid;
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || !program || !provider || !publicKey || !activeFeed) return;
     setSubmitting(true);
     try {
-      // P4a stub preserved: real createMarket call lands in P4c.
-      throw new Error("Disabled until P4c — Pyth Pull migration in progress");
+      let feedIdBytes: number[];
+      try {
+        feedIdBytes = hexToBytes32(activeFeed.feedIdHex);
+      } catch (err: any) {
+        showToast({
+          type: "error",
+          title: "Invalid feed_id",
+          message: err?.message ?? "feed_id must be 64-char hex",
+        });
+        return;
+      }
+
+      const [marketPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from(MARKET_SEED), Buffer.from(assetName)],
+        program.programId,
+      );
+      const [protocolStatePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from(PROTOCOL_SEED)],
+        program.programId,
+      );
+
+      // Pre-submit collision check. Avoids burning rent + RPC on a known
+      // bad call when the asset name is already taken with a different
+      // feed_id, and lets us offer a friendlier message than the chain's
+      // raw AssetMismatch error.
+      const existing = await program.provider.connection.getAccountInfo(marketPda);
+      if (existing) {
+        const decoded = program.coder.accounts.decode<{
+          assetName: string;
+          pythFeedId: number[];
+          assetClass: number;
+        }>("optionsMarket", existing.data);
+        const existingHex = hexFromBytes(decoded.pythFeedId);
+        if (existingHex === activeFeed.feedIdHex) {
+          showToast({
+            type: "success",
+            title: "Market already exists",
+            message: `${assetName} is already registered with this feed_id.`,
+          });
+          onCreated();
+          onClose();
+          return;
+        }
+        showToast({
+          type: "error",
+          title: "Asset name taken",
+          message: `An asset named "${assetName}" already exists with a different feed_id. Pick a different name or contact admin to migrate.`,
+        });
+        return;
+      }
+
+      const tx = await program.methods
+        .createMarket(assetName, feedIdBytes, activeFeed.assetClass)
+        .accountsStrict({
+          creator: publicKey,
+          protocolState: protocolStatePda,
+          market: marketPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc({ commitment: "confirmed" });
+
+      showToast({
+        type: "success",
+        title: "Market created",
+        message: `${assetName} registered on-chain`,
+        txSignature: tx,
+      });
+      onCreated();
+      onClose();
     } catch (err: any) {
-      showToast({ type: "error", title: "Create market failed", message: decodeError(err) });
+      const decoded = decodeError(err);
+      // Race condition: another tx grabbed the PDA between our pre-check
+      // and the RPC. Surface the same friendly text the pre-check would.
+      if (typeof decoded === "string" && decoded.includes("AssetMismatch")) {
+        showToast({
+          type: "error",
+          title: "Asset name taken",
+          message: `An asset named "${assetName}" already exists with a different feed_id. Pick a different name or contact admin to migrate.`,
+        });
+      } else {
+        showToast({
+          type: "error",
+          title: "Create market failed",
+          message: decoded,
+        });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -380,92 +418,6 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({
           </Field>
         )}
 
-        {/* Side */}
-        <Field label="Side">
-          <div className="flex gap-2">
-            <SideButton active={side === "call"} onClick={() => setSide("call")}>
-              Call
-            </SideButton>
-            <SideButton active={side === "put"} onClick={() => setSide("put")}>
-              Put
-            </SideButton>
-          </div>
-        </Field>
-
-        {/* Strike */}
-        <Field label="Strike (USDC)">
-          <input
-            type="number"
-            value={strikeStr}
-            onChange={(e) => setStrikeStr(e.target.value)}
-            placeholder="0.00"
-            step="0.01"
-            min="0"
-            className="w-full bg-paper-2 border border-rule rounded-sm px-3 py-2 font-mono text-[14px] text-ink focus:outline-none focus:border-ink transition-colors duration-200"
-          />
-          {moneyness && (
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] opacity-55 mt-1.5">
-              {moneyness}
-            </div>
-          )}
-        </Field>
-
-        {/* Expiry */}
-        <Field label="Expiry">
-          <div className="flex flex-wrap gap-2 mb-2">
-            {EXPIRY_PRESETS.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setExpiryPreset(p.id)}
-                aria-pressed={expiryPreset === p.id}
-                className={`rounded-full border px-[14px] py-[6px] font-mono text-[10.5px] uppercase tracking-[0.18em] transition-colors duration-300 ease-opta ${
-                  expiryPreset === p.id
-                    ? "border-crimson text-ink"
-                    : "border-rule text-ink opacity-55 hover:opacity-100 hover:border-ink"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          {expiryPreset === "CUSTOM" && (
-            <input
-              type="datetime-local"
-              value={customExpiry}
-              onChange={(e) => setCustomExpiry(e.target.value)}
-              className="w-full bg-paper-2 border border-rule rounded-sm px-3 py-2 font-mono text-[13px] text-ink focus:outline-none focus:border-ink transition-colors duration-200"
-            />
-          )}
-          {expiryUnix && (
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] opacity-55 mt-1.5">
-              Settles {new Date(expiryUnix * 1000).toUTCString()}
-            </div>
-          )}
-        </Field>
-
-        <HairlineRule className="my-6" />
-
-        {/* Spot + Premium preview */}
-        <div className="border border-rule-soft rounded-sm p-4 mb-6 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[10.5px] uppercase tracking-[0.2em] opacity-65">
-              Spot · Hermes
-            </span>
-            <span className="font-mono text-[14px] text-ink">
-              {spot > 0 ? `$${spot.toLocaleString()}` : "—"}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[10.5px] uppercase tracking-[0.2em] opacity-65">
-              Indicative premium · B-S
-            </span>
-            <span className="font-mono text-[16px] text-ink">
-              {premiumPreview != null ? `$${premiumPreview.toFixed(4)}` : "—"}
-            </span>
-          </div>
-        </div>
-
         <div className="flex gap-3">
           <button
             type="button"
@@ -499,69 +451,10 @@ const Field: FC<{ label: string; children: React.ReactNode }> = ({ label, childr
   </div>
 );
 
-const SideButton: FC<{
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}> = ({ active, onClick, children }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    aria-pressed={active}
-    className={`flex-1 rounded-sm border py-2.5 font-mono text-[11.5px] uppercase tracking-[0.2em] transition-colors duration-300 ease-opta ${
-      active
-        ? "border-ink bg-ink text-paper"
-        : "border-rule text-ink opacity-65 hover:opacity-100 hover:border-ink"
-    }`}
-  >
-    <span className="inline-flex items-center gap-2 justify-center">
-      <span aria-hidden="true" className="inline-block w-[6px] h-[6px] rounded-full bg-crimson" />
-      {children}
-    </span>
-  </button>
-);
-
 function entriesFromState(state: CatalogState): CatalogEntry[] | null {
   if (state.kind === "fresh") return state.entries;
   if (state.kind === "stale") return state.entries;
   return null;
-}
-
-function computeExpiryUnix(preset: ExpiryPreset, customISO: string): number | null {
-  if (preset === "CUSTOM") {
-    if (!customISO) return null;
-    const ts = Math.floor(new Date(customISO).getTime() / 1000);
-    return Number.isFinite(ts) && ts > 0 ? ts : null;
-  }
-  const now = Math.floor(Date.now() / 1000);
-  if (preset === "7D") return now + 7 * 86400;
-  if (preset === "14D") return now + 14 * 86400;
-  if (preset === "30D") return now + 30 * 86400;
-  if (preset === "FRIDAY") return nextFridayUnix();
-  return null;
-}
-
-function nextFridayUnix(): number {
-  // Friday 16:00 UTC, mirroring scripts/seed-demo-fresh.ts conventions.
-  const d = new Date();
-  d.setUTCHours(16, 0, 0, 0);
-  const day = d.getUTCDay(); // Sun=0, Fri=5
-  let delta = (5 - day + 7) % 7;
-  if (delta === 0 && d.getTime() <= Date.now()) delta = 7;
-  d.setUTCDate(d.getUTCDate() + delta);
-  return Math.floor(d.getTime() / 1000);
-}
-
-function computeMoneyness(side: "call" | "put", spot: number, strike: number): string | null {
-  if (spot <= 0 || strike <= 0) return null;
-  const diff = (strike - spot) / spot;
-  const absPct = Math.abs(diff * 100);
-  if (absPct < 0.5) return "ATM";
-  // For calls: strike > spot ⇒ OTM. For puts: strike < spot ⇒ OTM.
-  const callOtm = side === "call" && strike > spot;
-  const putOtm = side === "put" && strike < spot;
-  const isOtm = callOtm || putOtm;
-  return `${absPct.toFixed(1)}% ${isOtm ? "OTM" : "ITM"}`;
 }
 
 export default NewMarketModal;

@@ -65,6 +65,26 @@ export function hexFromBytes(bytes: number[] | Uint8Array | Buffer): string {
   return out;
 }
 
+/**
+ * Inverse of hexFromBytes — convert a 64-char hex string (with or without
+ * `0x` prefix) into a `number[]` of length 32. Anchor accepts this shape
+ * for its `[u8; 32]` argument type. Throws on invalid input so the caller
+ * can surface a clean error.
+ */
+export function hexToBytes32(hex: string): number[] {
+  const clean = hex.trim().toLowerCase().replace(/^0x/, "");
+  if (!/^[0-9a-f]{64}$/.test(clean)) {
+    throw new Error(
+      `hexToBytes32: expected 64-char hex (with optional 0x prefix), got "${hex}"`,
+    );
+  }
+  const out: number[] = new Array(32);
+  for (let i = 0; i < 32; i++) {
+    out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
 /** Get days until expiry from a Unix timestamp. */
 export function daysUntilExpiry(timestamp: BN | number): number {
   const ts = typeof timestamp === "number" ? timestamp : timestamp.toNumber();
