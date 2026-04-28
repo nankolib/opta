@@ -62,13 +62,11 @@ export function usePortfolioActions(onSuccess: () => void): PortfolioActions {
   const exercise = useCallback(
     async (p: Position) => {
       if (!program || !provider || !publicKey) return;
+      // V2-only post-P4a; v1 path retired with the broken IDL reads.
+      if (p.source.kind !== "v2") return;
       setBusyId(p.id);
       try {
-        if (p.source.kind === "v1") {
-          await exerciseV1({ program, publicKey, position: p });
-        } else {
-          await exerciseV2({ program, publicKey, position: p });
-        }
+        await exerciseV2({ program, publicKey, position: p });
         onSuccess();
       } catch (err: any) {
         showToast({ type: "error", title: "Exercise failed", message: decodeError(err) });
@@ -150,89 +148,6 @@ export function usePortfolioActions(onSuccess: () => void): PortfolioActions {
 // ---------------------------------------------------------------------------
 // On-chain implementations
 // ---------------------------------------------------------------------------
-
-async function exerciseV1({
-  program,
-  publicKey,
-  position,
-}: {
-  program: any;
-  publicKey: PublicKey;
-  position: Position;
-}) {
-  if (position.source.kind !== "v1") throw new Error("expected v1");
-  const { position: p, market: mkt } = position.source;
-  const [protocolStatePda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("protocol_v2")],
-    program.programId,
-  );
-  const [escrowPda] = PublicKey.findProgramAddressSync(
-    [
-      Buffer.from("escrow"),
-      p.account.market.toBuffer(),
-      p.account.writer.toBuffer(),
-      p.account.createdAt.toArrayLike(Buffer, "le", 8),
-    ],
-    program.programId,
-  );
-  const protocolState = await program.account.protocolState.fetch(protocolStatePda);
-  const exerciserUsdcAccount = await getAssociatedTokenAddress(
-    protocolState.usdcMint,
-    publicKey,
-  );
-  const writerUsdcAccount = await getAssociatedTokenAddress(
-    protocolState.usdcMint,
-    p.account.writer,
-  );
-  const exerciserOptionAccount = getAssociatedTokenAddressSync(
-    p.account.optionMint,
-    publicKey,
-    false,
-    TOKEN_2022_PROGRAM_ID,
-  );
-
-  // Read the actual token balance from the holder's ATA — exercising
-  // partial holdings is supported.
-  const ataInfo = await program.provider.connection.getAccountInfo(exerciserOptionAccount);
-  let tokensToExercise = 1;
-  if (ataInfo && ataInfo.data.length >= 72) {
-    tokensToExercise = Number(ataInfo.data.readBigUInt64LE(64));
-  }
-
-  const isCall = "call" in mkt.optionType;
-  const settlement = usdcToNumber(mkt.settlementPrice);
-  const strike = usdcToNumber(mkt.strikePrice);
-  const pnlPerContract = isCall
-    ? Math.max(0, settlement - strike)
-    : Math.max(0, strike - settlement);
-  const totalPayout = (pnlPerContract * tokensToExercise).toFixed(2);
-
-  const tx = await program.methods
-    .exerciseOption(new BN(tokensToExercise))
-    .accountsStrict({
-      exerciser: publicKey,
-      protocolState: protocolStatePda,
-      market: p.account.market,
-      position: p.publicKey,
-      escrow: escrowPda,
-      optionMint: p.account.optionMint,
-      exerciserOptionAccount,
-      exerciserUsdcAccount,
-      writerUsdcAccount,
-      writer: p.account.writer,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      token2022Program: TOKEN_2022_PROGRAM_ID,
-    })
-    .preInstructions([EXTRA_CU])
-    .rpc({ commitment: "confirmed" });
-
-  showToast({
-    type: "success",
-    title: "Exercised!",
-    message: `${tokensToExercise} contracts burned. Received $${totalPayout} USDC.`,
-    txSignature: tx,
-  });
-}
 
 async function exerciseV2({
   program,

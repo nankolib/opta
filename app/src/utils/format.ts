@@ -64,16 +64,6 @@ export function isExpired(timestamp: BN | number): boolean {
   return Date.now() / 1000 >= ts;
 }
 
-/** Get market status string. */
-export function getMarketStatus(market: {
-  isSettled: boolean;
-  expiryTimestamp: BN;
-}): "Active" | "Expired" | "Settled" {
-  if (market.isSettled) return "Settled";
-  if (isExpired(market.expiryTimestamp)) return "Expired";
-  return "Active";
-}
-
 /** Get position status string (tokenized model). */
 export function getPositionStatus(position: {
   isExercised: boolean;

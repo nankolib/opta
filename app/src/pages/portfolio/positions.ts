@@ -110,64 +110,16 @@ type BuildPositionsArgs = {
  * component.
  */
 export function buildPositions(args: BuildPositionsArgs): Position[] {
-  const { v1Held, v2Held, heldBalances, marketMap, spotPrices, metadataSymbolByMint } = args;
+  // v1Held / heldBalances / marketMap params retained for cascade
+  // prevention — PortfolioPage still computes and passes them. v1 path
+  // retired in P4a; v2 path reads balances and market straight off each
+  // v2Held entry. Full type cleanup deferred to P4e.
+  const { v2Held, spotPrices, metadataSymbolByMint } = args;
+  void args.v1Held;
+  void args.heldBalances;
+  void args.marketMap;
   const now = Math.floor(Date.now() / 1000);
   const result: Position[] = [];
-
-  // ---- V1 (P2P) ----
-  for (const p of v1Held) {
-    const mkt = marketMap.get(p.account.market.toBase58());
-    if (!mkt) continue;
-    const balance = heldBalances.get(p.account.optionMint.toBase58()) ?? 0;
-    if (balance <= 0) continue;
-    const totalSupply = p.account.totalSupply?.toNumber?.() || 1;
-    const isCall = "call" in mkt.optionType;
-    const strike = usdcToNumber(mkt.strikePrice);
-    const expiry =
-      typeof mkt.expiryTimestamp === "number"
-        ? mkt.expiryTimestamp
-        : mkt.expiryTimestamp.toNumber();
-    const isSettled = !!mkt.isSettled;
-    const isPastExpiry = expiry <= now;
-
-    const premium = usdcToNumber(p.account.premium);
-    const costBasis = premium * (balance / totalSupply);
-
-    const { state, currentValue } = computeStateAndValue({
-      isSettled,
-      isPastExpiry,
-      strike,
-      isCall,
-      balance,
-      settlementPrice: isSettled ? usdcToNumber(mkt.settlementPrice) : null,
-      spot: spotPrices[mkt.assetName],
-      expirySeconds: expiry,
-      now,
-      assetName: mkt.assetName,
-    });
-
-    const pnl = currentValue - costBasis;
-    const pnlPercent = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
-    const isListedForResale = !!p.account.isListedForResale;
-
-    result.push({
-      id: p.account.optionMint.toBase58(),
-      source: { kind: "v1", position: p, market: mkt },
-      asset: mkt.assetName,
-      side: isCall ? "call" : "put",
-      strike,
-      expiry,
-      contracts: balance,
-      totalSupply,
-      costBasis,
-      currentValue,
-      pnl,
-      pnlPercent,
-      state,
-      isListedForResale,
-      action: deriveAction(state, isListedForResale, "v1"),
-    });
-  }
 
   // ---- V2 (shared vault) ----
   for (const { vaultMint, vault, balance, market } of v2Held) {

@@ -11,7 +11,7 @@ import {
   calculatePutGreeks,
   getDefaultVolatility,
 } from "../../utils/blackScholes";
-import { isExpired, usdcToNumber } from "../../utils/format";
+import { usdcToNumber } from "../../utils/format";
 
 export type ChainBest = {
   vaultMint: { publicKey: PublicKey; account: any };
@@ -95,7 +95,6 @@ export function useTradeData(): UseTradeData {
   const { program } = useProgram();
   const { vaults, vaultMints } = useVaults();
   const [markets, setMarkets] = useState<{ publicKey: PublicKey; account: any }[]>([]);
-  const [positions, setPositions] = useState<{ publicKey: PublicKey; account: any }[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAsset, setSelectedAsset] = useState<string>("");
   const [selectedExpiry, setSelectedExpiry] = useState<number>(0);
@@ -107,12 +106,8 @@ export function useTradeData(): UseTradeData {
     if (!program) return;
     setLoading(true);
     try {
-      const [mkts, posns] = await Promise.all([
-        safeFetchAll(program, "optionsMarket"),
-        safeFetchAll(program, "optionPosition"),
-      ]);
+      const mkts = await safeFetchAll(program, "optionsMarket");
       setMarkets(mkts as any);
-      setPositions(posns as any);
     } catch (err) {
       console.error("Trade fetch failed", err);
     } finally {
@@ -124,26 +119,10 @@ export function useTradeData(): UseTradeData {
     refetch();
   }, [refetch]);
 
-  // Active markets: dedupe by (asset, strike, expiry-day, type), keep deterministic pubkey winner.
-  const activeMarkets = useMemo(() => {
-    const active = markets.filter((m) => !isExpired(m.account.expiryTimestamp));
-    const map = new Map<string, typeof active[0]>();
-    for (const m of active) {
-      const isCall = "call" in m.account.optionType;
-      const expTs =
-        typeof m.account.expiryTimestamp === "number"
-          ? m.account.expiryTimestamp
-          : m.account.expiryTimestamp.toNumber();
-      const key = `${m.account.assetName}-${m.account.strikePrice.toString()}-${roundToDay(expTs)}-${isCall ? "C" : "P"}`;
-      const existing = map.get(key);
-      if (!existing) {
-        map.set(key, m);
-      } else if (m.publicKey.toBase58() > existing.publicKey.toBase58()) {
-        map.set(key, m);
-      }
-    }
-    return Array.from(map.values());
-  }, [markets]);
+  // Active markets dedupe block removed in P4a — markets are now per-asset
+  // (no strike/expiry/type), so dedupe is meaningless and the block read
+  // now-gone fields (m.account.optionType / strikePrice / expiryTimestamp).
+  // The rest of this hook already sources strike/expiry/type from vaults.
 
   // Available assets — only assets with at least one ACTIVE shared vault.
   const availableAssets = useMemo(() => {
@@ -291,21 +270,9 @@ export function useTradeData(): UseTradeData {
         }
       }
 
-      // Add v1 OI contribution (always 0 with USE_V2_VAULTS=true, but
-      // structurally correct for when the flag flips).
-      for (const p of positions) {
-        const pMkt = markets.find((m) => m.publicKey.equals(p.account.market as PublicKey));
-        if (!pMkt || pMkt.account.assetName !== selectedAsset) continue;
-        const pExpiry =
-          typeof pMkt.account.expiryTimestamp === "number"
-            ? pMkt.account.expiryTimestamp
-            : pMkt.account.expiryTimestamp.toNumber();
-        if (roundToDay(pExpiry) !== selectedDay) continue;
-        if (usdcToNumber(pMkt.account.strikePrice) !== strike) continue;
-        const supply = p.account.totalSupply?.toNumber?.() ?? 0;
-        if ("call" in pMkt.account.optionType) callOi += supply;
-        else putOi += supply;
-      }
+      // V1 OI contribution loop removed in P4a — read now-gone market
+      // fields (expiryTimestamp / strikePrice / optionType). V2-only product
+      // post-migration; v1 contributes nothing in production.
 
       const moneynessPct = liveSpot > 0 ? ((strike - liveSpot) / liveSpot) * 100 : 0;
 
@@ -326,7 +293,7 @@ export function useTradeData(): UseTradeData {
         moneynessPct,
       };
     });
-  }, [vaults, vaultMints, markets, positions, selectedAsset, selectedExpiry, spot]);
+  }, [vaults, vaultMints, markets, selectedAsset, selectedExpiry, spot]);
 
   const atmStrike = useMemo(() => {
     if (rows.length === 0) return null;

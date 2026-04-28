@@ -22,7 +22,7 @@ import {
  * hook catches decode errors and returns only successfully decoded accounts.
  */
 export function useSafeFetchAll<T>(
-  accountName: "optionsMarket" | "optionPosition" | "protocolState"
+  accountName: "optionsMarket" | "protocolState"
     | "sharedVault" | "writerPosition" | "vaultMint" | "epochConfig",
 ) {
   const { program } = useProgram();

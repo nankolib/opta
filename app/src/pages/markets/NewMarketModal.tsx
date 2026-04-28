@@ -1,13 +1,11 @@
 import type { FC } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
-import BN from "bn.js";
+import { PublicKey } from "@solana/web3.js";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useProgram } from "../../hooks/useProgram";
 import { usePythPrices } from "../../hooks/usePythPrices";
 import { showToast } from "../../components/Toast";
 import { decodeError } from "../../utils/errorDecoder";
-import { toUsdcBN } from "../../utils/format";
 import {
   applyVolSmile,
   calculateCallPremium,
@@ -87,7 +85,7 @@ const EXPIRY_PRESETS: ReadonlyArray<{ id: ExpiryPreset; label: string }> = [
  *
  * Esc and click-outside dismiss the modal.
  */
-export const NewMarketModal: FC<NewMarketModalProps> = ({ onClose, onCreated }) => {
+export const NewMarketModal: FC<NewMarketModalProps> = ({ onClose, onCreated: _onCreated }) => {
   const { program, provider } = useProgram();
   const { publicKey } = useWallet();
 
@@ -147,47 +145,10 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({ onClose, onCreated }) 
 
     setSubmitting(true);
     try {
-      const strikeBN = toUsdcBN(strike);
-      const expiryBN = new BN(expiryUnix);
-      const [marketPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("market"),
-          Buffer.from(asset.ticker),
-          strikeBN.toArrayLike(Buffer, "le", 8),
-          expiryBN.toArrayLike(Buffer, "le", 8),
-          Buffer.from([side === "call" ? 0 : 1]),
-        ],
-        program.programId,
-      );
-      const [protocolStatePda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("protocol_v2")],
-        program.programId,
-      );
-
-      const tx = await program.methods
-        .createMarket(
-          asset.ticker,
-          strikeBN,
-          expiryBN,
-          (side === "call" ? { call: {} } : { put: {} }) as any,
-          asset.pythFeed,
-          asset.assetClass,
-        )
-        .accountsStrict({
-          creator: publicKey,
-          protocolState: protocolStatePda,
-          market: marketPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc({ commitment: "confirmed" });
-
-      showToast({
-        type: "success",
-        title: "Market created",
-        message: `${asset.ticker} ${side.toUpperCase()} $${strike.toLocaleString()}`,
-        txSignature: tx,
-      });
-      onCreated();
+      // P4a stub: createMarket signature changed in stage P1 (now 3 args:
+      // assetName, pythFeedId [u8;32], assetClass). Hardcoded SUPPORTED_ASSETS
+      // table holds legacy push-oracle pubkeys. Full rewrite lands in P4c.
+      throw new Error("Disabled until P4c — Pyth Pull migration in progress");
     } catch (err: any) {
       showToast({ type: "error", title: "Create market failed", message: decodeError(err) });
     } finally {

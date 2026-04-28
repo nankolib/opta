@@ -13,13 +13,12 @@ interface MarketAccount {
   publicKey: PublicKey;
   account: any;
 }
-interface PositionAccount {
-  publicKey: PublicKey;
-  account: any;
-}
 
 export type MarketRow = {
+  /** Vault PDA — post-P1 each row corresponds to one SharedVault, since
+   *  Markets are per-asset and strike/expiry/type live on the vault. */
   publicKey: PublicKey;
+  /** SharedVault account (NOT market). */
   account: any;
   asset: string;
   side: "call" | "put";
@@ -30,6 +29,8 @@ export type MarketRow = {
   openInterest: number;
   vaultTvl: number | null;
   status: MarketStatus;
+  /** Always true post-P1 — vault rows are v2 by definition. Kept for
+   *  call-site compatibility with the existing MarketsTable. */
   isV2: boolean;
 };
 
@@ -51,35 +52,31 @@ export type UseMarketsData = {
 };
 
 /**
- * Bundles markets + vaults + positions + prices fetching for the
- * Markets page. Produces the normalised MarketRow[] shape the table
- * consumes plus the four summary aggregates the band displays.
+ * Bundles markets + vaults + vault mints + prices for the Markets page.
  *
- * Open interest is computed from totalSupply across both v1 positions
- * and v2 vaultMints — both arrays already in memory after fetch, so
- * the aggregation is a cheap pass with no extra RPC.
+ * Post-P1 shape: OptionsMarket is a per-asset registry (no strike, expiry,
+ * or type), so each table row corresponds to a SharedVault rather than a
+ * market. Strike/expiry/optionType/isSettled/settlementPrice are sourced
+ * from the vault; the assetName is sourced from the market the vault
+ * points at.
  *
- * Vault TVL aggregates `totalCollateral` (USDC) across v2 vaults.
- * Premia Written aggregates `totalPremiumReceived` across v2 vaults
- * (cumulative since vault creation; no per-day indexer exists).
+ * Open interest per row is the sum of `quantityMinted` across vault mints
+ * belonging to that specific vault. Vault TVL is the vault's
+ * `totalCollateral`. Premia Written is `totalPremiumReceived` (cumulative
+ * since vault creation; no per-day indexer).
  */
 export function useMarketsData(): UseMarketsData {
   const { program } = useProgram();
-  const { vaults } = useVaults();
+  const { vaults, vaultMints } = useVaults();
   const [markets, setMarkets] = useState<MarketAccount[]>([]);
-  const [positions, setPositions] = useState<PositionAccount[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refetch = useCallback(async () => {
     if (!program) return;
     setLoading(true);
     try {
-      const [mkts, posns] = await Promise.all([
-        safeFetchAll(program, "optionsMarket"),
-        safeFetchAll(program, "optionPosition"),
-      ]);
+      const mkts = await safeFetchAll(program, "optionsMarket");
       setMarkets(mkts as MarketAccount[]);
-      setPositions(posns as PositionAccount[]);
     } catch (err) {
       console.error("Markets fetch failed", err);
     } finally {
@@ -91,156 +88,113 @@ export function useMarketsData(): UseMarketsData {
     refetch();
   }, [refetch]);
 
-  // Deduplicate markets by (asset, strike, type), keeping the latest expiry —
-  // mirrors the legacy Markets.tsx behaviour so multiple weekly expiries on
-  // the same asset/strike collapse into one row.
-  const dedupedMarkets = useMemo(() => {
-    const map = new Map<string, MarketAccount>();
+  // Map market PDA → asset name for fast lookup during row build.
+  const assetByMarket = useMemo(() => {
+    const map = new Map<string, string>();
     for (const m of markets) {
-      const isCall = "call" in m.account.optionType;
-      const key = `${m.account.assetName}-${m.account.strikePrice.toString()}-${isCall ? "C" : "P"}`;
-      const existing = map.get(key);
-      if (!existing || m.account.expiryTimestamp.gt(existing.account.expiryTimestamp)) {
-        map.set(key, m);
-      }
+      map.set(m.publicKey.toBase58(), m.account.assetName as string);
     }
-    return Array.from(map.values());
+    return map;
   }, [markets]);
 
-  // V2-only filter: keep only markets with at least one vault.
-  const vaultsByMarket = useMemo(() => {
-    const map = new Map<string, { count: number; tvl: number; premia: number }>();
-    for (const v of vaults) {
-      const key = (v.account.market as PublicKey).toBase58();
-      const existing = map.get(key) ?? { count: 0, tvl: 0, premia: 0 };
-      existing.count += 1;
-      existing.tvl += usdcToNumber(v.account.totalCollateral);
-      const premia = v.account.totalPremiumReceived;
-      if (premia) existing.premia += usdcToNumber(premia);
-      map.set(key, existing);
-    }
-    return map;
-  }, [vaults]);
-
-  const v2Markets = useMemo(
-    () => dedupedMarkets.filter((m) => vaultsByMarket.has(m.publicKey.toBase58())),
-    [dedupedMarkets, vaultsByMarket],
-  );
-
-  // Open interest per market — sum of v1 position totalSupply + v2 vaultMint
-  // totalSupply, indexed by market base58. v2 mints come via useVaults' own
-  // hook (vaultMints, available below).
-  const positionsByMarket = useMemo(() => {
+  // Map vault PDA → sum of quantityMinted across that vault's mints, for
+  // per-row open interest. Vaults whose mints sum to zero still appear as
+  // rows — empty vaults are valid liquidity offers.
+  const oiByVault = useMemo(() => {
     const map = new Map<string, number>();
-    for (const p of positions) {
-      const key = (p.account.market as PublicKey).toBase58();
-      const supply = p.account.totalSupply?.toNumber?.() ?? 0;
-      map.set(key, (map.get(key) ?? 0) + supply);
+    for (const vm of vaultMints) {
+      const key = (vm.account.vault as PublicKey).toBase58();
+      const minted = vm.account.quantityMinted?.toNumber?.() ?? 0;
+      map.set(key, (map.get(key) ?? 0) + minted);
     }
     return map;
-  }, [positions]);
+  }, [vaultMints]);
 
-  // We need vaultMints too — useVaults exposes them via its hook return.
-  // Re-fetch via a thin subscription so we stay reactive to vault changes.
-  const vaultMintsByMarket = useVaultMintsByMarket();
-
-  const assetNames = useMemo(
-    () => [...new Set(v2Markets.map((m) => m.account.assetName as string))].sort(),
-    [v2Markets],
-  );
+  // Asset names — derived from vaults via market lookup, so we only fetch
+  // spot prices for assets with at least one live vault.
+  const assetNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const v of vaults) {
+      const name = assetByMarket.get((v.account.market as PublicKey).toBase58());
+      if (name) names.add(name);
+    }
+    return Array.from(names).sort();
+  }, [vaults, assetByMarket]);
   const { prices: spotPrices } = usePythPrices(assetNames);
 
   const rows = useMemo<MarketRow[]>(() => {
     const now = Math.floor(Date.now() / 1000);
-    return v2Markets.map((m) => {
-      const isCall = "call" in m.account.optionType;
-      const strike = usdcToNumber(m.account.strikePrice);
+    const out: MarketRow[] = [];
+    for (const v of vaults) {
+      const asset = assetByMarket.get((v.account.market as PublicKey).toBase58());
+      if (!asset) continue; // vault's market dropped by safeFetchAll's strict validator
+
+      const isCall = "call" in v.account.optionType;
+      const strike = usdcToNumber(v.account.strikePrice);
       const expiry =
-        typeof m.account.expiryTimestamp === "number"
-          ? m.account.expiryTimestamp
-          : m.account.expiryTimestamp.toNumber();
-      const isSettled = !!m.account.isSettled;
+        typeof v.account.expiry === "number"
+          ? v.account.expiry
+          : v.account.expiry.toNumber();
+      const isSettled = !!v.account.isSettled;
       const isPastExpiry = expiry <= now;
       const status: MarketStatus = isSettled ? "settled" : isPastExpiry ? "expired" : "open";
 
-      const asset = m.account.assetName as string;
       const spot = spotPrices[asset] ?? null;
-
       let iv: number | null = null;
       if (spot && spot > 0 && strike > 0) {
         const baseVol = getDefaultVolatility(asset);
         iv = applyVolSmile(baseVol, spot, strike, asset);
       }
 
-      const key = m.publicKey.toBase58();
-      const v1Oi = positionsByMarket.get(key) ?? 0;
-      const v2Oi = vaultMintsByMarket.get(key) ?? 0;
-
-      const vaultStats = vaultsByMarket.get(key);
-      const vaultTvl = vaultStats?.tvl ?? null;
-
-      return {
-        publicKey: m.publicKey,
-        account: m.account,
+      out.push({
+        publicKey: v.publicKey,
+        account: v.account,
         asset,
         side: isCall ? "call" : "put",
         strike,
         expiry,
         spot,
         iv,
-        openInterest: v1Oi + v2Oi,
-        vaultTvl,
+        openInterest: oiByVault.get(v.publicKey.toBase58()) ?? 0,
+        vaultTvl: usdcToNumber(v.account.totalCollateral),
         status,
-        isV2: !!vaultStats,
-      };
-    });
-  }, [v2Markets, spotPrices, positionsByMarket, vaultMintsByMarket, vaultsByMarket]);
+        isV2: true,
+      });
+    }
+    return out;
+  }, [vaults, assetByMarket, oiByVault, spotPrices]);
 
   const summary = useMemo<MarketsSummary>(() => {
     const now = Math.floor(Date.now() / 1000);
-    const active = rows.filter((r) => r.status === "open" && r.expiry > now);
-    const underlyingsSet = new Set(active.map((r) => r.asset));
-    const totalOi = rows.reduce((s, r) => s + r.openInterest, 0);
+    let activeMarkets = 0;
+    let totalOi = 0;
     let totalTvl = 0;
     let totalPremia = 0;
-    for (const stats of vaultsByMarket.values()) {
-      totalTvl += stats.tvl;
-      totalPremia += stats.premia;
+    const underlyingsSet = new Set<string>();
+
+    for (const r of rows) {
+      totalOi += r.openInterest;
+      if (r.status === "open" && r.expiry > now) {
+        activeMarkets += 1;
+        underlyingsSet.add(r.asset);
+      }
     }
+
+    for (const v of vaults) {
+      totalTvl += usdcToNumber(v.account.totalCollateral);
+      const premia = v.account.totalPremiumReceived;
+      if (premia) totalPremia += usdcToNumber(premia);
+    }
+
     return {
-      activeMarkets: active.length,
+      activeMarkets,
       underlyings: underlyingsSet.size,
       openInterest: totalOi,
       vaultTvl: totalTvl,
       premiaWritten: totalPremia,
       loaded: !loading,
     };
-  }, [rows, vaultsByMarket, loading]);
+  }, [rows, vaults, loading]);
 
   return { rows, summary, spotPrices, loading, refetch };
-}
-
-/**
- * Sums vaultMint.totalSupply per market base58. Lives in its own
- * tiny hook so useMarketsData stays focused on its primary concerns;
- * useVaults is the single source of truth for vault accounts.
- */
-function useVaultMintsByMarket(): Map<string, number> {
-  const { vaults, vaultMints } = useVaults();
-  return useMemo(() => {
-    // Index vault → market once.
-    const vaultToMarket = new Map<string, string>();
-    for (const v of vaults) {
-      vaultToMarket.set(v.publicKey.toBase58(), (v.account.market as PublicKey).toBase58());
-    }
-    const result = new Map<string, number>();
-    for (const vm of vaultMints) {
-      const vaultKey = (vm.account.vault as PublicKey).toBase58();
-      const marketKey = vaultToMarket.get(vaultKey);
-      if (!marketKey) continue;
-      const supply = vm.account.totalSupply?.toNumber?.() ?? 0;
-      result.set(marketKey, (result.get(marketKey) ?? 0) + supply);
-    }
-    return result;
-  }, [vaults, vaultMints]);
 }
