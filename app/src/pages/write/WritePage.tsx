@@ -6,6 +6,7 @@ import { useProgram } from "../../hooks/useProgram";
 import { safeFetchAll } from "../../hooks/useFetchAccounts";
 import { usePythPrices } from "../../hooks/usePythPrices";
 import { usePaperPalette } from "../../hooks";
+import { hexFromBytes } from "../../utils/format";
 import { PaperGrain, HairlineRule } from "../../components/layout";
 import { AppNav } from "../../components/AppNav";
 import { WriteStatementHeader } from "./WriteStatementHeader";
@@ -59,7 +60,7 @@ export const WritePage: FC = () => {
 
   // Asset chip source: dedupe markets by assetName, keep one
   // representative market per asset (any one — we only need its
-  // pythFeed and assetClass for the create_market call).
+  // pythFeedId and assetClass for the create_market call).
   const assets = useMemo<AssetOption[]>(() => {
     const map = new Map<string, AssetOption>();
     for (const m of markets) {
@@ -72,8 +73,17 @@ export const WritePage: FC = () => {
     return Array.from(map.values()).sort((a, b) => a.ticker.localeCompare(b.ticker));
   }, [markets]);
 
-  const assetTickers = useMemo(() => assets.map((a) => a.ticker), [assets]);
-  const { prices: spotPrices } = usePythPrices(assetTickers);
+  // Pass (ticker, feedIdHex) pairs to usePythPrices so it can batch-hit
+  // Hermes-Beta directly instead of mapping ticker → feed_id internally.
+  const feeds = useMemo(
+    () =>
+      assets.map((a) => ({
+        ticker: a.ticker,
+        feedIdHex: hexFromBytes(a.market.account.pythFeedId as number[]),
+      })),
+    [assets],
+  );
+  const { prices: spotPrices } = usePythPrices(feeds);
 
   const epochExpiryTs = useMemo(() => nextFridayUtc8(), []);
   const epochExpiryLabel = useMemo(

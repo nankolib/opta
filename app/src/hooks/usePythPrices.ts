@@ -1,112 +1,195 @@
-import { useState, useEffect } from "react";
+// =============================================================================
+// usePythPrices.ts — Hermes-only spot prices for tickers in scope
+// =============================================================================
+//
+// Stage P4b rewrite: single source of truth for every price displayed
+// anywhere in the app is the Hermes-Beta off-chain price endpoint. The
+// CoinGecko + Jupiter + STATIC_FALLBACKS chain is gone; if Hermes can't
+// resolve a feed_id, the ticker is absent from `prices` and call sites
+// render the "—" placeholder.
+//
+// Caller shape: `Array<{ ticker, feedIdHex }>`. Hermes deals in feed_ids;
+// the ticker is just the display key the caller wants the price under.
+// Duplicate tickers in the input are last-write-wins with a console.warn —
+// the on-chain registry enforces unique asset_name, so this is defensive.
+// =============================================================================
 
-// Map asset names to CoinGecko IDs (crypto only — CoinGecko doesn't have commodities/equities)
-const COINGECKO_IDS: Record<string, string> = {
-  "SOL": "solana",
-  "BTC": "bitcoin",
-  "ETH": "ethereum",
+import { useEffect, useMemo, useState } from "react";
+
+const HERMES_BASE = "https://hermes-beta.pyth.network";
+const PRICE_PATH = "/v2/updates/price/latest";
+const FETCH_TIMEOUT_MS = 4000;
+const REFRESH_INTERVAL_MS = 30_000;
+const CACHE_TTL_MS = 30_000;
+
+export type FeedRequest = {
+  /** Display key. Whatever string the caller wants the price returned under. */
+  ticker: string;
+  /** 64-char lowercase hex, no `0x` prefix. */
+  feedIdHex: string;
 };
 
-// Fallback prices for non-crypto assets. Updated 2026-04-16.
-// These are used when no live API returns a price. Update before demos.
-const STATIC_FALLBACKS: Record<string, number> = {
-  "SOL": 86,
-  "BTC": 74000,
-  "ETH": 2300,
-  "XAU": 3230,    // Gold per troy oz
-  "XAG": 32.50,   // Silver per troy oz
-  "WTI": 61,      // Crude oil per barrel
-  "AAPL": 198,    // Apple Inc.
-  "TSLA": 252,    // Tesla Inc.
-  "NVDA": 135,    // NVIDIA Corp.
+type CachedPrice = { value: number; ts: number };
+
+// Module-level cache shared across all hook instances. Keyed by feed_id_hex.
+const priceCache = new Map<string, CachedPrice>();
+
+type HermesParsedEntry = {
+  id?: string;
+  price?: { price?: string; expo?: number };
 };
 
-export function usePythPrices(assetNames: string[]): {
+function parsePriceResponse(json: unknown): Map<string, number> {
+  const out = new Map<string, number>();
+  const parsed = (json as { parsed?: HermesParsedEntry[] })?.parsed;
+  if (!Array.isArray(parsed)) return out;
+  for (const entry of parsed) {
+    const id = entry?.id;
+    const priceStr = entry?.price?.price;
+    const expo = entry?.price?.expo;
+    if (typeof id !== "string" || typeof priceStr !== "string" || typeof expo !== "number") {
+      continue;
+    }
+    const raw = parseFloat(priceStr);
+    if (!Number.isFinite(raw)) continue;
+    const value = raw * Math.pow(10, expo);
+    if (!Number.isFinite(value)) continue;
+    out.set(id.toLowerCase().replace(/^0x/, ""), value);
+  }
+  return out;
+}
+
+async function fetchPrices(feedIds: string[]): Promise<Map<string, number>> {
+  if (feedIds.length === 0) return new Map();
+  const params = feedIds.map((id) => `ids[]=${encodeURIComponent(id)}`).join("&");
+  const url = `${HERMES_BASE}${PRICE_PATH}?${params}&parsed=true`;
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, { signal: ac.signal });
+    if (!resp.ok) {
+      throw new Error(`Hermes price HTTP ${resp.status}`);
+    }
+    const json = await resp.json();
+    return parsePriceResponse(json);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function usePythPrices(feeds: FeedRequest[]): {
   prices: Record<string, number>;
   loading: boolean;
   error: string | null;
 } {
+  // Build the ticker → feedId map once per stable input. Duplicate tickers
+  // are last-write-wins with a console.warn — see header comment.
+  const tickerToFeedId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const f of feeds) {
+      if (!f?.ticker || !f?.feedIdHex) continue;
+      const hex = f.feedIdHex.toLowerCase().replace(/^0x/, "");
+      if (map.has(f.ticker) && map.get(f.ticker) !== hex) {
+        console.warn(
+          `[usePythPrices] duplicate ticker "${f.ticker}" with differing feed_ids — using last`,
+        );
+      }
+      map.set(f.ticker, hex);
+    }
+    return map;
+  }, [feeds]);
+
+  // Stable batch key — sort and dedupe feed_ids so re-renders don't re-fetch.
+  const batchKey = useMemo(() => {
+    return Array.from(new Set(tickerToFeedId.values())).sort().join(",");
+  }, [tickerToFeedId]);
+
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const assetKey = assetNames.sort().join(",");
 
   useEffect(() => {
-    if (assetNames.length === 0) {
+    if (batchKey === "") {
+      setPrices({});
       setLoading(false);
+      setError(null);
       return;
     }
-
+    const feedIds = batchKey.split(",");
     let cancelled = false;
 
-    const fetchPrices = async () => {
-      const newPrices: Record<string, number> = {};
-
-      // 1. Try CoinGecko for crypto assets (SOL, BTC, ETH)
-      const cryptoAssets = assetNames.filter((name) => COINGECKO_IDS[name]);
-      if (cryptoAssets.length > 0) {
-        try {
-          const ids = cryptoAssets.map((name) => COINGECKO_IDS[name]).join(",");
-          const resp = await fetch(
-            `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`,
-          );
-          if (resp.ok) {
-            const data = await resp.json();
-            for (const name of cryptoAssets) {
-              const cgId = COINGECKO_IDS[name];
-              if (data[cgId]?.usd) {
-                newPrices[name] = data[cgId].usd;
-              }
-            }
-          } else {
-            console.warn("[Prices] CoinGecko failed:", resp.status);
-          }
-        } catch (err) {
-          console.warn("[Prices] CoinGecko error:", err);
-        }
+    const computeFromCacheOnly = (): { complete: boolean; map: Map<string, number> } => {
+      const out = new Map<string, number>();
+      const now = Date.now();
+      let complete = true;
+      for (const id of feedIds) {
+        const c = priceCache.get(id);
+        if (c && now - c.ts < CACHE_TTL_MS) out.set(id, c.value);
+        else complete = false;
       }
+      return { complete, map: out };
+    };
 
-      // 2. Fallback: Try Jupiter for SOL if CoinGecko missed it
-      if (!newPrices["SOL"] && assetNames.includes("SOL")) {
-        try {
-          const resp = await fetch(
-            "https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112",
-          );
-          if (resp.ok) {
-            const data = await resp.json();
-            const solPrice = data?.data?.["So11111111111111111111111111111111111111112"]?.price;
-            if (solPrice) {
-              newPrices["SOL"] = parseFloat(solPrice);
-            }
-          }
-        } catch (err) {
-          console.warn("[Prices] Jupiter error:", err);
-        }
+    const writeIntoState = (priceById: Map<string, number>) => {
+      const next: Record<string, number> = {};
+      for (const [ticker, hex] of tickerToFeedId.entries()) {
+        const v = priceById.get(hex);
+        if (typeof v === "number") next[ticker] = v;
       }
+      setPrices(next);
+    };
 
-      // 3. Static fallbacks for any asset still missing a price
-      for (const name of assetNames) {
-        if (!newPrices[name] && STATIC_FALLBACKS[name]) {
-          newPrices[name] = STATIC_FALLBACKS[name];
-          console.warn(`[Prices] Using static fallback for ${name}: $${STATIC_FALLBACKS[name]}`);
+    const run = async () => {
+      // Serve cache first if every feed_id is fresh.
+      const cacheOnly = computeFromCacheOnly();
+      if (cacheOnly.complete) {
+        if (!cancelled) {
+          writeIntoState(cacheOnly.map);
+          setLoading(false);
+          setError(null);
         }
+        return;
       }
-
-      if (!cancelled) {
-        setPrices(newPrices);
-        setError(null);
-        setLoading(false);
+      try {
+        const fetched = await fetchPrices(feedIds);
+        const now = Date.now();
+        for (const [id, value] of fetched.entries()) {
+          priceCache.set(id, { value, ts: now });
+        }
+        // Combine fresh fetch with whatever was already in cache.
+        const merged = new Map<string, number>();
+        for (const id of feedIds) {
+          const c = priceCache.get(id);
+          if (c) merged.set(id, c.value);
+        }
+        if (!cancelled) {
+          writeIntoState(merged);
+          setLoading(false);
+          setError(null);
+        }
+      } catch (err: any) {
+        // On failure, fall back to whatever we already had cached, even if stale.
+        const fallback = new Map<string, number>();
+        for (const id of feedIds) {
+          const c = priceCache.get(id);
+          if (c) fallback.set(id, c.value);
+        }
+        if (!cancelled) {
+          writeIntoState(fallback);
+          setLoading(false);
+          setError(err?.message ?? "Hermes price fetch failed");
+        }
       }
     };
 
-    fetchPrices();
-    const interval = setInterval(fetchPrices, 30_000); // 30s to respect rate limits
-
+    run();
+    const id = setInterval(run, REFRESH_INTERVAL_MS);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      clearInterval(id);
     };
-  }, [assetKey]);
+  }, [batchKey, tickerToFeedId]);
 
   return { prices, loading, error };
 }

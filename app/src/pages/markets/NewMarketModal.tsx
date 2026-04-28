@@ -1,6 +1,5 @@
 import type { FC } from "react";
-import { useEffect, useMemo, useState } from "react";
-import { PublicKey } from "@solana/web3.js";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useProgram } from "../../hooks/useProgram";
 import { usePythPrices } from "../../hooks/usePythPrices";
@@ -13,56 +12,17 @@ import {
   getDefaultVolatility,
 } from "../../utils/blackScholes";
 import { HairlineRule } from "../../components/layout";
+import {
+  getCatalog,
+  searchAssets,
+  lookupByFeedId,
+  type CatalogEntry,
+} from "../../utils/hermesCatalog";
 
 type NewMarketModalProps = {
   onClose: () => void;
   onCreated: () => void;
 };
-
-type SupportedAsset = {
-  ticker: "SOL" | "BTC" | "ETH" | "XAU" | "AAPL";
-  fullName: string;
-  pythFeed: PublicKey;
-  /** 0 = crypto, 1 = commodity, 2 = equity */
-  assetClass: number;
-};
-
-// Devnet Pyth pull-oracle pubkeys, mirrored from scripts/seed-demo-fresh.ts.
-// These are the only 5 assets with known oracle accounts wired to the
-// deployed program — free-form pubkey entry is intentionally dropped in
-// favour of a curated dropdown for the polished demo.
-const SUPPORTED_ASSETS: SupportedAsset[] = [
-  {
-    ticker: "SOL",
-    fullName: "Solana",
-    pythFeed: new PublicKey("J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix"),
-    assetClass: 0,
-  },
-  {
-    ticker: "BTC",
-    fullName: "Bitcoin",
-    pythFeed: new PublicKey("HovQMDrbAgAYPCmHVSrezcSmkMtXSSUsLDFANExrZh2J"),
-    assetClass: 0,
-  },
-  {
-    ticker: "ETH",
-    fullName: "Ethereum",
-    pythFeed: new PublicKey("EdVCmQ9FSPcVe5YySXDPCRmc8aDQLKJ9GvYRk4HY7y44"),
-    assetClass: 0,
-  },
-  {
-    ticker: "XAU",
-    fullName: "Gold",
-    pythFeed: new PublicKey("8y3WWjvmSmVGWVKH1rCA7VTRmuU7QbJ9axMK6JUUuCyi"),
-    assetClass: 1,
-  },
-  {
-    ticker: "AAPL",
-    fullName: "Apple",
-    pythFeed: new PublicKey("5yKHAuiDWKUGRgs3s6mYGdfZjFmTfgHVDBwFBDfMuZJH"),
-    assetClass: 2,
-  },
-];
 
 type ExpiryPreset = "7D" | "14D" | "30D" | "FRIDAY" | "CUSTOM";
 
@@ -74,32 +34,96 @@ const EXPIRY_PRESETS: ReadonlyArray<{ id: ExpiryPreset; label: string }> = [
   { id: "CUSTOM", label: "Custom" },
 ];
 
+const ASSET_CLASS_LABEL: Record<number, string> = {
+  0: "Crypto",
+  1: "Commodity",
+  2: "Equity",
+  3: "FX",
+  4: "ETF",
+};
+
+type CatalogState =
+  | { kind: "loading" }
+  | { kind: "fresh"; entries: CatalogEntry[] }
+  | { kind: "stale"; entries: CatalogEntry[]; lastRefresh: number }
+  | { kind: "failed"; error: string };
+
 /**
  * Paper-aesthetic New Market modal.
  *
- * Creates a markets PDA via the permissionless `create_market`
- * instruction. Inputs: asset (5-asset dropdown), side (call/put),
- * strike (with live moneyness hint), expiry (preset pills + datetime
- * picker on Custom), and a live B-S premium preview that updates as
- * the user fills in fields.
+ * Stage P4b: asset picker is driven by a live Hermes-Beta catalog instead
+ * of a hardcoded 5-asset table. Users search the catalog by ticker or
+ * full Hermes symbol; an Advanced toggle lets them paste a feed_id hex
+ * directly for assets the catalog can't surface (or as a fallback when
+ * Hermes is unreachable). asset_name is auto-derived from the symbol but
+ * remains editable; submit logic stays stubbed until P4c.
  *
  * Esc and click-outside dismiss the modal.
  */
-export const NewMarketModal: FC<NewMarketModalProps> = ({ onClose, onCreated: _onCreated }) => {
+export const NewMarketModal: FC<NewMarketModalProps> = ({
+  onClose,
+  onCreated: _onCreated,
+}) => {
   const { program, provider } = useProgram();
   const { publicKey } = useWallet();
 
-  const [asset, setAsset] = useState<SupportedAsset>(SUPPORTED_ASSETS[0]);
+  const [catalogState, setCatalogState] = useState<CatalogState>({ kind: "loading" });
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<CatalogEntry | null>(null);
+  const [assetName, setAssetName] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [pastedHex, setPastedHex] = useState("");
+  const [pastedClass, setPastedClass] = useState<number>(0);
+
   const [side, setSide] = useState<"call" | "put">("call");
   const [strikeStr, setStrikeStr] = useState("");
   const [expiryPreset, setExpiryPreset] = useState<ExpiryPreset>("7D");
   const [customExpiry, setCustomExpiry] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const { prices } = usePythPrices([asset.ticker]);
-  const spot = prices[asset.ticker] ?? 0;
+  // Resolve the active (feedIdHex, assetClass) pair from either the
+  // catalog selection or the advanced paste-feed-id form.
+  const activeFeed: { feedIdHex: string; assetClass: number } | null = useMemo(() => {
+    if (advancedOpen) {
+      const hex = pastedHex.trim().toLowerCase().replace(/^0x/, "");
+      if (!/^[0-9a-f]{64}$/.test(hex)) return null;
+      return { feedIdHex: hex, assetClass: pastedClass };
+    }
+    if (!selected) return null;
+    return { feedIdHex: selected.feedIdHex, assetClass: selected.suggestedAssetClass };
+  }, [advancedOpen, pastedHex, pastedClass, selected]);
 
-  // Esc to dismiss
+  // Load catalog on mount.
+  const loadedRef = useRef(false);
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    let cancelled = false;
+    getCatalog()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.isStale) {
+          setCatalogState({
+            kind: "stale",
+            entries: res.entries,
+            lastRefresh: res.lastRefresh,
+          });
+        } else {
+          setCatalogState({ kind: "fresh", entries: res.entries });
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setCatalogState({ kind: "failed", error: err?.message ?? "unknown" });
+        // Force advanced mode open when catalog is dead.
+        setAdvancedOpen(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Esc to dismiss.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -108,46 +132,84 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({ onClose, onCreated: _o
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const expiryUnix = useMemo(() => computeExpiryUnix(expiryPreset, customExpiry), [
-    expiryPreset,
-    customExpiry,
-  ]);
+  // Sync assetName from selection, but only when the user hasn't started
+  // editing it. Once they've typed anything, leave their value alone.
+  const userEditedRef = useRef(false);
+  useEffect(() => {
+    if (advancedOpen) {
+      // In advanced mode, suggest a ticker if the pasted feed_id is a
+      // known catalog entry; otherwise leave assetName user-editable.
+      const entries = entriesFromState(catalogState);
+      if (entries) {
+        const hex = pastedHex.trim().toLowerCase().replace(/^0x/, "");
+        const known = /^[0-9a-f]{64}$/.test(hex)
+          ? lookupByFeedId(entries, hex)
+          : null;
+        if (known && !userEditedRef.current) {
+          setAssetName(known.suggestedTicker);
+        }
+      }
+      return;
+    }
+    if (selected && !userEditedRef.current) {
+      setAssetName(selected.suggestedTicker);
+    }
+  }, [advancedOpen, pastedHex, selected, catalogState]);
+
+  const filtered = useMemo(() => {
+    const entries = entriesFromState(catalogState);
+    if (!entries) return [];
+    return searchAssets(entries, query).slice(0, 12);
+  }, [catalogState, query]);
+
+  // Live spot for the chosen feed (single-element batch).
+  const spotFeeds = useMemo(() => {
+    if (!activeFeed || !assetName) return [];
+    return [{ ticker: assetName, feedIdHex: activeFeed.feedIdHex }];
+  }, [activeFeed, assetName]);
+  const { prices } = usePythPrices(spotFeeds);
+  const spot: number = assetName ? prices[assetName] ?? 0 : 0;
+
+  const expiryUnix = useMemo(
+    () => computeExpiryUnix(expiryPreset, customExpiry),
+    [expiryPreset, customExpiry],
+  );
 
   const strike = parseFloat(strikeStr) || 0;
-  const moneyness = useMemo(() => computeMoneyness(side, spot, strike), [side, spot, strike]);
+  const moneyness = useMemo(
+    () => computeMoneyness(side, spot, strike),
+    [side, spot, strike],
+  );
+
+  const assetNameValid = /^[A-Z0-9]{1,16}$/.test(assetName);
 
   const premiumPreview = useMemo(() => {
-    if (!expiryUnix || strike <= 0 || spot <= 0) return null;
+    if (!expiryUnix || strike <= 0 || spot <= 0 || !assetName) return null;
     const days = Math.max(0, (expiryUnix - Date.now() / 1000) / 86400);
     if (days <= 0) return null;
-    const baseVol = getDefaultVolatility(asset.ticker);
-    const vol = applyVolSmile(baseVol, spot, strike, asset.ticker);
+    const baseVol = getDefaultVolatility(assetName);
+    const vol = applyVolSmile(baseVol, spot, strike, assetName);
     return side === "call"
       ? calculateCallPremium(spot, strike, days, vol)
       : calculatePutPremium(spot, strike, days, vol);
-  }, [asset.ticker, side, spot, strike, expiryUnix]);
+  }, [assetName, side, spot, strike, expiryUnix]);
 
   const canSubmit =
     !submitting &&
     !!program &&
     !!provider &&
     !!publicKey &&
+    !!activeFeed &&
+    assetNameValid &&
     strike > 0 &&
     !!expiryUnix &&
     expiryUnix > Date.now() / 1000;
 
   const handleSubmit = async () => {
-    if (!program || !provider || !publicKey || !expiryUnix) return;
-    if (strike <= 0) {
-      showToast({ type: "error", title: "Strike must be positive" });
-      return;
-    }
-
+    if (!canSubmit) return;
     setSubmitting(true);
     try {
-      // P4a stub: createMarket signature changed in stage P1 (now 3 args:
-      // assetName, pythFeedId [u8;32], assetClass). Hardcoded SUPPORTED_ASSETS
-      // table holds legacy push-oracle pubkeys. Full rewrite lands in P4c.
+      // P4a stub preserved: real createMarket call lands in P4c.
       throw new Error("Disabled until P4c — Pyth Pull migration in progress");
     } catch (err: any) {
       showToast({ type: "error", title: "Create market failed", message: decodeError(err) });
@@ -179,29 +241,144 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({ onClose, onCreated: _o
           </button>
         </div>
 
-        {/* Asset */}
-        <Field label="Asset">
-          <div className="grid grid-cols-5 gap-2">
-            {SUPPORTED_ASSETS.map((a) => (
-              <button
-                key={a.ticker}
-                type="button"
-                onClick={() => setAsset(a)}
-                aria-pressed={asset.ticker === a.ticker}
-                className={`rounded-sm border py-2 font-mono text-[11px] uppercase tracking-[0.18em] transition-colors duration-300 ease-opta ${
-                  asset.ticker === a.ticker
-                    ? "border-ink bg-ink text-paper"
-                    : "border-rule text-ink opacity-65 hover:opacity-100 hover:border-ink"
-                }`}
-              >
-                {a.ticker}
-              </button>
-            ))}
+        {catalogState.kind === "stale" && (
+          <div className="border border-rule-soft rounded-sm p-3 mb-5 text-[11px] font-mono uppercase tracking-[0.16em] opacity-75">
+            ⚠ Hermes unreachable — showing cached catalog from{" "}
+            {new Date(catalogState.lastRefresh).toLocaleString()}
           </div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.18em] opacity-55 mt-2">
-            {asset.fullName} · spot {spot > 0 ? `$${spot.toLocaleString()}` : "—"}
+        )}
+        {catalogState.kind === "failed" && (
+          <div className="border border-rule-soft rounded-sm p-3 mb-5 text-[11px] font-mono uppercase tracking-[0.16em] text-crimson">
+            Hermes unreachable & no cached catalog. Use Advanced → paste feed_id hex.
+            <div className="opacity-65 normal-case mt-1.5 tracking-normal">
+              {catalogState.error}
+            </div>
           </div>
+        )}
+
+        {/* Asset search (hidden when catalog failed cold) */}
+        {catalogState.kind !== "failed" && !advancedOpen && (
+          <Field label="Asset">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={
+                catalogState.kind === "loading"
+                  ? "Loading Hermes catalog…"
+                  : "Search by ticker or symbol (e.g. SOL, AAPL, EUR)"
+              }
+              disabled={catalogState.kind === "loading"}
+              className="w-full bg-paper-2 border border-rule rounded-sm px-3 py-2 font-mono text-[13px] text-ink focus:outline-none focus:border-ink transition-colors duration-200 disabled:opacity-50"
+            />
+            {filtered.length > 0 && (
+              <ul className="border border-rule-soft rounded-sm mt-2 max-h-[240px] overflow-y-auto">
+                {filtered.map((entry) => {
+                  const isSelected = selected?.feedIdHex === entry.feedIdHex;
+                  return (
+                    <li key={entry.feedIdHex}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelected(entry);
+                          userEditedRef.current = false;
+                        }}
+                        aria-pressed={isSelected}
+                        className={`w-full flex items-center justify-between text-left px-3 py-2 font-mono text-[12px] transition-colors duration-200 ${
+                          isSelected
+                            ? "bg-ink text-paper"
+                            : "text-ink opacity-80 hover:opacity-100 hover:bg-paper-2"
+                        }`}
+                      >
+                        <span>
+                          <span className="font-medium">{entry.suggestedTicker}</span>
+                          <span className="ml-2 opacity-65">{entry.hermesSymbol}</span>
+                        </span>
+                        <span className="text-[10px] uppercase tracking-[0.18em] opacity-65">
+                          {ASSET_CLASS_LABEL[entry.suggestedAssetClass]}
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {catalogState.kind !== "loading" && query && filtered.length === 0 && (
+              <div className="font-mono text-[10.5px] uppercase tracking-[0.18em] opacity-55 mt-2">
+                No matches in catalog
+              </div>
+            )}
+          </Field>
+        )}
+
+        {/* Advanced: paste feed_id hex */}
+        <Field label="">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="font-mono text-[10.5px] uppercase tracking-[0.18em] opacity-65 hover:opacity-100 hover:text-crimson transition-colors duration-300 ease-opta"
+          >
+            {advancedOpen ? "← Back to catalog search" : "Advanced — paste feed_id hex"}
+          </button>
+          {advancedOpen && (
+            <div className="border border-rule-soft rounded-sm p-3 mt-2 space-y-2">
+              <input
+                type="text"
+                value={pastedHex}
+                onChange={(e) => setPastedHex(e.target.value)}
+                placeholder="64-char hex (no 0x)"
+                className="w-full bg-paper-2 border border-rule rounded-sm px-3 py-2 font-mono text-[12px] text-ink focus:outline-none focus:border-ink"
+                spellCheck={false}
+              />
+              <div className="flex flex-wrap gap-2">
+                {[0, 1, 2, 3, 4].map((cls) => (
+                  <button
+                    key={cls}
+                    type="button"
+                    onClick={() => setPastedClass(cls)}
+                    aria-pressed={pastedClass === cls}
+                    className={`rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors duration-300 ease-opta ${
+                      pastedClass === cls
+                        ? "border-ink text-ink"
+                        : "border-rule text-ink opacity-55 hover:opacity-100 hover:border-ink"
+                    }`}
+                  >
+                    {ASSET_CLASS_LABEL[cls]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </Field>
+
+        {/* asset_name (editable, validated) */}
+        {activeFeed && (
+          <Field label="Asset name (on-chain identifier)">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={assetName}
+                onChange={(e) => {
+                  userEditedRef.current = true;
+                  setAssetName(e.target.value.toUpperCase());
+                }}
+                placeholder="e.g. SOL"
+                maxLength={16}
+                className="flex-1 bg-paper-2 border border-rule rounded-sm px-3 py-2 font-mono text-[13px] text-ink focus:outline-none focus:border-ink transition-colors duration-200"
+              />
+              <span
+                className={`font-mono text-[12px] ${assetNameValid ? "text-emerald-700" : "text-crimson"}`}
+                aria-label={assetNameValid ? "valid" : "invalid"}
+              >
+                {assetNameValid ? "✓" : "✕"}
+              </span>
+            </div>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] opacity-55 mt-1.5">
+              1-16 chars · A-Z, 0-9 only · Class:{" "}
+              {ASSET_CLASS_LABEL[activeFeed.assetClass]}
+            </div>
+          </Field>
+        )}
 
         {/* Side */}
         <Field label="Side">
@@ -269,14 +446,24 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({ onClose, onCreated: _o
 
         <HairlineRule className="my-6" />
 
-        {/* Premium preview */}
-        <div className="border border-rule-soft rounded-sm p-4 mb-6 flex items-center justify-between">
-          <span className="font-mono text-[10.5px] uppercase tracking-[0.2em] opacity-65">
-            Indicative premium · B-S
-          </span>
-          <span className="font-mono text-[16px] text-ink">
-            {premiumPreview != null ? `$${premiumPreview.toFixed(4)}` : "—"}
-          </span>
+        {/* Spot + Premium preview */}
+        <div className="border border-rule-soft rounded-sm p-4 mb-6 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10.5px] uppercase tracking-[0.2em] opacity-65">
+              Spot · Hermes
+            </span>
+            <span className="font-mono text-[14px] text-ink">
+              {spot > 0 ? `$${spot.toLocaleString()}` : "—"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10.5px] uppercase tracking-[0.2em] opacity-65">
+              Indicative premium · B-S
+            </span>
+            <span className="font-mono text-[16px] text-ink">
+              {premiumPreview != null ? `$${premiumPreview.toFixed(4)}` : "—"}
+            </span>
+          </div>
         </div>
 
         <div className="flex gap-3">
@@ -303,9 +490,11 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({ onClose, onCreated: _o
 
 const Field: FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div className="mb-5">
-    <div className="font-mono text-[10.5px] uppercase tracking-[0.2em] opacity-65 mb-2">
-      {label}
-    </div>
+    {label && (
+      <div className="font-mono text-[10.5px] uppercase tracking-[0.2em] opacity-65 mb-2">
+        {label}
+      </div>
+    )}
     {children}
   </div>
 );
@@ -331,6 +520,12 @@ const SideButton: FC<{
     </span>
   </button>
 );
+
+function entriesFromState(state: CatalogState): CatalogEntry[] | null {
+  if (state.kind === "fresh") return state.entries;
+  if (state.kind === "stale") return state.entries;
+  return null;
+}
 
 function computeExpiryUnix(preset: ExpiryPreset, customISO: string): number | null {
   if (preset === "CUSTOM") {

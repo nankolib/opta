@@ -18,7 +18,7 @@ export type WriterFormValues = {
 export type AssetOption = {
   /** Asset ticker (e.g. "SOL"). Drives the chip label and is the unique key. */
   ticker: string;
-  /** A representative market account whose pythFeed and assetClass we'll reuse on submit. */
+  /** A representative market account whose pythFeedId and assetClass we'll reuse on submit. */
   market: { publicKey: PublicKey; account: any };
 };
 

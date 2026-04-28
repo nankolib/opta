@@ -9,6 +9,7 @@ import { usePythPrices } from "../../hooks/usePythPrices";
 import { useTokenMetadata } from "../../hooks/useTokenMetadata";
 import { usePaperPalette } from "../../hooks";
 import { TOKEN_2022_PROGRAM_ID } from "../../utils/constants";
+import { hexFromBytes } from "../../utils/format";
 import { PaperGrain } from "../../components/layout";
 import { AppNav } from "../../components/AppNav";
 import { MoneyAmount } from "../../components/MoneyAmount";
@@ -63,11 +64,18 @@ export const PortfolioPage: FC = () => {
   const [resaleTarget, setResaleTarget] = useState<Position | null>(null);
 
   const { vaults, vaultMints } = useVaults();
-  const assetNames = useMemo(
-    () => [...new Set(markets.map((m) => m.account.assetName as string))],
-    [markets],
-  );
-  const { prices: spotPrices } = usePythPrices(assetNames);
+  const feeds = useMemo(() => {
+    const out: { ticker: string; feedIdHex: string }[] = [];
+    const seen = new Set<string>();
+    for (const m of markets) {
+      const ticker = m.account.assetName as string;
+      if (!ticker || seen.has(ticker)) continue;
+      seen.add(ticker);
+      out.push({ ticker, feedIdHex: hexFromBytes(m.account.pythFeedId as number[]) });
+    }
+    return out;
+  }, [markets]);
+  const { prices: spotPrices } = usePythPrices(feeds);
 
   const refetchAll = useCallback(async () => {
     if (!program) return;

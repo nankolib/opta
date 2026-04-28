@@ -51,6 +51,20 @@ export function truncateAddress(address: string): string {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
+/**
+ * Convert a 32-byte feed_id (Anchor [u8; 32] = number[] | Uint8Array | Buffer)
+ * to lowercase 64-char hex with NO `0x` prefix. Hermes API + our on-chain
+ * registry both store/accept this canonical form.
+ */
+export function hexFromBytes(bytes: number[] | Uint8Array | Buffer): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) {
+    const b = (bytes as any)[i] & 0xff;
+    out += b.toString(16).padStart(2, "0");
+  }
+  return out;
+}
+
 /** Get days until expiry from a Unix timestamp. */
 export function daysUntilExpiry(timestamp: BN | number): number {
   const ts = typeof timestamp === "number" ? timestamp : timestamp.toNumber();

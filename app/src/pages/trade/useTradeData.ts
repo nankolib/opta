@@ -11,7 +11,7 @@ import {
   calculatePutGreeks,
   getDefaultVolatility,
 } from "../../utils/blackScholes";
-import { usdcToNumber } from "../../utils/format";
+import { hexFromBytes, usdcToNumber } from "../../utils/format";
 
 export type ChainBest = {
   vaultMint: { publicKey: PublicKey; account: any };
@@ -194,9 +194,28 @@ export function useTradeData(): UseTradeData {
     }
   }, [availableAssets, availableExpiries, searchParams]);
 
-  // Pyth spot prices for all available assets (so chip selection doesn't
-  // re-fetch every time).
-  const { prices: spotPrices } = usePythPrices(availableAssets);
+  // Pyth spot prices for all assets with active vaults. Caller passes
+  // (ticker, feedIdHex) pairs so usePythPrices can hit Hermes directly.
+  const feeds = useMemo(() => {
+    const out: { ticker: string; feedIdHex: string }[] = [];
+    const seen = new Set<string>();
+    for (const v of vaults) {
+      if (v.account.isSettled) continue;
+      const market = markets.find((m) =>
+        m.publicKey.equals(v.account.market as PublicKey),
+      );
+      if (!market) continue;
+      const ticker = market.account.assetName as string;
+      if (!ticker || seen.has(ticker)) continue;
+      seen.add(ticker);
+      out.push({
+        ticker,
+        feedIdHex: hexFromBytes(market.account.pythFeedId as number[]),
+      });
+    }
+    return out;
+  }, [vaults, markets]);
+  const { prices: spotPrices } = usePythPrices(feeds);
 
   const spot = selectedAsset ? spotPrices[selectedAsset] ?? null : null;
 

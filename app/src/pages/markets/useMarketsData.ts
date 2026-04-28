@@ -5,7 +5,7 @@ import { safeFetchAll } from "../../hooks/useFetchAccounts";
 import { useVaults } from "../../hooks/useVaults";
 import { usePythPrices } from "../../hooks/usePythPrices";
 import { applyVolSmile, getDefaultVolatility } from "../../utils/blackScholes";
-import { usdcToNumber } from "../../utils/format";
+import { hexFromBytes, usdcToNumber } from "../../utils/format";
 
 export type MarketStatus = "open" | "settled" | "expired";
 
@@ -110,17 +110,27 @@ export function useMarketsData(): UseMarketsData {
     return map;
   }, [vaultMints]);
 
-  // Asset names — derived from vaults via market lookup, so we only fetch
-  // spot prices for assets with at least one live vault.
-  const assetNames = useMemo(() => {
-    const names = new Set<string>();
+  // Feeds — one entry per (asset, feed_id) pair for assets with at least
+  // one live vault. usePythPrices batches them into one Hermes call.
+  const feeds = useMemo(() => {
+    const out: { ticker: string; feedIdHex: string }[] = [];
+    const seen = new Set<string>();
     for (const v of vaults) {
-      const name = assetByMarket.get((v.account.market as PublicKey).toBase58());
-      if (name) names.add(name);
+      const market = markets.find((m) =>
+        m.publicKey.equals(v.account.market as PublicKey),
+      );
+      if (!market) continue;
+      const ticker = market.account.assetName as string;
+      if (!ticker || seen.has(ticker)) continue;
+      seen.add(ticker);
+      out.push({
+        ticker,
+        feedIdHex: hexFromBytes(market.account.pythFeedId as number[]),
+      });
     }
-    return Array.from(names).sort();
-  }, [vaults, assetByMarket]);
-  const { prices: spotPrices } = usePythPrices(assetNames);
+    return out;
+  }, [vaults, markets]);
+  const { prices: spotPrices } = usePythPrices(feeds);
 
   const rows = useMemo<MarketRow[]>(() => {
     const now = Math.floor(Date.now() / 1000);
