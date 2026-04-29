@@ -8,6 +8,7 @@ import {
   settleAllForExpiry,
   fetchHermesParsedPrice,
 } from "../../utils/pythPullPost";
+import { getHermesBase } from "../../utils/env";
 
 interface AccountRecord {
   publicKey: PublicKey;
@@ -120,6 +121,7 @@ export const AdminTools: FC<AdminToolsProps> = ({
     }
     setBusyKey(tuple.key);
     try {
+      const hermesBase = getHermesBase();
       const result = await settleAllForExpiry(
         program,
         wallet,
@@ -127,8 +129,9 @@ export const AdminTools: FC<AdminToolsProps> = ({
         tuple.expiry,
         tuple.feedIdHex,
         tuple.vaultPdas,
+        hermesBase,
       );
-      const priceInfo = await fetchHermesParsedPrice(tuple.feedIdHex);
+      const priceInfo = await fetchHermesParsedPrice(tuple.feedIdHex, hermesBase);
       // Prefer the atomic tx sig (the post + settle_expiry) since that's
       // the most informative for explorer linking; fall back to the last
       // vault batch sig on the resume path where atomic was skipped.

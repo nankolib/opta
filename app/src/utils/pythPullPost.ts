@@ -47,7 +47,14 @@ export type SignerWallet = {
   signAllTransactions<T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]>;
 };
 
-const HERMES_BASE = "https://hermes-beta.pyth.network";
+/**
+ * Default Hermes endpoint. Mainnet (production-signed Wormhole VAAs that
+ * devnet's Wormhole Core Bridge tracks). Override per-call via the
+ * `hermesBase` arg to point at the Beta cluster
+ * (`https://hermes-beta.pyth.network`) for staging.
+ */
+export const DEFAULT_HERMES_BASE = "https://hermes.pyth.network";
+
 const HERMES_PRICE_PATH = "/v2/updates/price/latest";
 const FETCH_TIMEOUT_MS = 15000;
 const COMPUTE_UNIT_PRICE_MICRO_LAMPORTS = 50_000;
@@ -59,9 +66,9 @@ const SETTLEMENT_SEED = "settlement";
 // Hermes off-chain endpoint helpers
 // ---------------------------------------------------------------------------
 
-async function hermesGet(feedIdHex: string): Promise<any> {
+async function hermesGet(feedIdHex: string, hermesBase: string): Promise<any> {
   const hex = feedIdHex.replace(/^0x/, "").toLowerCase();
-  const url = `${HERMES_BASE}${HERMES_PRICE_PATH}?ids[]=0x${hex}&encoding=base64`;
+  const url = `${hermesBase}${HERMES_PRICE_PATH}?ids[]=0x${hex}&encoding=base64`;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -75,8 +82,11 @@ async function hermesGet(feedIdHex: string): Promise<any> {
 
 /** Fetch the binary Wormhole VAA for a single feed_id. Pyth Receiver's
  *  post_update_atomic IX consumes this Buffer directly. */
-export async function fetchHermesUpdate(feedIdHex: string): Promise<Buffer> {
-  const json = await hermesGet(feedIdHex);
+export async function fetchHermesUpdate(
+  feedIdHex: string,
+  hermesBase: string = DEFAULT_HERMES_BASE,
+): Promise<Buffer> {
+  const json = await hermesGet(feedIdHex, hermesBase);
   const b64 = json?.binary?.data?.[0];
   if (typeof b64 !== "string") {
     throw new Error("Hermes response missing binary.data[0]");
@@ -89,9 +99,10 @@ export async function fetchHermesUpdate(feedIdHex: string): Promise<Buffer> {
  *  re-decoding the on-chain account. */
 export async function fetchHermesParsedPrice(
   feedIdHex: string,
+  hermesBase: string = DEFAULT_HERMES_BASE,
 ): Promise<{ price: number; publishTime: number } | null> {
   try {
-    const json = await hermesGet(feedIdHex);
+    const json = await hermesGet(feedIdHex, hermesBase);
     const p = json?.parsed?.[0]?.price;
     if (!p || typeof p.price !== "string" || typeof p.expo !== "number") {
       return null;
@@ -125,8 +136,9 @@ export async function buildPostUpdateAndSettleTx(
   assetName: string,
   expiry: number,
   feedIdHex: string,
+  hermesBase: string = DEFAULT_HERMES_BASE,
 ): Promise<BuiltTx[]> {
-  const priceUpdateData = await fetchHermesUpdate(feedIdHex);
+  const priceUpdateData = await fetchHermesUpdate(feedIdHex, hermesBase);
 
   const receiver = new PythSolanaReceiver({
     connection: program.provider.connection,
@@ -264,6 +276,7 @@ export async function settleAllForExpiry(
   expiry: number,
   feedIdHex: string,
   vaultPdas: PublicKey[],
+  hermesBase: string = DEFAULT_HERMES_BASE,
 ): Promise<SettleAllResult> {
   const connection = program.provider.connection;
   const expiryBN = new BN(expiry);
@@ -291,6 +304,7 @@ export async function settleAllForExpiry(
       assetName,
       expiry,
       feedIdHex,
+      hermesBase,
     );
     atomicSig = await submitWithFallback(connection, wallet, atomicTxs);
   }

@@ -26,18 +26,37 @@
 // tickers like "1606-HK" or "USD0++" survive as "1606HK"/"USD0".
 // =============================================================================
 
-const HERMES_BASE = "https://hermes-beta.pyth.network";
+/**
+ * Default Hermes endpoint. Mainnet (production-signed Wormhole VAAs that
+ * devnet's Wormhole Core Bridge tracks). Override per-call via the
+ * `hermesBase` arg if you need to point at the Beta cluster
+ * (`https://hermes-beta.pyth.network`) for staging.
+ */
+export const DEFAULT_HERMES_BASE = "https://hermes.pyth.network";
+
 // Bare `/v2/price_feeds` returns the full multi-class catalog. Hermes
 // REJECTS `?asset_type=all` with HTTP 400 — `all` is not a valid variant.
 // Valid variants are: crypto, fx, equity, metal, rates, commodities,
 // crypto_redemption_rate, crypto_index, crypto_nav, eco, kalshi.
 const CATALOG_PATH = "/v2/price_feeds";
-// v2: bumped to invalidate stale caches written by the broken pre-fix
-// parser (which dropped ALL FX pairs to a few colliding tickers and
-// rejected hyphenated equity tickers + the 5 unmapped asset_type variants).
-const CACHE_KEY = "opta:hermes-catalog-beta-v2";
 const FETCH_TIMEOUT_MS = 15000;
 const DEFAULT_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Cache key derives from the Hermes host so endpoint switches auto-bust
+ * the cache without a manual version bump. Examples:
+ *   "https://hermes.pyth.network"      → "opta:hermes-catalog-hermes.pyth.network"
+ *   "https://hermes-beta.pyth.network" → "opta:hermes-catalog-hermes-beta.pyth.network"
+ */
+function cacheKeyFor(hermesBase: string): string {
+  try {
+    return `opta:hermes-catalog-${new URL(hermesBase).host}`;
+  } catch {
+    // Malformed input — defensively fall back to a stable key so the
+    // cache layer doesn't crash. Should never fire on real config.
+    return "opta:hermes-catalog-fallback";
+  }
+}
 
 const ETF_TICKERS = new Set([
   "SPY", "QQQ", "IWM", "VTI", "EEM", "XLF", "XLE", "XLK", "XLV",
@@ -209,9 +228,9 @@ type CachedEnvelope = {
   entries: CatalogEntry[];
 };
 
-function readCache(): CachedEnvelope | null {
+function readCache(cacheKey: string): CachedEnvelope | null {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = localStorage.getItem(cacheKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedEnvelope;
     if (
@@ -226,22 +245,23 @@ function readCache(): CachedEnvelope | null {
   }
 }
 
-function writeCache(entries: CatalogEntry[]): void {
+function writeCache(cacheKey: string, entries: CatalogEntry[]): void {
   try {
     const env: CachedEnvelope = { timestamp: Date.now(), entries };
-    localStorage.setItem(CACHE_KEY, JSON.stringify(env));
+    localStorage.setItem(cacheKey, JSON.stringify(env));
   } catch {
     // Quota exceeded / private mode — silent.
   }
 }
 
 export async function fetchCatalog(
+  hermesBase: string = DEFAULT_HERMES_BASE,
   timeoutMs: number = FETCH_TIMEOUT_MS,
 ): Promise<CatalogEntry[]> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const resp = await fetch(HERMES_BASE + CATALOG_PATH, { signal: ac.signal });
+    const resp = await fetch(hermesBase + CATALOG_PATH, { signal: ac.signal });
     if (!resp.ok) {
       throw new Error(`Hermes catalog HTTP ${resp.status}`);
     }
@@ -268,10 +288,12 @@ export async function fetchCatalog(
  * the Advanced paste-feed-id flow open with a visible banner.
  */
 export async function getCatalog(
-  opts: { maxAge?: number } = {},
+  opts: { maxAge?: number; hermesBase?: string } = {},
 ): Promise<CatalogResult> {
   const maxAge = opts.maxAge ?? DEFAULT_MAX_AGE_MS;
-  const cached = readCache();
+  const hermesBase = opts.hermesBase ?? DEFAULT_HERMES_BASE;
+  const cacheKey = cacheKeyFor(hermesBase);
+  const cached = readCache(cacheKey);
   const now = Date.now();
 
   // Treat empty cache as "no cache" — never return zero entries via the
@@ -285,13 +307,13 @@ export async function getCatalog(
   }
 
   try {
-    const entries = await fetchCatalog();
+    const entries = await fetchCatalog(hermesBase);
     if (entries.length === 0) {
       // 200 OK from Hermes but parser found nothing usable. Don't cache
       // — force a future re-attempt — and surface a clear UI failure.
       throw new Error("Hermes returned 0 usable assets after parsing");
     }
-    writeCache(entries);
+    writeCache(cacheKey, entries);
     return { entries, isStale: false, lastRefresh: Date.now() };
   } catch (err: any) {
     if (cached && cached.entries.length > 0) {

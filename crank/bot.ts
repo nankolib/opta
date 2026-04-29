@@ -60,6 +60,7 @@ interface CrankContext {
   wallet: anchor.Wallet;
   program: anchor.Program<Opta>;
   tickMs: number;
+  hermesBase: string;
 }
 
 interface AccountRecord {
@@ -125,7 +126,12 @@ function computeExpiredTuples(
   return Array.from(grouped.values()).sort((a, b) => a.expiry - b.expiry);
 }
 
-function readEnv(): { rpcUrl: string; keypairPath: string; tickMs: number } {
+function readEnv(): {
+  rpcUrl: string;
+  keypairPath: string;
+  tickMs: number;
+  hermesBase: string;
+} {
   const rpcUrl = process.env.OPTA_RPC_URL;
   if (!rpcUrl) {
     logFatal("OPTA_RPC_URL is required (e.g., a Helius devnet endpoint)");
@@ -138,7 +144,12 @@ function readEnv(): { rpcUrl: string; keypairPath: string; tickMs: number } {
     logFatal("OPTA_CRANK_TICK_MS must be a number >= 1000", { value: tickMsEnv });
     process.exit(1);
   }
-  return { rpcUrl, keypairPath, tickMs };
+  // Hermes endpoint — mainnet default (production-signed Wormhole VAAs that
+  // Solana devnet's Wormhole Core Bridge tracks). Override via env to point
+  // at the Beta cluster for staging.
+  const hermesBase =
+    process.env.OPTA_HERMES_BASE ?? "https://hermes.pyth.network";
+  return { rpcUrl, keypairPath, tickMs, hermesBase };
 }
 
 function loadKeypair(keypairPath: string): Keypair {
@@ -195,7 +206,13 @@ async function bootstrapContext(): Promise<CrankContext> {
   const provider = new anchor.AnchorProvider(connection, wallet, { commitment: "confirmed" });
   const idl = loadIdl();
   const program = new anchor.Program<Opta>(idl, provider);
-  return { connection, wallet, program, tickMs: env.tickMs };
+  return {
+    connection,
+    wallet,
+    program,
+    tickMs: env.tickMs,
+    hermesBase: env.hermesBase,
+  };
 }
 
 // ---- Loop + signal handling ------------------------------------------------
@@ -234,6 +251,7 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
         t.expiry,
         t.feedIdHex,
         t.vaultPdas,
+        ctx.hermesBase,
       );
       logInfo("tuple settled", {
         asset: t.asset,
@@ -288,6 +306,7 @@ async function main(): Promise<void> {
   logInfo("crank started", {
     wallet: ctx.wallet.publicKey.toBase58(),
     rpc: redactRpc(ctx.connection.rpcEndpoint),
+    hermesBase: ctx.hermesBase,
     intervalMs: ctx.tickMs,
     programId: ctx.program.programId.toBase58(),
   });

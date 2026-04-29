@@ -48,6 +48,21 @@ The crank fails fast at boot if `OPTA_RPC_URL` is unset.
 |---|---|---|
 | `OPTA_CRANK_KEYPAIR` | `~/.config/solana/id.json` | Path to a Solana keypair JSON file (64-byte secret-key array). |
 | `OPTA_CRANK_TICK_MS` | `300000` (5 min) | Milliseconds between tick starts. Floor: 1000ms. |
+| `OPTA_HERMES_BASE` | `https://hermes.pyth.network` | Pyth Hermes endpoint. Override to `https://hermes-beta.pyth.network` for Beta-cluster testing. |
+
+### Endpoint selection
+
+The crank defaults to **mainnet Hermes** (`hermes.pyth.network`). Mainnet
+Hermes serves price updates signed by Pyth's production Wormhole guardian
+set, which Solana devnet's Wormhole Core Bridge tracks. The Beta cluster
+(`hermes-beta.pyth.network`) signs with a separate guardian set that
+Solana devnet does not currently track — settle attempts via Beta will
+fail with `GuardianSetExpired` from Wormhole's `VerifyEncodedVaaV1`.
+
+Mainnet Hermes serves the same feed_ids on devnet and mainnet (the on-
+chain Pyth Receiver is the same program ID across clusters). Use Beta
+only if you have specific feed_ids that exist on Beta but not mainnet,
+and only against a Solana cluster whose Wormhole tracks Beta guardians.
 
 ## Running the crank
 

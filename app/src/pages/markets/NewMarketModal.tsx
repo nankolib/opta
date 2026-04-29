@@ -12,6 +12,7 @@ import {
   lookupByFeedId,
   type CatalogEntry,
 } from "../../utils/hermesCatalog";
+import { getHermesBase } from "../../utils/env";
 
 type NewMarketModalProps = {
   onClose: () => void;
@@ -89,7 +90,7 @@ export const NewMarketModal: FC<NewMarketModalProps> = ({
   // mode hunted down in the P4c smoke session.
   useEffect(() => {
     let cancelled = false;
-    getCatalog()
+    getCatalog({ hermesBase: getHermesBase() })
       .then((res) => {
         if (cancelled) return;
         if (res.isStale) {
