@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "outDir": "dist",
+    "rootDir": "..",
+    "baseUrl": ".",
+    "paths": {
+      "@app/*": ["../app/src/*"]
+    }
+  },
+  "ts-node": {
+    "transpileOnly": true,
+    "compilerOptions": {
+      "module": "commonjs"
+    },
+    "moduleTypes": {
+      "../app/src/**/*.ts": "cjs"
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "../app/src/utils/pythPullPost.ts",
+    "../app/src/idl/opta.ts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

@@ -19,11 +19,11 @@
 // =============================================================================
 
 import { PythSolanaReceiver } from "@pythnetwork/pyth-solana-receiver";
-import type { AnchorWallet } from "@solana/wallet-adapter-react";
 import {
   Connection,
   PublicKey,
   SystemProgram,
+  Transaction,
   VersionedTransaction,
   Signer,
   TransactionMessage,
@@ -32,6 +32,20 @@ import {
 import BN from "bn.js";
 import { Program } from "@coral-xyz/anchor";
 import type { Opta } from "../idl/opta";
+
+/**
+ * Minimal wallet shape both pythPullPost callers satisfy:
+ *   browser → AnchorWallet from @solana/wallet-adapter-react
+ *   Node    → Wallet from @coral-xyz/anchor (when used by crank/bot.ts)
+ *
+ * Defined structurally so the helper is portable across both runtimes
+ * without runtime-specific imports.
+ */
+export type SignerWallet = {
+  publicKey: PublicKey;
+  signTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<T>;
+  signAllTransactions<T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]>;
+};
 
 const HERMES_BASE = "https://hermes-beta.pyth.network";
 const HERMES_PRICE_PATH = "/v2/updates/price/latest";
@@ -107,7 +121,7 @@ export type BuiltTx = { tx: VersionedTransaction; signers: Signer[] };
  */
 export async function buildPostUpdateAndSettleTx(
   program: Program<Opta>,
-  wallet: AnchorWallet,
+  wallet: SignerWallet,
   assetName: string,
   expiry: number,
   feedIdHex: string,
@@ -189,7 +203,7 @@ export async function buildPostUpdateAndSettleTx(
  */
 export async function submitWithFallback(
   connection: Connection,
-  wallet: AnchorWallet,
+  wallet: SignerWallet,
   txs: BuiltTx[],
 ): Promise<string> {
   // Pre-sign with any ephemeral signers the SDK needs.
@@ -245,7 +259,7 @@ const SETTLE_VAULT_CHUNK_SIZE = 5;
  */
 export async function settleAllForExpiry(
   program: Program<Opta>,
-  wallet: AnchorWallet,
+  wallet: SignerWallet,
   assetName: string,
   expiry: number,
   feedIdHex: string,
