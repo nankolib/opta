@@ -782,6 +782,23 @@ or P5 before any public demo.
    would cut RPC load. Trade-off: more invasive refactor across multiple
    hooks; partial benefit only.
 
+### Resolution — 2026-04-28 (P4c-rpc-hotfix, commit ba4fb79)
+
+**Status: RESOLVED.** Adopted Option 1 (switch RPC endpoint). The
+frontend now reads `VITE_RPC_URL` from `app/.env.local` at Vite
+build/dev startup and falls back to `clusterApiUrl("devnet")` if
+unset (see `app/src/contexts/WalletContext.tsx`). The `.env.local`
+file is gitignored via `app/.gitignore`'s `.env*` glob; an
+`.env.example` is committed alongside as documentation of the
+expected variable name (no real key in it). The Helius URL itself
+never enters the repo or any chat.
+
+Option 2 (exponential-backoff retry) is not implemented — the
+endpoint switch fully eliminates 429s under demo-scale load, so
+the retry layer is unnecessary for now. Option 3 (concurrent-RPC
+reduction) remains a P5+ optimisation candidate independent of
+this issue.
+
 Recommended pairing: **(1) + (2)**. Switch to a free-tier provider for
 demo reliability, keep retry logic as a backstop. Park option (3) for
 when we're at production scale.

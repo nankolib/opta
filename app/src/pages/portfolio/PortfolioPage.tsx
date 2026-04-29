@@ -19,6 +19,7 @@ import { OpenPositionsSection } from "./OpenPositionsSection";
 import { ClosedPositionsSection } from "./ClosedPositionsSection";
 import { ResaleModal } from "./ResaleModal";
 import { SettleExpiriesSection } from "./SettleExpiriesSection";
+import { MigrateFeedSection } from "./MigrateFeedSection";
 import { buildPositions, type Position, type PositionAction } from "./positions";
 import { usePortfolioActions } from "./usePortfolioActions";
 
@@ -352,6 +353,10 @@ export const PortfolioPage: FC = () => {
               vaults={vaults}
               markets={markets}
               settlementRecords={settlementRecords}
+              onRefetch={refetchAll}
+            />
+            <MigrateFeedSection
+              markets={markets}
               onRefetch={refetchAll}
             />
           </>

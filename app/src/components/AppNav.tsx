@@ -1,8 +1,10 @@
 import type { FC, ReactNode } from "react";
+import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { Wordmark } from "./brand";
+import { NewMarketModal } from "../pages/markets/NewMarketModal";
 
 /**
  * AppNav — shared logged-in app nav for trader-facing surfaces.
@@ -30,8 +32,24 @@ import { Wordmark } from "./brand";
 export const AppNav: FC = () => {
   const { publicKey, connected, disconnect } = useWallet();
   const { setVisible } = useWalletModal();
+  const [showNewMarket, setShowNewMarket] = useState(false);
+
+  // Mirrors MarketsPage's handler: prompt wallet connection first if
+  // disconnected; otherwise open the modal. Edge case: when the user is
+  // already on /markets, MarketsPage's local data doesn't refetch on close
+  // (different state owner) — they'll need to refresh to see the new
+  // market. Acceptable for P4e; would need a context refactor to fix
+  // cleanly.
+  const handleNewMarket = () => {
+    if (!connected) {
+      setVisible(true);
+      return;
+    }
+    setShowNewMarket(true);
+  };
 
   return (
+    <>
     <nav
       aria-label="Primary"
       className="pointer-events-none fixed inset-x-0 top-0 z-[200] flex items-center justify-between font-mono text-[11.5px] uppercase tracking-[0.18em] text-ink py-[22px] px-[clamp(20px,4vw,56px)] [&>*]:pointer-events-auto"
@@ -47,6 +65,13 @@ export const AppNav: FC = () => {
       </div>
 
       <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={handleNewMarket}
+          className="hidden sm:inline-flex items-center no-underline transition-opacity duration-300 ease-opta opacity-65 hover:opacity-100"
+        >
+          + New Market
+        </button>
         {connected && publicKey ? (
           <>
             <span className="hidden sm:inline-flex items-center gap-2 text-ink opacity-85">
@@ -74,6 +99,13 @@ export const AppNav: FC = () => {
         )}
       </div>
     </nav>
+    {showNewMarket && (
+      <NewMarketModal
+        onClose={() => setShowNewMarket(false)}
+        onCreated={() => setShowNewMarket(false)}
+      />
+    )}
+    </>
   );
 };
 

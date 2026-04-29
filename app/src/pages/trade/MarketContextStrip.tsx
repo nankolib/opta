@@ -14,11 +14,6 @@ type MarketContextStripProps = {
  * — for now), IV · BASELINE, 24H VOL (— pending indexer), OPEN
  * INTEREST. Right side shows a PRICE FEED LIVE indicator with a
  * crimson pulsing dot.
- *
- * The "PRICE FEED LIVE" copy intentionally avoids saying "PYTH" —
- * the underlying hook (`usePythPrices`) actually uses CoinGecko +
- * Jupiter + static fallbacks, not Pyth. Honesty fix scoped to this
- * page only.
  */
 export const MarketContextStrip: FC<MarketContextStripProps> = ({
   spot,
