@@ -872,3 +872,82 @@ Files touched:
 Known minor UX: while the confirmation modal is open, other "Settle"
 buttons in the list remain technically clickable through the
 overlay. Not blocking; deferred to P4e polish.
+
+---
+
+## Stage P5 — Devnet redeploy on Pyth Pull IDL (2026-04-29)
+
+Both Solana programs upgraded to the post-P4e source. After P1/P2/P3 the
+on-chain `opta` binary still expected the old `settle_expiry(price)`
+admin-only shape; the new frontend's permissionless settle button would
+have hit `InstructionDidNotDeserialize` until this deploy.
+
+### Deploys
+
+| Program | Program ID | Tx signature | Slot |
+| --- | --- | --- | --- |
+| opta | `CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq` | `5qMtBLJApp2zRoor3HW4SN469vV1ykLJcQxPVx8CCGroCdLetxYJ557eiNCtWvSVmotAjdpdboDi76aUv1qUAafq` | 458866752 |
+| opta_transfer_hook | `83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG` | `PKoAnn54EYZERoCZD3N8xeqAe73uiE4d68TVSxv34bi8DiiEGH3GN8Agq3bvfDZoL833xGvd9tXXZ4KqbcMmzss` | 458867413 |
+
+Both program IDs preserved (in-place upgrade via `solana program deploy
+--program-id`); upgrade authority unchanged
+(`5YRMuuoY3P7z5GeRAAQND7BxgNdmPSa6CSPCJLca1zZk`). No frontend constants
+required updating; IDL files in `app/src/idl/` were already in sync with
+`target/idl/` (last copied during P3 commit `baea0a6`, untouched since).
+
+### Cost
+
+- opta upgrade: 0.00357 SOL (24s deploy duration)
+- opta_transfer_hook upgrade: 0.00118 SOL (19s deploy duration)
+- Total: **0.00475 SOL**
+
+Cost was minimal because both programs were upgrades (existing
+ProgramData accounts reused) rather than fresh deploys. Helius RPC kept
+buffer-write rounds tight — typical public-devnet-RPC deploys for this
+binary size run 1-5 minutes; both came in under 25 seconds.
+
+### opta_transfer_hook diff context
+
+Pre-deploy sha256 differed between local build and on-chain (1.09% of
+bytes, distributed across `.text` section). Source had no logic
+changes since the last on-chain deploy — only Phase 2 cosmetic renames
+(commits `f51cb45` + `bb89a4a`). The byte differences were almost
+certainly compiler emit-order non-determinism (same instructions,
+different basic-block ordering). Redeployed anyway under the principle
+that for a hackathon demo, a fraction of a SOL beats carrying any
+uncertainty about a Token-2022 transfer hook that mediates every
+option-token transfer.
+
+### What now lives on devnet
+
+- `settle_expiry(asset_name, expiry)` consumes a `PriceUpdateV2`
+  account and is permissionless (P2 shape).
+- `migrate_pyth_feed(asset_name, new_pyth_feed_id)` admin instruction
+  available (P3).
+- `OptionsMarket.pyth_feed_id` is `[u8; 32]` (P1 shape); legacy
+  `pyth_feed: Pubkey` is gone.
+- `create_market(asset_name, pyth_feed_id, asset_class)` permissionless
+  and idempotent (Stage 2-amend-lite).
+- `create_shared_vault` requires `collateral_mint: Pubkey` as the 5th
+  positional arg (Stage 3).
+
+### Operational housekeeping
+
+- Three orphaned write-buffer accounts owned by our wallet exist on
+  devnet from earlier deploy sessions (not P5). All have 0 SOL balance,
+  no rent to recover. Cleanup is `solana program close <buffer-pubkey>`
+  later if desired; not blocking.
+- `solana config` was switched from `localhost:8899` to
+  `https://api.devnet.solana.com` for the deploy. Switch back to
+  localhost if running local validator tests.
+
+### Smoke handoff
+
+Live tx behavior post-deploy is the user's to verify:
+
+1. Connect wallet on the dev server.
+2. Markets → "+ New Market" → pick a Pyth-cataloged asset → create.
+3. Write → pick the new market → write an option.
+4. Wait for expiry (or pick a near-term test).
+5. Portfolio → click Settle on the expired tuple.
+6. Confirm the settle modal shows price + tx signature.
