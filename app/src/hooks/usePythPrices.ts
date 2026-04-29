@@ -3,7 +3,8 @@
 // =============================================================================
 //
 // Stage P4b rewrite: single source of truth for every price displayed
-// anywhere in the app is the Hermes-Beta off-chain price endpoint. The
+// anywhere in the app is the Hermes off-chain price endpoint (mainnet by
+// default, override via VITE_HERMES_BASE — see utils/env.ts). The
 // CoinGecko + Jupiter + STATIC_FALLBACKS chain is gone; if Hermes can't
 // resolve a feed_id, the ticker is absent from `prices` and call sites
 // render the "—" placeholder.
@@ -15,8 +16,8 @@
 // =============================================================================
 
 import { useEffect, useMemo, useState } from "react";
+import { getHermesBase } from "../utils/env";
 
-const HERMES_BASE = "https://hermes-beta.pyth.network";
 const PRICE_PATH = "/v2/updates/price/latest";
 const FETCH_TIMEOUT_MS = 4000;
 const REFRESH_INTERVAL_MS = 30_000;
@@ -62,7 +63,7 @@ function parsePriceResponse(json: unknown): Map<string, number> {
 async function fetchPrices(feedIds: string[]): Promise<Map<string, number>> {
   if (feedIds.length === 0) return new Map();
   const params = feedIds.map((id) => `ids[]=${encodeURIComponent(id)}`).join("&");
-  const url = `${HERMES_BASE}${PRICE_PATH}?${params}&parsed=true`;
+  const url = `${getHermesBase()}${PRICE_PATH}?${params}&parsed=true`;
 
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
