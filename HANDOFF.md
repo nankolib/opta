@@ -210,7 +210,7 @@ The original V1 P2P instructions (`write_option`, `purchase_option`, `settle_mar
 
 | What | Where |
 |---|---|
-| Both programs | **Solana devnet**, program IDs above. Last upgraded slots: opta = 458866752, opta_transfer_hook = 458867413 (both via `solana program deploy --program-id` upgrade on 2026-04-29) |
+| Both programs | **Solana devnet**, program IDs above. Last upgraded slots: opta = 459143156 (auto-finalize arc deploy 2026-04-30, tx `GSCPwhHmTYXECL6FVAZerdEh65A8eudd6ZV6JUVA6HY5cY2aN54Kpkfk2dCHcizLxyphfYPHRAY9GxXjs9cXQsH`); opta_transfer_hook = 458867413 (Pyth migration arc upgrade 2026-04-29, unchanged since) |
 | Frontend | **Vercel** — `https://opta-solana.vercel.app` (root dir `app/`, SPA rewrite via `vercel.json`). Auto-deploys on push to `main` |
 | Crank bot | Run manually via `npm start` from `crank/` (or as a background process under WSL with `nohup`). Reads `OPTA_RPC_URL` and `OPTA_CRANK_KEYPAIR` from env. **NOT** running as a daemon — operator must start it explicitly |
 | Devnet USDC mint | `AytU5HUQRew9VdUdrzQuZvZ7s14pHLiYjAF5WqdK3oxL` (in `app/src/utils/constants.ts`) |
@@ -267,7 +267,7 @@ Auto-burn + auto-distribute shipped via the auto-finalize arc (commits `a7924d2`
 
 ### Other open gaps
 
-- **Test suite not refreshed for the migration arc.** All P-stage commits were code-only; no tests were updated to reflect the new IDL signatures. The 95/95 figure is from before P1.
+- **Test suite not refreshed for the migration arc.** All P-stage commits were code-only; no tests were updated to reflect the new IDL signatures. Test count drifted to 77 during the migration arc; the 11 failures are environmental fixture-staleness rather than handler bugs (see `MIGRATION_LOG.md` test-harness gotchas).
 - **Pricing crank from the original handoff was archived.** It was never used by the migration arc, isn't relevant to the current settle flow, and any future "live pricing refresh" feature is a separate concern from the settle automation crank that ships today.
 - **Frontend bug — Markets page shows "No markets yet" when an asset is registered but has no vaults.** UX gap, not a chain-side bug. Logged for the doc-audit pass.
 - **Frontend bug — Header reads "MAINNET · SOLANA" on the live site.** It's still Solana devnet underneath; only the Pyth feeds are mainnet. Display copy needs correcting before any judging touchpoint.
@@ -290,7 +290,7 @@ Auto-burn + auto-distribute shipped via the auto-finalize arc (commits `a7924d2`
 ## 8. Key Decisions & Design Choices
 
 - **Token-2022 over classic SPL** — needed TransferHook + PermanentDelegate + MetadataPointer for the "living token" lifecycle. Foundational to the protocol's narrative.
-- **Options represented as tradable tokens** — anyone holding them at expiry gets paid (once auto-distribute ships). Enables DEX listing and a built-in secondary market.
+- **Options represented as tradable tokens** — anyone holding them at expiry gets paid. Enables DEX listing and a built-in secondary market.
 - **European-style settlement, USDC-only** — simpler to audit and price; American-style is post-Colosseum work.
 - **V2 shared-vault liquidity model is the only one exposed in the UI.** V1 P2P code was archived to `archive/` in Stage 1.
 - **On-chain Black-Scholes via solmath** — expensive (~50K CU) but enables CPI composability and AI-agent-readable pricing without trusting an off-chain oracle.
@@ -308,7 +308,7 @@ Auto-burn + auto-distribute shipped via the auto-finalize arc (commits `a7924d2`
 
 - **Contributors:** only `nankolib` (Nanko). See "Working with the user" at the top.
 - **External services:** Pyth Network (Hermes mainnet for off-chain price updates + Pyth Receiver on-chain; Wormhole Core Bridge for VAA verification), Helius (devnet RPC), Vercel (hosting), GitHub (source).
-- **Deadlines:** **Colosseum Frontier Hackathon — April 2026**. Submission window already open; final demo/judging is the near-term gate. Today is 2026-04-29.
+- **Deadlines:** **Colosseum Frontier Hackathon — April 2026**. Submission window already open; final demo/judging is the near-term gate. Today is 2026-04-30.
 
 ---
 
