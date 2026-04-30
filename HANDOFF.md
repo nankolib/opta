@@ -1,6 +1,6 @@
 # Opta — Engineer Handoff
 
-> Updated 2026-04-29 after the Pyth Pull migration arc + crank build. Renamed from Butter Options to Opta on 2026-04-21. This document is the project seed context — drop it into a fresh Claude chat to bring any instance up to speed without re-explanation. For current HEAD, run `git log -1 --oneline`; this doc does not try to self-reference its own commit.
+> Updated 2026-04-30 after the auto-finalize arc (Steps 1–6, commits a7924d2 through 37c9b4b). The "living token" thesis is now real on devnet end-to-end. Renamed from Butter Options to Opta on 2026-04-21. This document is the project seed context — drop it into a fresh Claude chat to bring any instance up to speed without re-explanation. For current HEAD, run `git log -1 --oneline`; this doc does not try to self-reference its own commit.
 
 > NOTE ON THE RENAME: As of 2026-04-29, **Phase 2 of the rename is complete on disk** (despite the original handoff saying it was parked until post-Colosseum). Directory layout is now `programs/opta/` and `programs/opta-transfer-hook/`. `Anchor.toml` keys are `opta` and `opta_transfer_hook`. PDA seed constants, `declare_id!()` macros, and IDL have been regenerated. The old `butter_options` / `butter-options` identifiers are gone from the codebase. If the in-memory mental model from older sessions still says Phase 2 is parked, the disk supersedes it.
 
@@ -41,7 +41,7 @@ The differentiation comes from three intertwined design choices, each of which o
 
 **Asset surface.** Most on-chain options projects support BTC, ETH, SOL, maybe a handful of large caps. Opta supports anything Pyth has a feed for. The pitch is not "options on SOL" — it's "options on whatever asset has a price feed." This compounds: every new feed Pyth adds becomes a potential Opta market.
 
-**Token mechanic — the "living token."** Each option is a Token-2022 mint with three extensions doing real work: TransferHook enforces expiry (post-expiry transfers fail), PermanentDelegate gives the protocol authority to act on the holder's tokens without their signature, MetadataPointer makes the term sheet on-chain so other programs and AI agents can read it. The intent: at expiry, **no user has to claim, exercise, withdraw, or click anything**. The protocol burns the token, distributes the cash, closes the position. Users wake up the next day with USDC in their wallet — payout if ITM, refunded collateral + earned premium if OTM (writer side). Including for tokens held in *secondary-market* wallets — whoever holds the token at expiry gets paid, automatically. **This automated post-expiry resolution is the protocol's core narrative, and it is currently NOT YET SHIPPED — see §7 and §10.**
+**Token mechanic — the "living token."** Each option is a Token-2022 mint with three extensions doing real work: TransferHook enforces expiry (post-expiry transfers fail), PermanentDelegate gives the protocol authority to act on the holder's tokens without their signature, MetadataPointer makes the term sheet on-chain so other programs and AI agents can read it. The intent: at expiry, **no user has to claim, exercise, withdraw, or click anything**. The protocol burns the token, distributes the cash, closes the position. Users wake up the next day with USDC in their wallet — payout if ITM, refunded collateral + earned premium if OTM (writer side). Including for tokens held in *secondary-market* wallets — whoever holds the token at expiry gets paid, automatically. **This automated post-expiry resolution is the protocol's core narrative, and as of commit `37c9b4b` it is shipped on devnet and verified end-to-end via the Phase 6 smoke test (see §6 and the Step 6 follow-ups in `MIGRATION_LOG.md`). Mainnet readiness is a separate concern — see §10.**
 
 **Liquidity model.** TradFi-style options books fragment liquidity per strike, per expiry, per side. Opta's shared-vault V2 model has writers deposit into pooled vaults that mint multiple strikes/expiries against one collateral pool, eliminating per-listing fragmentation.
 
@@ -60,7 +60,15 @@ The differentiation comes from three intertwined design choices, each of which o
 - **GitHub remote:** `https://github.com/nankolib/opta.git`
 - **Current branch:** `master` (also pushed to `main` for hackathon judges; both branches stay in sync at every commit)
 - **Working tree:** clean
-- **Latest commits as of 2026-04-29:**
+- **Latest commits as of 2026-04-30:**
+  - `37c9b4b` docs(auto-finalize-6): step 6 devnet smoke results
+  - `883b2d0` feat(auto-finalize-5): crank wires holder + writer auto-finalize passes
+  - `f7270b1` test(auto-finalize-3): writer-side test suite (14 cases)
+  - `9069441` feat(auto-finalize-3): auto_finalize_writers instruction handler
+  - `e219c17` docs: test harness gotchas + corrected test count
+  - `d0edd10` test(auto-finalize-1): holder-side test suite (11 cases)
+  - `ecdc7a3` feat(auto-finalize-1.1): add mint to HoldersFinalized event
+  - `a7924d2` feat(auto-finalize-1): auto_finalize_holders instruction handler
   - `7d6100d` chore(admin): one-shot script to migrate SOL feed_id to mainnet
   - `a8d3d9b` feat(stage-p6): hermes endpoint configurable, mainnet default
   - `2a7c1c2` feat(stage-p4e): cleanup pass — eslint config, AppNav promotion, MigrateFeed admin tools, dead-code sweep
@@ -84,6 +92,15 @@ The protocol shipped the **Pyth Pull migration** in stages P1 → P5, then a **c
 - `OptionsMarket.pyth_feed_id` is `[u8; 32]` (not `Pubkey`)
 - A standalone Node.js crank lives in `crank/bot.ts` with its own `package.json`, `tsconfig.json`, and `README.md`
 - Hermes endpoint is env-var configurable (`VITE_HERMES_BASE` for frontend, `OPTA_HERMES_BASE` for crank); mainnet is the default
+
+### What changed in the auto-finalize arc (Apr 29 – Apr 30 2026)
+
+The protocol gained two new permissionless on-chain instructions plus the crank wiring to drive them, closing the §7 gap that was the central open item at the end of the migration arc. Major upshots:
+
+- Two new Rust instructions, both permissionless: `auto_finalize_holders` (burns holder option tokens via PermanentDelegate, distributes ITM USDC payouts; commit `a7924d2` + event-field tweak in `ecdc7a3`) and `auto_finalize_writers` (returns each writer's premium + pro-rata collateral share, manually closes their `WriterPosition` account, and on the last writer in a vault sweeps any leftover dust to the protocol treasury and closes the vault USDC account; commit `9069441`).
+- Crank now runs holder-finalize and writer-finalize passes after the existing settle pass on every tick (`crank/bot.ts` + `crank/autoFinalize.ts`, commit `883b2d0`). Batch sizes, ATA pre-create budget per tick, dry-run mode, and stale-warn thresholds are all controlled via new env vars — see `crank/README.md`.
+- Step 6 devnet smoke (commit `37c9b4b`) verified all paths end-to-end: deployed the new program, settled a fresh ITM vault, ran the crank live against three real vaults (the Apr 29 vault from the migration-arc smoke, a fresh ITM vault, plus one leftover from earlier devnet activity), watched all three converge into the crank's "fully finalized" cache. Treasury USDC and SOL deltas reconciled to the lamport. Full results: `MIGRATION_LOG.md` "Step 6 smoke results".
+- The §7 "big architectural gap" — auto-burn + auto-distribute on expiry — is closed. The "wake up with USDC, no clicks" UX is real on devnet.
 
 ---
 
@@ -134,7 +151,7 @@ The protocol shipped the **Pyth Pull migration** in stages P1 → P5, then a **c
 | `opta` | `CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq` | Main protocol |
 | `opta_transfer_hook` | `83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG` | Token-2022 transfer hook — blocks transfers after expiry |
 
-### Instruction inventory (15 instructions on the main program, post-Stage-1+P-arc)
+### Instruction inventory (17 instructions on the main program, post auto-finalize arc)
 
 **Admin (2):** `initialize_protocol`, `initialize_epoch_config`
 
@@ -144,9 +161,9 @@ The protocol shipped the **Pyth Pull migration** in stages P1 → P5, then a **c
 
 **Vault buyer flow (1):** `purchase_from_vault`
 
-**Settlement (2):** `settle_expiry` (post Pyth update + create SettlementRecord, permissionless), `settle_vault` (mark vault settled, permissionless — DOES NOT BURN OR DISTRIBUTE; see §7)
+**Settlement (4):** `settle_expiry` (post Pyth update + create SettlementRecord, permissionless), `settle_vault` (mark vault settled, permissionless), `auto_finalize_holders` (permissionless, burns holder tokens via PermanentDelegate and distributes ITM payouts in batches), `auto_finalize_writers` (permissionless, returns writer collateral + premium, manually closes writer positions refunding rent to writers, sweeps dust to protocol treasury and closes vault USDC on the last writer in a vault)
 
-**Manual cleanup (3):** `exercise_from_vault` (holder-signed, burns own tokens, claims payout), `withdraw_post_settlement` (writer-signed, claims collateral + premium back), `burn_unsold_from_vault` (writer-signed, burns own unsold escrow inventory)
+**Manual cleanup (3):** `exercise_from_vault` (holder-signed, burns own tokens, claims payout — fallback for power users; the crank's auto-finalize handles the default UX), `withdraw_post_settlement` (writer-signed, claims collateral + premium back — same fallback role), `burn_unsold_from_vault` (writer-signed, burns own unsold escrow inventory)
 
 The original V1 P2P instructions (`write_option`, `purchase_option`, `settle_market`, `exercise_option`, `expire_option`, `cancel_option`, `list_for_resale`, `buy_resale`, `cancel_resale`) were archived in commit `54c35c5` (Stage 1) and are no longer in `programs/opta/`. They live in `archive/` for reference only.
 
@@ -156,7 +173,7 @@ The original V1 P2P instructions (`write_option`, `purchase_option`, `settle_mar
 
 ### Token-2022 extensions on every option mint
 - **TransferHook** — blocks user-to-user transfers after expiry (enforced by the hook program)
-- **PermanentDelegate** — protocol_state PDA holds delegate authority, **but no instruction currently uses this for permissionless multi-holder burns** (latent capability; see §7 and §10)
+- **PermanentDelegate** — protocol_state PDA holds delegate authority; used by `auto_finalize_holders` for permissionless multi-holder burns at expiry
 - **MetadataPointer + TokenMetadata** — on-chain term sheet (asset, strike, expiry, type)
 
 ### Frontend — `app/src/`
@@ -176,12 +193,14 @@ The original V1 P2P instructions (`write_option`, `purchase_option`, `settle_mar
 3. UI computes B-S fair value client-side in `blackScholes.ts` for the grid
 4. User clicks Buy → `purchase_from_vault` instruction sent
 5. On-chain: vault transfers option tokens from its escrow ATA to buyer; transfer hook checks expiry; premium goes to vault
-6. **At expiry — current state (manual):** crank automatically calls `settle_expiry` (creates SettlementRecord) + `settle_vault` (flips `is_settled = true`). After that, **users must manually call `exercise_from_vault` (ITM holders) or `withdraw_post_settlement` (writers) to receive USDC and burn their tokens.** The fully-automated post-expiry resolution is the protocol's intended behavior but has not yet shipped.
-7. Crank bot at `crank/bot.ts` runs on a 5-minute tick interval (configurable via `OPTA_CRANK_TICK_MS`) to perform settlement automatically
+6. **At expiry:** the crank's settle pass calls `settle_expiry` (creates SettlementRecord) + `settle_vault` (flips `is_settled = true`).
+7. **On the next tick after settle:** the crank's holder-finalize pass enumerates Token-2022 accounts holding the option mint(s), filters out zero-balance accounts and protocol-owned escrows, and calls `auto_finalize_holders` in batches — burning each holder's tokens via the PermanentDelegate authority and paying ITM holders their `(settlement − strike) × quantity` USDC in the same instruction. Idempotent across batches: zero-balance accounts and mismatched USDC ATAs are silent-skipped on chain.
+8. **Then the writer-finalize pass:** the crank enumerates `WriterPosition` accounts for the vault and calls `auto_finalize_writers` in batches — each writer receives their unclaimed premium + pro-rata collateral share, their `WriterPosition` account is manually closed (rent SOL refunded to the writer's wallet), and on the last writer in a vault any leftover USDC dust is swept to the protocol treasury and the `vault_usdc_account` is closed (its rent SOL also routed to treasury). Once both passes return empty for a vault, the crank caches it as fully finalized and stops re-processing it for the rest of the process lifetime.
+9. Crank bot at `crank/bot.ts` runs on a 5-minute tick interval (configurable via `OPTA_CRANK_TICK_MS`) to perform settlement and auto-finalize automatically
 
 ### Supporting code
 - `sdk/` — TS router SDK wrapping V2 vault flows
-- `crank/bot.ts` — settle automation crank (see §5)
+- `crank/bot.ts` — settle + auto-finalize automation crank (see §5); see `crank/autoFinalize.ts` for the holder/writer enumeration and batching logic
 - `crank/migrate-sol-feed.ts` — one-shot admin script that rotated SOL's feed_id from Beta to mainnet on 2026-04-29
 - `scripts/` — seed scripts, debug helpers, faucet setup, `pyth-feed-ids.csv`
 
@@ -208,7 +227,7 @@ The `app/.env.example` and `crank/README.md` document the expected variable name
 
 ## 6. Current State — What Works
 
-- All **15 instructions** deployed and live on devnet
+- All **17 instructions** deployed and live on devnet (post auto-finalize arc, redeploy slot `459143156`)
 - **77 tests in the suite as of 2026-04-30** (test count drifted from the historical 95 during the migration arc; 66 pass, 11 fail with `PriceTooOld` cascades — see `MIGRATION_LOG.md` test-harness gotchas).
 - **Full frontend** live on Vercel: Trade (Deribit-style chain), Write, Portfolio (with Settle Expired Markets section + admin Pyth feed migration tool), Markets (with "+ New Market" promoted to AppNav), Docs
 - **On-chain Black-Scholes** pricing + 5 Greeks via solmath (~50K CU) — used by the frontend's IndicativePremium panel and (in principle) by any CPI consumer
@@ -216,6 +235,7 @@ The `app/.env.example` and `crank/README.md` document the expected variable name
 - **Permissionless settlement via Pyth Pull oracle** — anyone with a wallet (including the crank) can settle expired markets
 - **Migrate-Pyth-feed admin tool** — admin-only Portfolio section that lets the protocol admin rotate any market's feed_id (used live on 2026-04-29 to switch SOL from Beta feed to mainnet)
 - **Settle automation crank** — verified working end-to-end on 2026-04-29: detected expired vault, posted Hermes update, created SettlementRecord, flipped `is_settled = true`, all signed by the crank wallet
+- **Permissionless auto-finalize at expiry** — `auto_finalize_holders` burns holder tokens and pays ITM payouts in batches; `auto_finalize_writers` returns writer collateral + premium, closes positions, sweeps dust to treasury. Both verified working on devnet end-to-end via Step 6 smoke (commit `37c9b4b`).
 
 ### Smoke test verified 2026-04-29
 
@@ -227,28 +247,26 @@ Operator wrote 20 SOL CALL contracts at $90 strike with a near-term expiry, buye
 - Crank wallet `5YRMuuoY…1zZk` signed both the atomic tx and the settle_vault batch
 - Total cost: ~0 SOL net (orphaned encoded-VAA from the earlier failed Beta attempt was reclaimed)
 
-This validates the automated settlement path. **It does NOT validate the auto-burn / auto-distribute flow, which is not yet implemented (§7).**
+This validates the automated settlement path. The auto-burn / auto-distribute flow it didn't validate was the focus of the auto-finalize arc that followed; see the next subsection for that smoke.
+
+### Smoke test verified 2026-04-30 (Step 6 of auto-finalize arc)
+
+Three vaults processed end-to-end through the new `auto_finalize_holders` + `auto_finalize_writers` instructions: the Apr 29 vault (OTM call, $90 strike, $83 settlement) cleaned up — buyer's 5 tokens burned with no payout, writer received $3,600 collateral + premium dust back; a fresh ITM SOL vault ($50 strike, $83.39 settlement) paid the buyer **$100.19 USDC automatically with no buyer interaction**, writer received remaining collateral + premium share; one leftover settled-but-unfinalized vault from prior devnet activity finalized cleanly with the writer's $800 collateral refunded. Treasury accumulated $0.015 USDC (mostly the 0.5% purchase fee from the fresh-vault buy in Phase 3, plus 1 micro-USDC of dust from the Apr 29 writer pass) and 6,117,840 lamports of rent across the three `vault_usdc_account` closures (= 3 × 2,039,280 lamports per token-account rent, exact). Math reconciled to the lamport. All three vaults converged into the crank's "fully finalized" cache by tick 2. Full results: `MIGRATION_LOG.md` "Step 6 smoke results".
 
 ---
 
 ## 7. Current State — In Progress / Known Gaps
 
-### The big architectural gap: auto-burn + auto-distribute is not yet shipped
+### The big gap from Apr 29 is closed
 
-**This is the most important entry in this document.** The "living token" thesis described in §1 — where post-expiry the protocol burns all holder tokens and distributes USDC payouts/refunds automatically — does not currently exist on-chain.
+Auto-burn + auto-distribute shipped via the auto-finalize arc (commits `a7924d2` through `37c9b4b`). The "wake up with USDC, no clicks" UX is real on devnet as of the Step 6 smoke. The remaining open architectural gap is V2 secondary listing (see below) — the on-chain marketplace state for pre-expiry token resale is still unbuilt.
 
-Audit confirmed on 2026-04-29 by reading every instruction handler:
+### The remaining big gap: V2 secondary listing
 
-- `settle_vault` is a *mark-only* operation. It flips `is_settled = true` and records the settlement price, but **touches zero tokens and moves zero USDC**. Its account list does not even include `option_mint`, holder ATAs, `vault_usdc_account`, or any token program — by structure, it cannot burn or distribute.
-- The PermanentDelegate authority IS correctly installed on every option mint and IS held by the protocol_state PDA. The technical capability for a permissionless auto-burn exists. But no instruction exposes that capability for multi-holder iteration.
-- The only paths that burn tokens are user-initiated: `exercise_from_vault` (holder signs to burn own tokens for ITM payout), `burn_unsold_from_vault` (writer signs to clean up own unsold escrow), `withdraw_post_settlement` (writer signs to claim collateral; does NOT burn but settles writer-side).
-- After the Apr 29 smoke test, the buyer's 5 OTM tokens are still sitting in their wallet. The writer's full $3,600 collateral is still locked in the vault USDC account. No payouts have been distributed because nobody has signed the manual cleanup instructions.
-
-**This means the user experience promised in the thesis ("wake up with USDC in your wallet, no clicks") is not currently achievable on the deployed protocol.** Closing this gap is the next major work item — see §10.
+**Secondary listing for V2 vaults is not implemented.** The V1 P2P listing instructions (`list_for_resale`, `buy_resale`, `cancel_resale`) were archived during the Stage-1 cleanup. The transfer-hook architecture allows pre-expiry token transfers in principle, but there's no on-chain marketplace state (listings, asks, bids, escrow PDAs). Scope: 3 new Rust instructions + new state account + new escrow PDA + frontend marketplace UI + tests + redeploy. This is now the largest remaining architectural gap and the new Tier-1 item in §10.
 
 ### Other open gaps
 
-- **Secondary listing for V2 vaults is not implemented.** The V1 P2P listing instructions (`list_for_resale`, `buy_resale`, `cancel_resale`) were archived during the Stage-1 cleanup. The transfer-hook architecture allows pre-expiry token transfers in principle, but there's no on-chain marketplace state (listings, asks, bids, escrow PDAs). Scope: 3 new Rust instructions + new state account + new escrow PDA + frontend marketplace UI + tests + redeploy.
 - **Test suite not refreshed for the migration arc.** All P-stage commits were code-only; no tests were updated to reflect the new IDL signatures. The 95/95 figure is from before P1.
 - **Pricing crank from the original handoff was archived.** It was never used by the migration arc, isn't relevant to the current settle flow, and any future "live pricing refresh" feature is a separate concern from the settle automation crank that ships today.
 - **Frontend bug — Markets page shows "No markets yet" when an asset is registered but has no vaults.** UX gap, not a chain-side bug. Logged for the doc-audit pass.
@@ -263,6 +281,9 @@ Audit confirmed on 2026-04-29 by reading every instruction handler:
 - The Vercel project doesn't yet have `opta.fyi` attached
 - X handle `@opta` (or similar) unclaimed
 - TSLA market exists on-chain with the Beta feed_id `7dac7caf…cc4e`. Has zero vaults. If TSLA is ever needed for a demo, it'll need its own `migrate_pyth_feed` call. For now: ignored
+- On-chain IDL account is undersized after the auto-finalize deploy (existing 9,904 bytes, new IDL needs 10,679). `anchor idl close` + `anchor idl init` pending — net cost ~0.005 SOL, runtime ~30 seconds. Cosmetic only: the deployed program code is correct and the local IDL at `app/src/idl/opta.json` is in sync; the on-chain IDL account is metadata for explorers and does not affect program execution. See `MIGRATION_LOG.md` "Step 6 follow-ups" for the exact commands.
+- One additional orphan write-buffer at `574mMdbmjHyQ9qyXVPJ4itCXe46UokSuPkzK6HaYwCRn` from the Step 6 deploy (zero balance, owned by the operator wallet). Same harmless pattern as the three orphans above; cleanup with `solana program close <pubkey>` is cosmetic.
+- Two test vaults have unsold `purchase_escrow` tokens left in protocol-PDA-owned token accounts: 15 from the Apr 29 vault and 2 from the fresh Step 6 vault. The auto-finalize holder pass correctly silent-skipped these (owner == protocol_state PDA filter). They need separate `burn_unsold_from_vault` calls from the original writers to fully tidy. Not blocking and not a finalize bug — the design always expected unsold escrow cleanup to be a separate writer-initiated operation.
 
 ---
 
@@ -277,6 +298,7 @@ Audit confirmed on 2026-04-29 by reading every instruction handler:
 - **Mainnet Hermes feeds, even though the protocol runs on Solana devnet** — Solana devnet's Wormhole Core Bridge only verifies Pyth's production guardian set, not Beta's. Locked decision: protocol runs on Solana devnet, prices come from Pyth mainnet via `hermes.pyth.network`.
 - **Permissionless settlement** — `settle_expiry` and `settle_vault` are both signer-permissionless. Anyone can settle. The crank uses this; users could too if they wanted.
 - **Crank-driven automation, not "token natively self-resolves on its own"** — Solana programs are passive (no native scheduling), so the user-experience claim "tokens resolve themselves at expiry" is achieved by a crank using PermanentDelegate authority. Honest framing for any pitch material: "no user action required at expiry," not "no infrastructure required."
+- **Auto-finalize is permissionless and crank-driven, dust to treasury.** Both `auto_finalize_holders` and `auto_finalize_writers` accept any signer; in practice the crank wallet calls them. Rent from closed `WriterPosition` accounts returns to the writer's wallet (not the caller); rent from the closed `vault_usdc_account` goes to the protocol treasury, along with any USDC dust left over from premium-accumulator integer truncation. Locked decisions per the Step 1–6 design review.
 - **Single repo, two-program Anchor workspace** — `Cargo.toml` at root defines workspace; programs at `programs/opta/` and `programs/opta-transfer-hook/`.
 - **Security:** 5 Rust audit rounds + 2 frontend audits, **18 findings fixed, 0 remaining** as of commit `ff08458`. Not re-audited after the P1–P6 migration arc — fresh audit recommended before any mainnet talk.
 
@@ -296,15 +318,7 @@ In rough priority order:
 
 ### Tier 1 — must ship before judging touch-points
 
-1. **Auto-burn + auto-distribute architecture** (the §7 gap). This is the single most important open item. Closing this gap is what makes the "living token" thesis real instead of aspirational. Scope sketch:
-   - 1–2 new Rust instructions (e.g. `auto_finalize_vault` or split into `auto_burn_holders` + `auto_distribute_writers`) that take `remaining_accounts` slices of holder ATAs / writer positions and use the protocol_state PDA's PermanentDelegate authority to burn + transfer USDC in one signed call
-   - The crank takes a third pass after `settle_expiry` + `settle_vault`: enumerate holders off-chain via `getProgramAccounts`, batch them into `auto_finalize` calls with compute-budget-aware chunking (~10–15 holder/writer pairs per tx)
-   - Test suite expansion (~10–15 new cases: OTM all-burn, ITM partial-burn-with-payout, mixed pool, multi-batch idempotency, race vs. manual exercise mid-batch, race vs. burn_unsold)
-   - Frontend: keep `exercise_from_vault` and `withdraw_post_settlement` UI as fallback for power users, but the default UX becomes "automatic, no action required"
-   - Redeploy on devnet
-   - Estimated scope: similar to the Pyth Pull migration arc — multiple sessions of focused Rust + crank + frontend work
-
-2. **Secondary listing for V2 vaults.** New on-chain marketplace: 3 new Rust instructions (`list_v2_for_resale`, `buy_v2_resale`, `cancel_v2_resale`), new `VaultResaleListing` account, new escrow PDA, frontend marketplace UI, tests, redeploy. Scoped in the original handoff but parked. Should ship in the same session-arc as auto-burn since both touch the same secondary-market story.
+1. **Secondary listing for V2 vaults.** New on-chain marketplace: 3 new Rust instructions (`list_v2_for_resale`, `buy_v2_resale`, `cancel_v2_resale`), new `VaultResaleListing` account, new escrow PDA, frontend marketplace UI, tests, redeploy. Scoped in the original handoff but parked. Now the largest remaining architectural gap after the auto-finalize arc closed; the secondary-market story half is still unbuilt.
 
 ### Tier 2 — quality polish
 
@@ -355,15 +369,16 @@ In rough priority order:
 - `.context/` is gitignored — contains audit outputs and PoCs, never commit
 - `*-keypair.json`, `id.json`, `.env*` are gitignored — never commit secrets
 - `crank/verify-smoke.ts` and `crank/inspect-vault-tokens.ts` are untracked one-shot inspectors from the Apr 29 smoke. Keep, gitignore, or delete per operator preference; current state is "left in working tree, untracked"
-- The `MIGRATION_LOG.md` is committed and carries the chronological story of the P1–P5 + crank + P6 arcs
+- The `MIGRATION_LOG.md` is committed and carries the chronological story of the P1–P5 + crank + P6 + auto-finalize arcs
+- `.test-fixtures/` is gitignored and contains one-shot bootstrap helpers from the auto-finalize arc (`smoke-init.ts`, `run-tests.sh`, `step6-buyer.json`, `step6-phase*-*.ts`, etc.). These are reference-only artifacts for the smoke runs that produced commits `883b2d0` and `37c9b4b`; future sessions should regenerate them as needed rather than relying on what's in a given working tree.
 
 ---
 
 ## TL;DR
 
 - **Opta** is a permissionless options primitive on Solana with Token-2022 "living" option tokens. Permissionless any-asset markets via Pyth. On-chain Black-Scholes. V2 shared-vault liquidity. Built for Colosseum Frontier (April 2026).
-- **Live on devnet** with frontend on Vercel (`opta-solana.vercel.app`). Pyth Pull oracle migration shipped. Crank bot built and end-to-end-verified for the *settlement* phase on 2026-04-29.
-- **The big open architectural gap** is auto-burn + auto-distribute on expiry. The "wake up with USDC in your wallet, no clicks" UX promised in the thesis is not yet implemented — it's the next major work item, alongside V2 secondary listing.
+- **Live on devnet** with frontend on Vercel (`opta-solana.vercel.app`). Pyth Pull oracle migration shipped. Crank bot built and end-to-end-verified for both settlement and auto-finalize on 2026-04-30.
+- **The auto-finalize arc closed on 2026-04-30; the remaining big gap is V2 secondary listing.** The "wake up with USDC in your wallet, no clicks" UX promised in the thesis is now real on devnet; the on-chain marketplace state for pre-expiry token resale is still unbuilt and is the new Tier-1 item.
 - **Programs ID:** `CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq` (opta), `83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG` (transfer hook).
-- **Branches:** master + main both at `7d6100d` as of Apr 29 2026.
+- **Branches:** master + main both at `37c9b4b` as of Apr 30 2026.
 - **Biggest gotcha:** the protocol-on-devnet runs against Pyth-on-mainnet feeds. Don't confuse "we're on mainnet" with "Solana mainnet" — protocol is still devnet; only the price oracle endpoint is production.
