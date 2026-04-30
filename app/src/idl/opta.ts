@@ -2789,6 +2789,10 @@ export type Opta = {
             "type": "pubkey"
           },
           {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
             "name": "holdersProcessed",
             "type": "u32"
           },

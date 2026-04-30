@@ -2783,6 +2783,10 @@
             "type": "pubkey"
           },
           {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
             "name": "holders_processed",
             "type": "u32"
           },

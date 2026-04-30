@@ -230,6 +230,7 @@ pub fn handle_auto_finalize_holders<'info>(
 
     emit!(HoldersFinalized {
         vault: vault_pubkey,
+        mint: option_mint_key,
         holders_processed,
         total_burned,
         total_paid_out,
