@@ -27,6 +27,11 @@ id.json
 # Audit / internal context
 .context/
 
+# Local test infrastructure (Pyth fixtures + run helper, see MIGRATION_LOG.md
+# "manual ts-mocha workflow"). WSL2's /tmp doesn't persist between invocations,
+# so fixtures + the validator-launch helper live in the repo and stay ignored.
+.test-fixtures/
+
 # Archives
 files.zip
 
