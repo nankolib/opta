@@ -49,6 +49,11 @@ The crank fails fast at boot if `OPTA_RPC_URL` is unset.
 | `OPTA_CRANK_KEYPAIR` | `~/.config/solana/id.json` | Path to a Solana keypair JSON file (64-byte secret-key array). |
 | `OPTA_CRANK_TICK_MS` | `300000` (5 min) | Milliseconds between tick starts. Floor: 1000ms. |
 | `OPTA_HERMES_BASE` | `https://hermes.pyth.network` | Pyth Hermes endpoint. Override to `https://hermes-beta.pyth.network` for Beta-cluster testing. |
+| `OPTA_AUTO_FINALIZE_HOLDER_BATCH` | `20` | Holders per `auto_finalize_holders` transaction. Each holder occupies 2 remaining-account slots and ~50K CU. The default leaves headroom under the 1.4M-CU/64-account-per-tx ceiling. Tune up if your RPC handles tightly-packed txs reliably; tune down if you see CU-exceeded failures. |
+| `OPTA_AUTO_FINALIZE_WRITER_BATCH` | `20` | Writers per `auto_finalize_writers` transaction. Each writer is a triple of (writer_position, writer_usdc_ata, writer_wallet) — 3 remaining-account slots, ~30-80K CU each. Same tuning rules as the holder batch. |
+| `OPTA_AUTO_FINALIZE_MAX_ATAS_PER_TICK` | `100` | Per-tick cap on idempotent USDC-ATA creates by the crank wallet. Each ATA create costs ~0.002 SOL of rent paid by the crank wallet, so the default caps tick exposure at ~0.2 SOL. The budget is shared across the holder + writer passes (per-tick total, not per-pass). When exhausted, this tick processes whatever it can and the next tick picks up the rest. |
+| `OPTA_AUTO_FINALIZE_STALE_S` | `3600` (1 hour) | Threshold for "vault has been settled too long without being finalized." Each tick emits a `warn` log line for any vault whose expiry was more than this many seconds ago and is still not fully finalized. Real failures (constraint mismatches, IDL drift) won't self-heal; surfacing them helps the operator notice. |
+| `OPTA_AUTO_FINALIZE_DRY_RUN` | unset (false) | When set to `true`, `1`, or `yes`, the auto-finalize passes enumerate everything (holders, writers, missing ATAs) and emit normal log lines but send NO transactions. Designed as the operator's safety net for a first-time deploy and as a debugging tool for verifying the gpa filter shapes against real on-chain state without spending SOL. |
 
 ### Endpoint selection
 
