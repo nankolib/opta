@@ -961,3 +961,139 @@ The `anchor test` command does not work on the current WSL setup. Anchor's "vali
 Pyth Pull oracle price updates expire after 300 seconds. The `settle_expiry` instruction consumes a `PriceUpdateV2` account whose `publish_time` was set at fixture-generation time, and the on-chain check rejects updates older than five minutes (`PriceTooOld`, Pyth Receiver error 16000). If fixture-write and test-run happen in separate `wsl -- bash -lc` invocations more than roughly five minutes apart, the late-running tests in the suite fail in cascade: `PriceTooOld` on `settle_expiry` means no `SettlementRecord` is ever written, which means `settle_vault` reverts with `AccountNotInitialized`, which means downstream `exercise_from_vault` / `withdraw_post_settlement` revert with `VaultNotSettled`. The cascade can look like a code regression but is purely a fixture-staleness artifact. Chain fixture-write and test-run in a single shell session to keep `publish_time` fresh through the whole run.
 
 The `.test-fixtures/run-tests.sh` helper (committed in d0edd10, with the `.test-fixtures/` directory itself gitignored) does the chaining correctly: it rewrites all five Pyth fixtures, launches the validator with the matching `--account` flags, waits for RPC readiness, runs the requested test files, and kills the validator on exit. Future sessions running the suite should use it as the reference workflow rather than reinventing the orchestration each time.
+
+## Step 6 smoke results — auto-finalize on devnet (2026-04-30)
+
+End-to-end smoke of the auto-finalize arc against Solana devnet. Deploys the post-Step-5 program, settles a fresh ITM vault, runs the crank live, finalizes three real vaults (the Apr 29 vault, the fresh ITM vault, and one leftover settled-but-unfinalized vault from earlier devnet activity), confirms post-state matches expectations.
+
+### Phase 1 — deploy
+
+| Field | Value |
+|---|---|
+| Program | `CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq` |
+| Pre-deploy slot | `458866752` (matches the post-Stage-P6 slot in HANDOFF.md) |
+| Post-deploy slot | `459143156` |
+| Deploy tx sig | `GSCPwhHmTYXECL6FVAZerdEh65A8eudd6ZV6JUVA6HY5cY2aN54Kpkfk2dCHcizLxyphfYPHRAY9GxXjs9cXQsH` |
+| Authority | `5YRMuuoY3P7z5GeRAAQND7BxgNdmPSa6CSPCJLca1zZk` (operator wallet) |
+| Net cost | ~0.004 SOL fees; program rent reused |
+
+The new binary fits the existing 1,178,384-byte ProgramData allocation, so no rent reallocation was needed. The new instruction surface (`auto_finalize_holders`, `auto_finalize_writers`) is now live and callable on devnet — the on-chain handlers correspond exactly to commits a7924d2 + ecdc7a3 + 9069441.
+
+### Apr 29 vault (`DsFhwmU4ph4yLz4QXUCHUF8qcW4urneQiqjXYJBJPStW`) — before / after
+
+| Field | Pre (Phase 2) | Post (Phase 7) |
+|---|---|---|
+| `is_settled` | true | true |
+| `settlement_price` | $83.001853 | $83.001853 |
+| `total_shares` | 3,600,000,000 | 0 |
+| `collateral_remaining` | $3,600 | $0 |
+| `vault_usdc_account` (`5BceHXHV…`) | alive, $3,600.000005 | **closed** |
+| Buyer (`DnExEYn…`) option ATA | 5 tokens | 0 tokens |
+| Buyer USDC ATA | $81,400.883208 | $82,200.883208 (+$800 — see footnote) |
+| Operator (writer, `GkG1UX8…`) USDC ATA | $996,399.761435 | $999,999.761439 (+$3,600.000004 = $3,600 collateral + ~$0.000004 premium) |
+| Operator wallet SOL | 29.973577781 | 29.975422181 (+0.001844 SOL = `writer_position` rent) |
+| Writer position (`9QJRHDw…`) | alive, shares = 3.6 B | **closed** |
+
+The +$800 to the buyer's USDC ATA is **not from this vault** — `DnExEYnZGuEu7xgpmNupJVXJLbMbkNdf3E7f28Zv6LUQ` happens to be both the buyer of the Apr 29 vault AND the writer of the third leftover vault `6DbpdnqycE2zUgxArEHqZwj2gLT5Z4TdWW6FNrsBLzVi`, where they had deposited $800 with no options ever minted. The writer pass on the third vault refunded that full $800 deposit; the holder pass on the Apr 29 vault burned the 5 OTM tokens with zero USDC movement (correct OTM call behavior — settlement $83.00 < strike $90 → payout 0). Verified by tracing the writer-finalize tx for the third vault (`4dqPZcAxFeQ9JaGRbe4HMPCR8n7Ej3T1UxR5GzCbzPN63se8EnjKseNSGQ6MWkjMcxUKs3aK9HAMjXh7av8pDGqV`): preTokenBalances show $800 in the third vault's USDC, postTokenBalances show that $800 moved to DnExEY's USDC ATA.
+
+Major tx sigs from Phase 6 for this vault:
+
+- Holder pass (burn 5 tokens, no USDC): `2HHdbU6CE3v4NsNB1opgsCfA3K164qtVWBgmVARcgNBqktxphnmGihd6i4Bgeytst7Cz3WdgtjgBAEFzU4YCTyk8`
+- Writer pass (claim $3,600 + premium, dust 1 micro-USDC to treasury): `4qXAAMB6MVPVD9rM6oB2mMnFSHY5CoZn9ssMQBSP8QgvE3VEYeEz2Byz9vmsHjzfFprzdCDaDs7be8YLnkBWAm5`
+
+### Fresh ITM vault (`2edjtmYXLb9aFHRZRFyxkLUgDoaouTv8pKch5Ni7m8bq`) — before / after
+
+Created in Phase 3 with: SOL CALL, strike $50, qty 5 (3 sold to a fresh buyer + 2 left in operator's escrow), expiry 15 minutes out. Settled in Phase 4 via the existing `settleAllForExpiry` helper.
+
+| Field | Pre (post-Phase-4) | Post (Phase 7) |
+|---|---|---|
+| `is_settled` | true | true |
+| `settlement_price` | $83.392904 | $83.392904 |
+| Strike | $50 | — |
+| `total_shares` | 600,000,000 | 0 |
+| `collateral_remaining` | $600 | $0 |
+| `vault_usdc_account` (`Hd32cuoK…`) | alive, $603.015 | **closed** |
+| Buyer (`6xWE9Nz…`) option ATA | 3 tokens | 0 tokens |
+| Buyer USDC ATA | ~$96.985 (after Phase 3 purchase from $100 balance) | $197.178712 (+$100.193712 = 3 × ($83.39 − $50) plus rounding) |
+| Writer (deployer, `5YRMuuoY…`) USDC ATA | (Phase 3 balance) | $10,873,225.721288 |
+| Writer position (`6CP2Kx7e…`) | alive, shares = 600 M | **closed** |
+
+The 2 unsold tokens parked in the operator's `purchase_escrow` were silently filtered by the holder pass (owner == protocol_state PDA, the documented filter from auto_finalize_holders.rs). They remain on chain and need a separate `burn_unsold_from_vault` call to clean up — that's expected, NOT a finalize bug, and matches the design call documented in docs/AUTO_FINALIZE_PLAN.md §6 question 1.
+
+Major tx sigs from Phase 6 for this vault:
+
+- Holder pass (burn 3 ITM tokens + pay $100.19 USDC): `LA9yCYfWbGQ8zQ6rh1mccMWnbfQDpXubbrzTtcjMNHGsThL1MNu43Uh1hP5m7rz4uip3TJfq1SwegyaLz7fMsqZ`
+- Writer pass (claim ~$499.81 collateral + premium share): `oia84ArffKE9UYyw5yxiMBjXyaXE1uQfRwQAfDwykRwwnDYtB7McjGjJxwZ1wyqNqWWo1L8N3aEdn56L94FjBX6`
+
+Phase 3/4 setup tx sigs:
+
+- create_shared_vault: `541mjx4ukuJqFGP6d5e7BDYN249mXor2XGEDhAuTeNd8y1Jfq8pwdLUnx4qiQTd219ydtyv26zauvLqSTimkx1n`
+- deposit_to_vault: `2RyaE73cZmogDrFa5EarkN2ym8qgW9XgwsLCVjUuwZ8auMV8YcZzBhHALKiTgY4Yec1B2YE3vX8tHKFqUDFsd19u`
+- mint_from_vault (5 contracts): `32pNLG21ezMp12LbdZank4MrXg7vwkcgQWuKu6338Wy67ueS11CvXfBKXgoDCYR15LfQ6ogM6UDjZ9Ryfkb2CMwn`
+- purchase_from_vault (3 contracts): `74n7MuC3d9jHWM4FcACzaJRjhEqBfVZmPhRpQUHep6pgcjWs9bWiEY1Rdzj5NJqkiAyiuT2nY3cWJwhNU77f3id`
+- settle (atomic Pyth-update + settle_expiry): `6sJkHCevfdJyPZFNrtf81YATZSFsciYpKRAGqj1M8XWVgfLnMYyvnZhib18mAAZuSJM9RAXQmwN8xhaEKYq2xtx`
+- settle_vault: `5KmLv9ouuBU3GZ1vTKmX47T8R59JL461TFjWLf3xTJvHZxk275vFGewP2HpuFNsWYkt9C1Fopfs8cn8f76z1izSD`
+
+### Third vault (`6DbpdnqycE2zUgxArEHqZwj2gLT5Z4TdWW6FNrsBLzVi`) — leftover from earlier devnet activity
+
+Discovered during the Phase 5 dry-run sweep — a settled vault from prior development that had a writer position with $800 collateral but zero options ever minted. Processed by Phase 6 alongside the two intentional vaults.
+
+| Field | Pre | Post |
+|---|---|---|
+| `total_shares` | non-zero | 0 |
+| `vault_usdc_account` | alive, $800 | **closed** |
+| Writer position | alive (owner = `DnExEYn…`) | **closed** |
+| Writer USDC delta | — | +$800 (full deposit refund — vault never minted, so writer's entire share = collateral_remaining) |
+
+Writer-pass tx sig: `4dqPZcAxFeQ9JaGRbe4HMPCR8n7Ej3T1UxR5GzCbzPN63se8EnjKseNSGQ6MWkjMcxUKs3aK9HAMjXh7av8pDGqV`
+
+### Treasury — before / after
+
+| Field | Pre (Phase 2) | Post (Phase 7) | Delta |
+|---|---|---|---|
+| Treasury USDC | $140.100479 | $140.115480 | +$0.015001 |
+| Treasury SOL lamports | 2,039,280 | 8,157,120 | +6,117,840 |
+
+USDC delta breakdown:
+
+- 15,000 micro-USDC = 0.5% × $3 = the protocol fee from the fresh vault's `purchase_from_vault` call (Phase 3, before Phase 6).
+- 1 micro-USDC = the dust swept from the Apr 29 vault during its writer pass (the rounding remainder of `premium_per_share_cumulative * shares / 1e12` math).
+- 0 dust from the fresh vault and the third vault (both had perfect-integer math).
+
+SOL delta of 6,117,840 lamports = exactly 3 × 2,039,280 — the rent refund for the three closed `vault_usdc_account` accounts, all routed to treasury as designed.
+
+### Token-2022 layout sanity check (Step 5 open question)
+
+Phase 2's holder enumeration on the Apr 29 vault ran my Step 5 byte-offset assumption (data[0..32] = mint, data[32..64] = owner, data[64..72] = amount) against real on-chain Token-2022 accounts. **Both holder accounts had `data.length` in {171, 175}** — well above the 72-byte threshold the runner relies on. The variable extra bytes are the per-account TransferHook extension data appended after the base 165-byte SPL-Token layout. **The Step 5 assumption holds for every holder we encountered.** Recommend keeping the validation in mind for any future session that processes a vault with non-default Token-2022 extension stacks (different feature flags could in principle change the data layout below offset 72, though I see no evidence of that in the current Token-2022 program).
+
+### Crank "fully finalized" cache — confirmed
+
+Phase 6's tick-2 log emitted `vault marked fully finalized (process-lifetime cache)` for all three vaults:
+
+- `6DbpdnqycE2zUgxArEHqZwj2gLT5Z4TdWW6FNrsBLzVi` (timestamp 16:04:50)
+- `2edjtmYXLb9aFHRZRFyxkLUgDoaouTv8pKch5Ni7m8bq` (timestamp 16:04:59)
+- `DsFhwmU4ph4yLz4QXUCHUF8qcW4urneQiqjXYJBJPStW` (timestamp 16:05:09)
+
+A subsequent third tick (truncated at the 180-second wall-clock budget) would have skipped all three via the cache, sparing ~6 RPC calls and any sendable batches.
+
+### Step 6 follow-ups
+
+Two cosmetic cleanups deferred from this run:
+
+**1. On-chain IDL update for opta program.** `anchor idl upgrade` failed during Phase 1 because the new IDL is 10,679 bytes while the existing on-chain IDL account is 9,904 bytes (`RequireGteViolated`, `Left: 9904, Right: 10679`). The deployed program code is correct and the local IDL at `app/src/idl/opta.json` is in sync — the on-chain IDL account is metadata for explorers (Solscan, wallet UIs, third-party indexers) only and does not affect program execution or the crank's local-IDL-driven behavior. To update later: run `anchor idl close CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq` followed by `anchor idl init CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq -f target/idl/opta.json`. Net cost ~0.005 SOL (close reclaims 9,904-byte rent, init pays 10,679-byte rent), runtime ~30 seconds. No reason this can't slip; it's purely "explorer pages will show old instruction set until refreshed."
+
+**2. Orphaned write-buffer.** The Phase 1 deploy left a zero-balance write-buffer at `574mMdbmjHyQ9qyXVPJ4itCXe46UokSuPkzK6HaYwCRn`, owned by the operator wallet — the same harmless pattern as the three orphans listed in HANDOFF.md §7 housekeeping. Cosmetic only; clean up with `solana program close 574mMdbmjHyQ9qyXVPJ4itCXe46UokSuPkzK6HaYwCRn` whenever convenient.
+
+### Surprises encountered
+
+- **The third vault.** Leftover state from earlier devnet sessions. Surfaced in Phase 5; reviewed and approved as part of the live run because the auto-finalize crank is by design vault-agnostic (it processes ALL settled-but-unfinalized vaults on the program). Approving rather than special-casing keeps the crank simple.
+- **Public devnet RPC excludes Token-2022 from secondary indexes.** The first Phase 2 attempt against `https://api.devnet.solana.com` failed at the holder-enumeration step with "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb excluded from account secondary indexes" — `getProgramAccounts` is unsupported on the public devnet for Token-2022. Switched to the operator's Helius devnet endpoint (already in `app/.env.local`) and the rest of the smoke ran cleanly. Operationally this means the crank cannot run against public devnet — Helius (or any full-feature provider) is required. Not a surprise per se since HANDOFF.md already says public devnet is not viable for sustained operation, but worth flagging because the failure mode is fatal-on-first-tick rather than gradual rate-limiting.
+
+### What this validates
+
+- Step 1's holder-side instruction works end-to-end on devnet against real Token-2022 mints with TransferHook extensions.
+- Step 3's writer-side instruction works end-to-end including the manual-close idiom (lamport drain + assign + resize) and the dust sweep to treasury.
+- Step 5's crank wiring correctly enumerates, filters, and batches holders and writers across multiple vaults; the in-memory `fullyFinalized` cache converges in two ticks.
+- The "purchase_escrow filtered off-chain" path the plan documented works as intended — neither vault's protocol-PDA-owned escrow account caused a tx revert, nor did the on-chain handler's silent-skip path need to fire (we filtered before sending).
+
+The auto-finalize arc is **functionally complete on devnet**. Mainnet readiness is a separate concern (would need a fresh security audit per HANDOFF.md §10 Tier 3 item 9, plus Helius mainnet RPC, plus the on-chain IDL upgrade).
