@@ -1097,3 +1097,64 @@ Two cosmetic cleanups deferred from this run:
 - The "purchase_escrow filtered off-chain" path the plan documented works as intended — neither vault's protocol-PDA-owned escrow account caused a tx revert, nor did the on-chain handler's silent-skip path need to fire (we filtered before sending).
 
 The auto-finalize arc is **functionally complete on devnet**. Mainnet readiness is a separate concern (would need a fresh security audit per HANDOFF.md §10 Tier 3 item 9, plus Helius mainnet RPC, plus the on-chain IDL upgrade).
+
+## Cleanup chores (post-Step-6)
+
+Three deferred housekeeping items, all on devnet, ran in a single session on 2026-04-30. **Two clean, one surfaced an architectural observation worth recording.**
+
+### Chore 1 — On-chain IDL update (CLEAN)
+
+Closed the undersized 9,904-byte IDL account and re-initialized at the canonical IDL pubkey `9hP1piv1yQgdW7S9afYjzwVvDReCFK5MKkpk4DAHSVs` with the post-arc 10,679-byte IDL.
+
+- `anchor idl close CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq --provider.cluster devnet` returned `Idl account closed: 9hP1piv1yQgdW7S9afYjzwVvDReCFK5MKkpk4DAHSVs`. Rent refunded: ~0.070 SOL.
+- `anchor idl init … --filepath target/idl/opta.json --provider.cluster devnet` wrote the new IDL in 18 chunks (600-byte chunks of the 10,679-byte total) and finalized via SetBuffer. Final tx sig: `23kx8fz7zzsJeeAdtZPpGgoRSTY5yD9Bo9iww7zppzHhWHTCnPb8HmE5mnX678T1BCLXXtWij5kCzHiqXE3nc5WS`.
+- Verification: `anchor idl fetch … --provider.cluster devnet` now contains both `auto_finalize_holders` and `auto_finalize_writers` instructions and both `HoldersFinalized` and `WritersFinalized` events. Explorer pages and any third-party indexer will pick up the post-arc surface from now on.
+
+Net cost: ~0.080 SOL — higher than the ~0.005 SOL net-rent estimate in the Step 6 follow-ups. The extra ~0.075 SOL went to chunk-write fees + any temporary buffer rent during the multi-step write. Cost is well within budget; flagging the discrepancy because the original estimate was the rent-only delta.
+
+### Chore 2 — Orphan write-buffer cleanup (NO-OP)
+
+`solana program show --buffers` listed `574mMdbmjHyQ9qyXVPJ4itCXe46UokSuPkzK6HaYwCRn` (operator authority, 0 SOL balance). `solana program close 574mMdbmjHyQ9qyXVPJ4itCXe46UokSuPkzK6HaYwCRn --bypass-warning` returned `Error: Unable to find the account 574mMdbmjHyQ9qyXVPJ4itCXe46UokSuPkzK6HaYwCRn` — the on-chain account had already been GC'd (zero balance triggers Solana's auto-collection at slot finalization), but the RPC indexer still references it in its `--buffers` listing. Stale-but-harmless. The three older orphans listed in HANDOFF.md (`2Tw7L2C…`, `A841WoZ…`, `5E9FmYo…`) similarly do not appear under our authority and are presumed already GC'd.
+
+Net cost: 0 SOL. Net effect: zero — nothing to actually clean up.
+
+### Chore 3 — Burn unsold purchase_escrow tokens (BLOCKED — surfaced an architectural observation)
+
+**Cannot complete via `burn_unsold_from_vault`.** The instruction's `Accounts` struct requires the `WriterPosition` PDA to deserialize as a live account (see `programs/opta/src/instructions/burn_unsold_from_vault.rs`'s `writer_position: Box<Account<'info, WriterPosition>>` constraint). The auto-finalize arc's `auto_finalize_writers` handler manually closes that account via lamport drain + `assign(system_program)` + `resize(0)`. After Phase 6 ran, both vaults' writer positions are in the closed-account state; calling `burn_unsold_from_vault` reverts at simulation with:
+
+```text
+AnchorError caused by account: writer_position. Error Code: AccountNotInitialized. Error Number: 3012.
+```
+
+(Captured live against the fresh vault — `purchase_escrow` `2VuFxDH1tiCcdtBmxxASJ24VzGYj3uXNPxCsphD5KDrt` still holds 2 unsold tokens; calling burn fails as above.)
+
+Independent second blocker for the Apr 29 vault: its writer is `GkG1UX8ML4UzNSGUtJxBWfRRWCdH7YejdhfuxFWTRFAx`, a wallet whose keypair this session does not have. Even if the writer position were alive, signing authority is absent.
+
+**Architectural observation, not strictly a code bug.** The on-chain code does what each handler advertises. But the combination — auto-finalize-writers closes the writer position, burn-unsold-from-vault requires the writer position to exist — creates a stranding scenario the original design didn't fully address. The HANDOFF.md "Step 6 follow-ups" note that said writers could call `burn_unsold_from_vault` after auto-finalize was overoptimistic about the cleanup window. Practical consequence: the 17 unsold tokens (15 in the Apr 29 vault's `HdSviDXNNkHXvYsPTMcJ6vxHTCka94kLDcBbQ3PerVGr` escrow + 2 in the fresh vault's `2VuFxDH…` escrow) are permanently inert in protocol-PDA-owned token accounts. They:
+
+- Cannot be transferred (TransferHook blocks transfers post-expiry).
+- Cannot be burned via the existing instructions (no path authorizes a protocol-owned-escrow burn except `burn_unsold_from_vault`, which now reverts).
+- Hold no economic value — the writer's collateral was already returned via `auto_finalize_writers`, and the buyer paid in full for tokens they never bought (these tokens were never sold).
+
+Net effect on the protocol: ~0.004 SOL of rent is locked in two protocol-PDA-owned token accounts forever (or until a future protocol change adds a permissionless `burn_protocol_escrow` instruction — surface for future work, not a Tier-1 item). The tokens themselves never enter circulation and never affect any user.
+
+**Surfacing rather than fixing inline per the prompt's "no code changes" rule.** A proper fix would be either:
+
+1. Reorder the auto-finalize crank to call `burn_unsold_from_vault` BEFORE the writer-finalize pass, while writer positions still exist. Requires Apr-29-vault-style scenarios to detect and handle unsold escrow. Crank-only change, no on-chain code change.
+2. Add a new permissionless on-chain instruction `auto_burn_unsold_escrow` that takes the protocol_state PDA as the burn authority (same pattern `burn_unsold_from_vault.rs:50` already uses) and doesn't require `WriterPosition`. Closes the escrow + reclaims rent to the original writer (who's recorded on `VaultMint.writer`). Two purposes: cleans up stranded escrow now, and prevents the same scenario going forward.
+
+Both paths are post-Step-6 work and out of scope for this cleanup chore.
+
+### Aggregate verification
+
+- **Operator SOL pre-cleanup:** 12.159210957 SOL.
+- **Operator SOL post-cleanup:** 12.079697357 SOL.
+- **Net delta:** −0.079513600 SOL — entirely from Chore 1's IDL re-init (close refund + init pay + chunk-write fees). Chores 2 and 3 cost 0 SOL each (Chore 2 was a stale-listing no-op; Chore 3's failure surfaced at simulation, before any tx fee).
+- **Treasury USDC:** 140,115,480 micro-USDC ($140.115480) — **unchanged** from Phase 7 of Step 6 ✓.
+- **Treasury SOL lamports:** 8,157,120 — **unchanged** from Phase 7 ✓.
+- **No vault state was altered** by any of the three chores.
+- **No on-chain protocol state was altered** beyond the IDL account replacement.
+
+### One-sentence summary
+
+**Two clean, one blocked.** IDL is now correct on-chain at `9hP1piv1yQgdW7S9afYjzwVvDReCFK5MKkpk4DAHSVs`; orphan-buffer chore was a stale-indexer no-op; the unsold-escrow burn surfaced a real auto-finalize-vs-burn-unsold ordering issue worth a follow-up, but the affected tokens are inert and the affected SOL rent is small (~0.004 SOL, locked indefinitely barring a new instruction).
