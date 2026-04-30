@@ -209,7 +209,7 @@ The `app/.env.example` and `crank/README.md` document the expected variable name
 ## 6. Current State — What Works
 
 - All **15 instructions** deployed and live on devnet
-- **95 tests across 6 suites — last verified passing 95/95** as of commit `ff08458` (pre-migration). The test suite has not been re-run after the P1–P6 migration arc; many tests likely need updating for the new IDL (see §7)
+- **77 tests in the suite as of 2026-04-30** (test count drifted from the historical 95 during the migration arc; 66 pass, 11 fail with `PriceTooOld` cascades — see `MIGRATION_LOG.md` test-harness gotchas).
 - **Full frontend** live on Vercel: Trade (Deribit-style chain), Write, Portfolio (with Settle Expired Markets section + admin Pyth feed migration tool), Markets (with "+ New Market" promoted to AppNav), Docs
 - **On-chain Black-Scholes** pricing + 5 Greeks via solmath (~50K CU) — used by the frontend's IndicativePremium panel and (in principle) by any CPI consumer
 - **Hermes-driven catalog + spot prices** — fetches live from `hermes.pyth.network` with a host-derived cache; catalog ~600 entries on mainnet

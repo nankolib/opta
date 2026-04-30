@@ -951,3 +951,13 @@ Live tx behavior post-deploy is the user's to verify:
 4. Wait for expiry (or pick a near-term test).
 5. Portfolio → click Settle on the expired tuple.
 6. Confirm the settle modal shows price + tx signature.
+
+## Test harness gotchas (discovered Step 2 of auto-finalize, commit d0edd10)
+
+Three things to know before running the test suite on this machine, all learned the hard way during the holder-side test work.
+
+The `anchor test` command does not work on the current WSL setup. Anchor's "validator did not start" timeout fires even when `solana-test-validator` is actually up and accepting RPC — the `.anchor/test-ledger/validator.log` shows a healthy startup, but Anchor's harness gives up before noticing. Use the manual fixture-write + `ts-mocha` invocation chain documented earlier in this log instead.
+
+Pyth Pull oracle price updates expire after 300 seconds. The `settle_expiry` instruction consumes a `PriceUpdateV2` account whose `publish_time` was set at fixture-generation time, and the on-chain check rejects updates older than five minutes (`PriceTooOld`, Pyth Receiver error 16000). If fixture-write and test-run happen in separate `wsl -- bash -lc` invocations more than roughly five minutes apart, the late-running tests in the suite fail in cascade: `PriceTooOld` on `settle_expiry` means no `SettlementRecord` is ever written, which means `settle_vault` reverts with `AccountNotInitialized`, which means downstream `exercise_from_vault` / `withdraw_post_settlement` revert with `VaultNotSettled`. The cascade can look like a code regression but is purely a fixture-staleness artifact. Chain fixture-write and test-run in a single shell session to keep `publish_time` fresh through the whole run.
+
+The `.test-fixtures/run-tests.sh` helper (committed in d0edd10, with the `.test-fixtures/` directory itself gitignored) does the chaining correctly: it rewrites all five Pyth fixtures, launches the validator with the matching `--account` flags, waits for RPC readiness, runs the requested test files, and kills the validator on exit. Future sessions running the suite should use it as the reference workflow rather than reinventing the orchestration each time.
