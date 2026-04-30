@@ -165,4 +165,15 @@ pub mod opta {
     pub fn withdraw_post_settlement(ctx: Context<WithdrawPostSettlement>) -> Result<()> {
         instructions::withdraw_post_settlement::handle_withdraw_post_settlement(ctx)
     }
+
+    /// Auto-burn holder option tokens + auto-pay ITM USDC for a settled vault.
+    /// Permissionless. Caller passes `remaining_accounts` as pairs of
+    /// (holder_option_ata, holder_usdc_ata). Idempotent: zero-amount accounts
+    /// and mismatched USDC ATAs are skipped silently.
+    /// See docs/AUTO_FINALIZE_PLAN.md.
+    pub fn auto_finalize_holders<'info>(
+        ctx: Context<'_, '_, '_, 'info, AutoFinalizeHolders<'info>>,
+    ) -> Result<()> {
+        instructions::auto_finalize_holders::handle_auto_finalize_holders(ctx)
+    }
 }

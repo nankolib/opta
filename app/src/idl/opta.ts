@@ -14,6 +14,112 @@ export type Opta = {
   },
   "instructions": [
     {
+      "name": "autoFinalizeHolders",
+      "docs": [
+        "Auto-burn holder option tokens + auto-pay ITM USDC for a settled vault.",
+        "Permissionless. Caller passes `remaining_accounts` as pairs of",
+        "(holder_option_ata, holder_usdc_ata). Idempotent: zero-amount accounts",
+        "and mismatched USDC ATAs are skipped silently.",
+        "See docs/AUTO_FINALIZE_PLAN.md."
+      ],
+      "discriminator": [
+        137,
+        143,
+        14,
+        164,
+        172,
+        162,
+        193,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Permissionless caller — pays the tx fee. Not stored anywhere."
+          ],
+          "signer": true
+        },
+        {
+          "name": "sharedVault",
+          "docs": [
+            "The settled shared vault."
+          ],
+          "writable": true
+        },
+        {
+          "name": "market",
+          "docs": [
+            "The vault's market — pinned to the vault for sanity, not read in handler."
+          ]
+        },
+        {
+          "name": "vaultMintRecord",
+          "docs": [
+            "Per-mint tracking record. Pins option_mint to this vault so callers",
+            "can't pass an unrelated mint with a matching vault."
+          ]
+        },
+        {
+          "name": "optionMint",
+          "docs": [
+            "The Token-2022 option mint being burned from. Must be `mut` so the",
+            "burn CPI can decrement `supply` on the mint account."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vaultUsdcAccount",
+          "docs": [
+            "Vault's USDC account — payout source."
+          ],
+          "writable": true
+        },
+        {
+          "name": "protocolState",
+          "docs": [
+            "Protocol state — PermanentDelegate authority on every option mint.",
+            "Signs as `[b\"protocol_v2\", &[bump]]` to authorize the burns."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token2022Program",
+          "docs": [
+            "Token-2022 program — for burning option tokens."
+          ],
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "Standard SPL Token program — for USDC transfers from vault → holder."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "burnUnsoldFromVault",
       "docs": [
         "Burn unsold option tokens from a vault mint, freeing committed collateral."
@@ -2199,6 +2305,19 @@ export type Opta = {
   ],
   "events": [
     {
+      "name": "holdersFinalized",
+      "discriminator": [
+        201,
+        31,
+        130,
+        144,
+        98,
+        150,
+        173,
+        199
+      ]
+    },
+    {
       "name": "marketSettled",
       "discriminator": [
         237,
@@ -2601,6 +2720,11 @@ export type Opta = {
       "code": 6030,
       "name": "claimPremiumFirst",
       "msg": "Claim all premium before withdrawing shares"
+    },
+    {
+      "code": 6031,
+      "name": "invalidBatchAccounts",
+      "msg": "remaining_accounts length must be a multiple of 2 (holder_option_ata, holder_usdc_ata pairs)"
     }
   ],
   "types": [
@@ -2651,6 +2775,30 @@ export type Opta = {
               "PDA bump seed."
             ],
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "holdersFinalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "holdersProcessed",
+            "type": "u32"
+          },
+          {
+            "name": "totalBurned",
+            "type": "u64"
+          },
+          {
+            "name": "totalPaidOut",
+            "type": "u64"
           }
         ]
       }

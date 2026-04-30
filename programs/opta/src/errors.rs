@@ -103,4 +103,7 @@ pub enum OptaError {
 
     #[msg("Claim all premium before withdrawing shares")]
     ClaimPremiumFirst,
+
+    #[msg("remaining_accounts length must be a multiple of 2 (holder_option_ata, holder_usdc_ata pairs)")]
+    InvalidBatchAccounts,
 }

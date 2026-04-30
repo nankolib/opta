@@ -159,3 +159,11 @@ pub struct VaultPostSettlementWithdraw {
     pub writer: Pubkey,
     pub amount: u64,
 }
+
+#[event]
+pub struct HoldersFinalized {
+    pub vault: Pubkey,
+    pub holders_processed: u32,
+    pub total_burned: u64,
+    pub total_paid_out: u64,
+}
