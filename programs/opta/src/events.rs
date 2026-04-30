@@ -168,3 +168,12 @@ pub struct HoldersFinalized {
     pub total_burned: u64,
     pub total_paid_out: u64,
 }
+
+#[event]
+pub struct WritersFinalized {
+    pub vault: Pubkey,
+    pub writers_processed: u32,
+    pub total_paid_out: u64,
+    /// Non-zero only when this batch contained the last writer; otherwise 0.
+    pub dust_swept_to_treasury: u64,
+}

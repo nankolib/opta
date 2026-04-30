@@ -20,6 +20,7 @@ pub mod settle_vault;
 pub mod exercise_from_vault;
 pub mod withdraw_post_settlement;
 pub mod auto_finalize_holders;
+pub mod auto_finalize_writers;
 
 pub use create_market::*;
 pub use initialize_protocol::*;
@@ -39,3 +40,4 @@ pub use settle_vault::*;
 pub use exercise_from_vault::*;
 pub use withdraw_post_settlement::*;
 pub use auto_finalize_holders::*;
+pub use auto_finalize_writers::*;

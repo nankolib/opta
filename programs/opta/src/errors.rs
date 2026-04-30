@@ -106,4 +106,10 @@ pub enum OptaError {
 
     #[msg("remaining_accounts length must be a multiple of 2 (holder_option_ata, holder_usdc_ata pairs)")]
     InvalidBatchAccounts,
+
+    #[msg("writer_position.vault does not match the shared_vault passed to this instruction")]
+    WriterPositionVaultMismatch,
+
+    #[msg("writer_wallet pubkey does not match writer_position.owner — refusing to drain rent to a stranger")]
+    WriterWalletMismatch,
 }

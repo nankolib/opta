@@ -176,4 +176,17 @@ pub mod opta {
     ) -> Result<()> {
         instructions::auto_finalize_holders::handle_auto_finalize_holders(ctx)
     }
+
+    /// Auto-distribute USDC to writers + close their writer_position accounts
+    /// for a settled vault. Permissionless. Caller passes `remaining_accounts`
+    /// as triples of (writer_position, writer_usdc_ata, writer_wallet).
+    /// Idempotent: closed writer_positions and mismatched USDC ATAs are
+    /// skipped silently. When the last writer is processed, sweeps any USDC
+    /// dust + the vault_usdc_account rent SOL to the protocol treasury.
+    /// See docs/AUTO_FINALIZE_PLAN.md.
+    pub fn auto_finalize_writers<'info>(
+        ctx: Context<'_, '_, 'info, 'info, AutoFinalizeWriters<'info>>,
+    ) -> Result<()> {
+        instructions::auto_finalize_writers::handle_auto_finalize_writers(ctx)
+    }
 }

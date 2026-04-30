@@ -120,6 +120,105 @@ export type Opta = {
       "args": []
     },
     {
+      "name": "autoFinalizeWriters",
+      "docs": [
+        "Auto-distribute USDC to writers + close their writer_position accounts",
+        "for a settled vault. Permissionless. Caller passes `remaining_accounts`",
+        "as triples of (writer_position, writer_usdc_ata, writer_wallet).",
+        "Idempotent: closed writer_positions and mismatched USDC ATAs are",
+        "skipped silently. When the last writer is processed, sweeps any USDC",
+        "dust + the vault_usdc_account rent SOL to the protocol treasury.",
+        "See docs/AUTO_FINALIZE_PLAN.md."
+      ],
+      "discriminator": [
+        107,
+        95,
+        243,
+        194,
+        240,
+        26,
+        9,
+        236
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Permissionless caller — pays the tx fee. Not stored anywhere."
+          ],
+          "signer": true
+        },
+        {
+          "name": "sharedVault",
+          "docs": [
+            "The settled shared vault. Mut because we decrement collateral_remaining,",
+            "total_shares, and total_collateral as each writer is processed."
+          ],
+          "writable": true
+        },
+        {
+          "name": "market",
+          "docs": [
+            "The vault's market — pinned to the vault for sanity. Not read by the",
+            "handler beyond the constraint."
+          ]
+        },
+        {
+          "name": "vaultUsdcAccount",
+          "docs": [
+            "Vault's USDC account — payout source for in-loop writer transfers and",
+            "the last-writer dust sweep. Closed (with rent → treasury) when the last",
+            "writer in the batch zeros total_shares."
+          ],
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Protocol treasury USDC account — receives any leftover dust + the",
+            "vault_usdc_account rent SOL when the vault is fully drained. Pinned via",
+            "protocol_state.treasury so callers can't redirect dust to themselves."
+          ],
+          "writable": true
+        },
+        {
+          "name": "protocolState",
+          "docs": [
+            "Protocol state — supplies the canonical treasury pubkey for the",
+            "constraint above."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "Standard SPL Token program — for USDC transfers and CloseAccount CPIs."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "burnUnsoldFromVault",
       "docs": [
         "Burn unsold option tokens from a vault mint, freeing committed collateral."
@@ -2563,6 +2662,19 @@ export type Opta = {
         72,
         104
       ]
+    },
+    {
+      "name": "writersFinalized",
+      "discriminator": [
+        39,
+        218,
+        200,
+        17,
+        34,
+        240,
+        227,
+        77
+      ]
     }
   ],
   "errors": [
@@ -2725,6 +2837,16 @@ export type Opta = {
       "code": 6031,
       "name": "invalidBatchAccounts",
       "msg": "remaining_accounts length must be a multiple of 2 (holder_option_ata, holder_usdc_ata pairs)"
+    },
+    {
+      "code": 6032,
+      "name": "writerPositionVaultMismatch",
+      "msg": "writer_position.vault does not match the shared_vault passed to this instruction"
+    },
+    {
+      "code": 6033,
+      "name": "writerWalletMismatch",
+      "msg": "writer_wallet pubkey does not match writer_position.owner — refusing to drain rent to a stranger"
     }
   ],
   "types": [
@@ -3901,6 +4023,33 @@ export type Opta = {
               "PDA bump seed."
             ],
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "writersFinalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "writersProcessed",
+            "type": "u32"
+          },
+          {
+            "name": "totalPaidOut",
+            "type": "u64"
+          },
+          {
+            "name": "dustSweptToTreasury",
+            "docs": [
+              "Non-zero only when this batch contained the last writer; otherwise 0."
+            ],
+            "type": "u64"
           }
         ]
       }
