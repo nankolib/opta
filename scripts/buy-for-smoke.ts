@@ -39,6 +39,8 @@ import BN from "bn.js";
 import fs from "fs";
 import path from "path";
 
+import { safeFetchAll } from "../app/src/hooks/useFetchAccounts";
+
 const PROGRAM_ID = new PublicKey("CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq");
 const HOOK_PROGRAM_ID = new PublicKey("83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG");
 
@@ -82,10 +84,13 @@ async function main() {
   console.log("RPC:", rpcUrl.replace(/([?&]api-key=)[^&]*/i, "$1<redacted>"));
 
   // ---- Step 1: enumerate vaultMints + parent vaults + markets.
+  // Uses safeFetchAll (skip-on-decode-error + strict-validator filter) instead
+  // of program.account.X.all(), which crashes on stale on-chain layouts left
+  // over from earlier protocol versions (see seed-devnet.ts:421 note).
   console.log("\n[1/6] Loading vaultMints + parent vaults + markets...");
-  const allMints = await program.account.vaultMint.all();
-  const allVaults = await program.account.sharedVault.all();
-  const allMarkets = await program.account.optionsMarket.all();
+  const allMints = await safeFetchAll<any>(program, "vaultMint");
+  const allVaults = await safeFetchAll<any>(program, "sharedVault");
+  const allMarkets = await safeFetchAll<any>(program, "optionsMarket");
   const vaultByPda = new Map<string, any>();
   for (const v of allVaults) vaultByPda.set(v.publicKey.toBase58(), v.account);
   const marketByPda = new Map<string, any>();
