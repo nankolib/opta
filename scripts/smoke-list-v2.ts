@@ -32,6 +32,8 @@ import BN from "bn.js";
 import fs from "fs";
 import path from "path";
 
+import { safeFetchAll } from "../app/src/hooks/useFetchAccounts";
+
 const PROGRAM_ID = new PublicKey("CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq");
 const HOOK_PROGRAM_ID = new PublicKey("83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG");
 
@@ -77,8 +79,13 @@ async function main() {
   // writers from buying their own mint (purchase_from_vault.rs:39-43), so
   // writers never hold their own option tokens. The seller in a resale flow
   // has to be a buyer. We scan every vaultMint and check the operator's ATA.
+  // Uses safeFetchAll instead of program.account.vaultMint.all() — defensive
+  // against stale on-chain layouts. See seed-devnet.ts:421 + the Stage 2
+  // refactor history (MIGRATION_LOG.md). Currently this script is "lucky"
+  // with .all() because all on-chain VaultMint accounts are post-V2; the
+  // switch is for consistency with buy-for-smoke and crank.
   console.log("\n[1/4] Scanning vaultMint records for held balances...");
-  const allMints = await program.account.vaultMint.all();
+  const allMints = await safeFetchAll<any>(program, "vaultMint");
   console.log(`  found ${allMints.length} vaultMint records on-chain`);
 
   type Holding = {
