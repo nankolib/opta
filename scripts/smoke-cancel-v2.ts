@@ -31,6 +31,8 @@ import BN from "bn.js";
 import fs from "fs";
 import path from "path";
 
+import { safeFetchAll } from "../app/src/hooks/useFetchAccounts";
+
 const PROGRAM_ID = new PublicKey("CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq");
 const HOOK_PROGRAM_ID = new PublicKey("83EW6a9o9P5CmGUkQKvVZvsz6v6Dgztiw5M4tVjfZMAG");
 
@@ -71,13 +73,19 @@ async function main() {
   console.log("RPC:", rpcUrl.replace(/([?&]api-key=)[^&]*/i, "$1<redacted>"));
 
   // ---- Step 1: find the operator's active listings.
-  // VaultResaleListing layout: 8-byte disc + 32-byte seller (offset 8).
-  // Anchor's .all() prepends the disc filter automatically; we add seller.
+  // Uses safeFetchAll (skip-on-decode-error) + JS-side filter by seller.
+  // The previous program.account.vaultResaleListing.all([memcmp]) path
+  // shared the same fragility-against-stale-layouts as the buy-for-smoke
+  // failure mode. Listing count stays small for the foreseeable future,
+  // so the cost of fetching all + filtering locally is negligible.
   console.log("\n[1/4] Scanning VaultResaleListing for seller = operator...");
-  const operatorListings = await program.account.vaultResaleListing.all([
-    { memcmp: { offset: 8, bytes: operator.publicKey.toBase58() } },
-  ]);
-  console.log(`  found ${operatorListings.length} active listing(s) for this seller`);
+  const allListings = await safeFetchAll<any>(program, "vaultResaleListing");
+  const operatorListings = allListings.filter((d) =>
+    (d.account.seller as PublicKey).equals(operator.publicKey),
+  );
+  console.log(
+    `  found ${operatorListings.length} active listing(s) for this seller (out of ${allListings.length} total)`,
+  );
 
   if (operatorListings.length === 0) {
     console.log("  no listings to cancel. Treating as a clean no-op state.");
