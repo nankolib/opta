@@ -8,6 +8,7 @@ test-ledger
 Cargo.lock
 run.sh
 scripts/.devnet-writer-keypair.json
+scripts/.last-*.json
 
 # Environment / secrets
 .env
