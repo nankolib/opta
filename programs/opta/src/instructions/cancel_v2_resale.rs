@@ -2,22 +2,93 @@
 // instructions/cancel_v2_resale.rs — Seller cancels their own listing
 // =============================================================================
 //
-// STEP 1 SCAFFOLDING: handler is empty. Logic lands in Step 2.
+// Spec: docs/V2_SECONDARY_LISTING_PLAN.md §2.3.
 //
-// Spec: V2_SECONDARY_LISTING_PLAN.md §2.3.
-//
-// Note: plan calls for `close = seller` on the listing PDA. Step 1 leaves
-// listing as plain `mut` and defers the close attribute to Step 2 per the
-// "no Anchor close=" Step-1 constraint.
+// Flow:
+//   1. Read escrow balance (raw bytes 64..72 — Token-2022 ATA layout).
+//   2. If balance > 0, transfer escrow tokens → seller's regular ATA via
+//      Token-2022 invoke_transfer_checked, signed by protocol_state PDA.
+//      Hook permits this even post-expiry because source is protocol-owned
+//      (opta-transfer-hook/src/lib.rs:286-291). This is the load-bearing
+//      structural fact — no `is_settled` check needed (plan §4.4).
+//   3. Close the resale escrow Token-2022 account; rent → seller.
+//      Mirrors burn_unsold_from_vault.rs:74-88.
+//   4. Emit VaultListingCancelled with returned_quantity.
+//   5. Listing PDA closes via Anchor `close = seller` constraint.
 // =============================================================================
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::program::invoke_signed;
 use anchor_spl::token_2022::Token2022;
 
+use crate::errors::OptaError;
+use crate::events::VaultListingCancelled;
 use crate::state::*;
 
-pub fn handle_cancel_v2_resale(_ctx: Context<CancelV2Resale>) -> Result<()> {
-    // TODO: Step 2 — return escrow tokens to seller, close escrow, close listing
+pub fn handle_cancel_v2_resale(ctx: Context<CancelV2Resale>) -> Result<()> {
+    let token_2022_key = ctx.accounts.token_2022_program.key();
+    let protocol_seeds: &[&[u8]] = &[PROTOCOL_SEED, &[ctx.accounts.protocol_state.bump]];
+    let protocol_signer: &[&[&[u8]]] = &[protocol_seeds];
+
+    // ---- 1. Read escrow balance --------------------------------------------
+    let escrow_balance: u64 = {
+        let data = ctx.accounts.resale_escrow.try_borrow_data()?;
+        require!(data.len() >= 72, OptaError::MathOverflow);
+        let amount_bytes: [u8; 8] = data[64..72]
+            .try_into()
+            .map_err(|_| OptaError::MathOverflow)?;
+        u64::from_le_bytes(amount_bytes)
+    };
+
+    // ---- 2. Return tokens to seller (protocol PDA signs) -------------------
+    // Hook permits this post-expiry because source is protocol_state-owned
+    // (opta-transfer-hook/src/lib.rs:286-291). No is_settled check needed —
+    // see plan §4.4.
+    if escrow_balance > 0 {
+        spl_token_2022::onchain::invoke_transfer_checked(
+            &token_2022_key,
+            ctx.accounts.resale_escrow.to_account_info(),
+            ctx.accounts.option_mint.to_account_info(),
+            ctx.accounts.seller_option_account.to_account_info(),
+            ctx.accounts.protocol_state.to_account_info(),
+            &[
+                ctx.accounts.extra_account_meta_list.to_account_info(),
+                ctx.accounts.transfer_hook_program.to_account_info(),
+                ctx.accounts.hook_state.to_account_info(),
+            ],
+            escrow_balance,
+            0, // decimals = 0 for option tokens
+            protocol_signer,
+        )?;
+    }
+
+    // ---- 3. Close the resale escrow (rent → seller) ------------------------
+    // Mirrors burn_unsold_from_vault.rs:74-88. Protocol PDA signs as owner.
+    invoke_signed(
+        &spl_token_2022::instruction::close_account(
+            &token_2022_key,
+            ctx.accounts.resale_escrow.key,
+            ctx.accounts.seller.key,
+            &ctx.accounts.protocol_state.key(),
+            &[],
+        )?,
+        &[
+            ctx.accounts.resale_escrow.to_account_info(),
+            ctx.accounts.seller.to_account_info(),
+            ctx.accounts.protocol_state.to_account_info(),
+        ],
+        protocol_signer,
+    )?;
+
+    // ---- 4. Emit event ----------------------------------------------------
+    emit!(VaultListingCancelled {
+        listing: ctx.accounts.listing.key(),
+        mint: ctx.accounts.option_mint.key(),
+        seller: ctx.accounts.seller.key(),
+        returned_quantity: escrow_balance,
+    });
+
+    // ---- 5. Listing PDA closes via Anchor `close = seller` constraint -----
     Ok(())
 }
 
@@ -35,10 +106,7 @@ pub struct CancelV2Resale<'info> {
     #[account(mut)]
     pub option_mint: UncheckedAccount<'info>,
 
-    // TODO: Step 2 — add `close = seller` constraint so Anchor refunds the
-    // listing PDA's rent to the seller and zeros the account at the end of
-    // the instruction.
-    /// Listing being cancelled. Mut; close attribute deferred to Step 2.
+    /// Listing being cancelled. Closed at instruction end; rent → seller.
     #[account(
         mut,
         seeds = [
@@ -49,6 +117,7 @@ pub struct CancelV2Resale<'info> {
         bump = listing.bump,
         constraint = listing.seller == seller.key()
             @ crate::errors::OptaError::NotResaleSeller,
+        close = seller,
     )]
     pub listing: Box<Account<'info, VaultResaleListing>>,
 

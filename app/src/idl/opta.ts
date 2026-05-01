@@ -794,7 +794,7 @@ export type Opta = {
         {
           "name": "listing",
           "docs": [
-            "Listing being cancelled. Mut; close attribute deferred to Step 2."
+            "Listing being cancelled. Closed at instruction end; rent → seller."
           ],
           "writable": true,
           "pda": {
