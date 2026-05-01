@@ -533,8 +533,10 @@
         {
           "name": "listing",
           "docs": [
-            "Listing being filled. Mut for listed_quantity decrement; close path",
-            "(when listed_quantity hits zero) is manual in handler — see Step 2."
+            "Listing being filled. Mut for listed_quantity decrement. On full fill",
+            "the handler manually closes via lamport drain + reassign + realloc",
+            "(see auto_finalize_writers.rs:225-244 for the pattern). Anchor's",
+            "`close = X` derive can't be conditional."
           ],
           "writable": true,
           "pda": {
