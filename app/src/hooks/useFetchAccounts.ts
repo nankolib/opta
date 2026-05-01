@@ -25,12 +25,14 @@ const DISCRIMINATORS: Record<string, number[]> = {
   epochConfig: [190, 66, 87, 197, 214, 153, 144, 193],
   // Stage P2 — per-(asset, expiry) settlement record
   settlementRecord: [172, 159, 67, 74, 96, 85, 37, 205],
+  // Stage Secondary 1 — V2 secondary listing record
+  vaultResaleListing: [122, 137, 187, 45, 94, 125, 117, 110],
 };
 
 export type AccountName =
   | "optionsMarket" | "optionPosition" | "protocolState"
   | "sharedVault" | "writerPosition" | "vaultMint" | "epochConfig"
-  | "settlementRecord";
+  | "settlementRecord" | "vaultResaleListing";
 
 export async function safeFetchAll<T>(
   program: Program<any>,
