@@ -36,10 +36,14 @@ const CUSTOM_ERRORS: Record<number, string> = {
   6031: "Volatility too high for calculation",
   6032: "Option has expired — cannot price",
   6033: "Pricing calculation failed",
-  6034: "Oracle data is stale or invalid",
-  6035: "Arithmetic overflow",
-  6036: "Custom vaults only allow the original creator to deposit",
-  6037: "Vault has been settled — no more deposits allowed",
+  // Stage Secondary (May 2026) — V2 secondary listing errors.
+  // These four codes were previously stale in this map (pre-Stage-2 enum); on-disk
+  // errors.rs now assigns 6034-6037 to ListingExhausted / NotResaleSeller /
+  // InvalidListingEscrow / ListingMismatch respectively.
+  6034: "Not enough contracts left in this listing — someone may have just bought.",
+  6035: "Only the listing's seller can cancel it.",
+  6036: "Listing data mismatch — please refresh and try again.",
+  6037: "Listing data mismatch — please refresh and try again.",
   6038: "Vault expiry has passed",
   6039: "Invalid epoch expiry — must fall on configured day and hour",
   6040: "Insufficient free collateral in your vault position",

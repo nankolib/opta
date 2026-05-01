@@ -11,6 +11,8 @@ import {
   VAULT_PURCHASE_ESCROW_SEED,
   VAULT_MINT_RECORD_SEED,
   EPOCH_CONFIG_SEED,
+  VAULT_RESALE_LISTING_SEED,
+  VAULT_RESALE_ESCROW_SEED,
   PROGRAM_ID,
 } from "../utils/constants";
 
@@ -190,6 +192,33 @@ export function deriveEpochConfig(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from(EPOCH_CONFIG_SEED)],
+    programId,
+  );
+}
+
+/** Seeds: ["vault_resale_listing", option_mint, seller] */
+export function deriveVaultResaleListing(
+  optionMint: PublicKey,
+  seller: PublicKey,
+  programId: PublicKey = PROGRAM_ID,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      Buffer.from(VAULT_RESALE_LISTING_SEED),
+      optionMint.toBuffer(),
+      seller.toBuffer(),
+    ],
+    programId,
+  );
+}
+
+/** Seeds: ["vault_resale_escrow", listing] */
+export function deriveVaultResaleEscrow(
+  listing: PublicKey,
+  programId: PublicKey = PROGRAM_ID,
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(VAULT_RESALE_ESCROW_SEED), listing.toBuffer()],
     programId,
   );
 }

@@ -60,6 +60,10 @@ export const VAULT_OPTION_MINT_SEED = "vault_option_mint";
 export const VAULT_PURCHASE_ESCROW_SEED = "vault_purchase_escrow";
 export const EPOCH_CONFIG_SEED = "epoch_config";
 
+// === V2 Secondary Listing Seeds (Stage Secondary, May 2026) ===
+export const VAULT_RESALE_LISTING_SEED = "vault_resale_listing";
+export const VAULT_RESALE_ESCROW_SEED = "vault_resale_escrow";
+
 // Feature flag: when true, UI uses v2 shared vault flows.
 // When false, UI uses v1 isolated escrow flows.
 export const USE_V2_VAULTS = true;
