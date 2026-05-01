@@ -107,7 +107,7 @@ async function main() {
 
   const strike = BigInt(state.strike);
   const itm = settlementPrice > strike;
-  const perContractPayout = itm ? settlementPrice - strike : 0n;
+  const perContractPayout = itm ? settlementPrice - strike : BigInt(0);
   console.log(`  strike: ${strike} ($${(Number(strike) / 1e6).toFixed(2)})`);
   console.log(`  status: ${itm ? "ITM (CALL)" : "OTM (CALL)"}`);
   console.log(`  per-contract payout: ${perContractPayout} microUSDC`);
@@ -172,12 +172,12 @@ async function main() {
   // perContractPayout × 2 = (qty_sold × payout). Writer collateral_remaining
   // = initial - holder_payouts. Writer premium_share = qty_sold × premium ×
   // (1 - fee_bps/10000).
-  const initialCollateral = strike * 2n * BigInt(state.qtyMinted);
+  const initialCollateral = strike * BigInt(2) * BigInt(state.qtyMinted);
   const holderPayoutsTotal = perContractPayout * BigInt(state.qtyOperatorBought);
   const collateralBack = initialCollateral - holderPayoutsTotal;
   const totalPremium =
     BigInt(state.premiumPerContract) * BigInt(state.qtyOperatorBought);
-  const fee = (totalPremium * BigInt(state.feeBps)) / 10_000n;
+  const fee = (totalPremium * BigInt(state.feeBps)) / BigInt(10_000);
   const writerPremiumShare = totalPremium - fee;
   const expectedWriterDelta = collateralBack + writerPremiumShare;
 
@@ -198,8 +198,8 @@ async function main() {
   // expected delta — last-writer dust goes to treasury, not the writer.
   const operatorMatches = opUsdcDelta === expectedOperatorDelta;
   const writerMatches = wrUsdcDelta === expectedWriterDelta;
-  const treasuryNonNegative = trUsdcDelta >= 0n;
-  const operatorOptionBurned = postOperatorOption === 0n;
+  const treasuryNonNegative = trUsdcDelta >= BigInt(0);
+  const operatorOptionBurned = postOperatorOption === BigInt(0);
 
   // Listing closure + writer position closure are the load-bearing
   // assertions. Vault USDC closure is required (proves last-writer trigger
