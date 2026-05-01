@@ -23,11 +23,11 @@ type ResaleModalProps = {
 };
 
 /**
- * Paper-aesthetic resale-listing modal. Lifts the on-chain logic
- * pattern from the legacy modal verbatim — only the visual layer is
- * rebuilt for the v3 paper palette. Submission goes through the
- * usePortfolioActions hook's listResale handler via the parent's
- * onSubmit callback.
+ * Paper-aesthetic resale-listing modal. Visual layer was originally
+ * built against the V1 P2P resale flow; Stage Secondary 7.2 wires V2
+ * vault-mint listings through the same modal — usePortfolioActions
+ * dispatches V1 vs V2 by `position.source.kind`, so this component
+ * stays kind-agnostic and only handles UX state.
  *
  * On open, re-reads the seller's actual Token-2022 ATA balance to
  * pre-fill the quantity field with what they currently hold (not
@@ -57,13 +57,15 @@ export const ResaleModal: FC<ResaleModalProps> = ({
     : calculatePutPremium(spot, strike, days, vol);
 
   // Re-read on-chain ATA balance so quantity defaults to what the
-  // wallet actually holds. v2 has no resale; this branch only fires
-  // for v1 positions, which is the only kind that reaches the modal
-  // anyway (the action button gates).
+  // wallet actually holds. Fires for both V1 and V2 active positions
+  // (Stage Secondary 7.2 wired V2 list/cancel through the same modal
+  // via usePortfolioActions's kind-aware dispatch).
   useEffect(() => {
     if (!publicKey || !program) return;
-    if (position.source.kind !== "v1") return;
-    const optionMint = position.source.position.account.optionMint as PublicKey;
+    const optionMint =
+      position.source.kind === "v1"
+        ? (position.source.position.account.optionMint as PublicKey)
+        : (position.source.vaultMint.account.optionMint as PublicKey);
     let cancelled = false;
     (async () => {
       try {

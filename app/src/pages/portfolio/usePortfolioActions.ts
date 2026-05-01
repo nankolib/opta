@@ -24,6 +24,10 @@ import {
   deriveHookStatePda,
 } from "../../utils/constants";
 import { usdcToNumber } from "../../utils/format";
+import {
+  deriveVaultResaleListing,
+  deriveVaultResaleEscrow,
+} from "../../hooks/useAccounts";
 import { decodeError } from "../../utils/errorDecoder";
 import { showToast } from "../../components/Toast";
 import type { Position } from "./positions";
@@ -80,10 +84,13 @@ export function usePortfolioActions(onSuccess: () => void): PortfolioActions {
   const listResale = useCallback(
     async (p: Position, premiumUsd: number, tokenAmount: number) => {
       if (!program || !provider || !publicKey) return;
-      if (p.source.kind !== "v1") return; // v2 has no resale
       setBusyId(p.id);
       try {
-        await listResaleV1({ program, publicKey, position: p, premiumUsd, tokenAmount });
+        if (p.source.kind === "v2") {
+          await listResaleV2({ program, publicKey, position: p, premiumUsd, tokenAmount });
+        } else {
+          await listResaleV1({ program, publicKey, position: p, premiumUsd, tokenAmount });
+        }
         showToast({
           type: "success",
           title: "Listed for resale",
@@ -102,10 +109,13 @@ export function usePortfolioActions(onSuccess: () => void): PortfolioActions {
   const cancelResale = useCallback(
     async (p: Position) => {
       if (!program || !provider || !publicKey) return;
-      if (p.source.kind !== "v1") return;
       setBusyId(p.id);
       try {
-        await cancelResaleV1({ program, publicKey, position: p });
+        if (p.source.kind === "v2") {
+          await cancelResaleV2({ program, publicKey, position: p });
+        } else {
+          await cancelResaleV1({ program, publicKey, position: p });
+        }
         showToast({
           type: "success",
           title: "Listing cancelled",
@@ -320,6 +330,156 @@ async function cancelResaleV1({
       hookState,
     })
     .preInstructions([EXTRA_CU])
+    .rpc({ commitment: "confirmed" });
+}
+
+async function listResaleV2({
+  program,
+  publicKey,
+  position,
+  premiumUsd,
+  tokenAmount,
+}: {
+  program: any;
+  publicKey: PublicKey;
+  position: Position;
+  premiumUsd: number;
+  tokenAmount: number;
+}) {
+  if (position.source.kind !== "v2") throw new Error("expected v2");
+  const { vault, vaultMint } = position.source;
+  const optionMint = vaultMint.account.optionMint as PublicKey;
+  const marketPda = vault.account.market as PublicKey;
+
+  const [protocolStatePda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("protocol_v2")],
+    program.programId,
+  );
+  const protocolState = await program.account.protocolState.fetch(protocolStatePda);
+  const usdcMint = protocolState.usdcMint as PublicKey;
+
+  const [listingPda] = deriveVaultResaleListing(optionMint, publicKey);
+  const [resaleEscrowPda] = deriveVaultResaleEscrow(listingPda);
+  const [extraAccountMetaList] = deriveExtraAccountMetaListPda(optionMint);
+  const [hookState] = deriveHookStatePda(optionMint);
+
+  const sellerOptionAccount = getAssociatedTokenAddressSync(
+    optionMint,
+    publicKey,
+    false,
+    TOKEN_2022_PROGRAM_ID,
+  );
+  const sellerUsdcAccount = getAssociatedTokenAddressSync(
+    usdcMint,
+    publicKey,
+    false,
+    TOKEN_PROGRAM_ID,
+  );
+
+  // Floor at the lamport level so the on-chain total never exceeds the user's
+  // typed input. Worst case: user receives up to (tokenAmount - 1) micro-USDC
+  // less than they intended (e.g. $9.999999 instead of $10.00 on a $10/3
+  // listing). Rounding direction matters: an overcharged listing would
+  // confuse buyers and break the modal's "Total: $X" preview math.
+  const totalMicros = Math.floor(premiumUsd * 1_000_000);
+  const perContractMicros = Math.floor(totalMicros / tokenAmount);
+  const pricePerContract = new BN(perContractMicros);
+
+  // CRITICAL per V2_SECONDARY_FRONTEND_PLAN.md §10: buy_v2_resale reverts if
+  // the seller's USDC ATA is missing (it's not pre-created by the buy flow
+  // per the on-chain plan's OQ#6). The list flow MUST always pre-create it,
+  // idempotent — otherwise the first buy attempt against this listing fails
+  // and the seller has no in-app recovery path.
+  const createSellerUsdcAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+    publicKey,
+    sellerUsdcAccount,
+    publicKey,
+    usdcMint,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
+
+  await program.methods
+    .listV2ForResale(pricePerContract, new BN(tokenAmount))
+    .accountsStrict({
+      seller: publicKey,
+      sharedVault: vault.publicKey,
+      market: marketPda,
+      vaultMintRecord: vaultMint.publicKey,
+      optionMint,
+      sellerOptionAccount,
+      listing: listingPda,
+      resaleEscrow: resaleEscrowPda,
+      protocolState: protocolStatePda,
+      transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+      extraAccountMetaList,
+      hookState,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+      rent: anchor.web3.SYSVAR_RENT_PUBKEY,
+    })
+    .preInstructions([EXTRA_CU, createSellerUsdcAtaIx])
+    .rpc({ commitment: "confirmed" });
+}
+
+async function cancelResaleV2({
+  program,
+  publicKey,
+  position,
+}: {
+  program: any;
+  publicKey: PublicKey;
+  position: Position;
+}) {
+  if (position.source.kind !== "v2") throw new Error("expected v2");
+  const { vault, vaultMint } = position.source;
+  const optionMint = vaultMint.account.optionMint as PublicKey;
+
+  const [protocolStatePda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("protocol_v2")],
+    program.programId,
+  );
+  const [listingPda] = deriveVaultResaleListing(optionMint, publicKey);
+  const [resaleEscrowPda] = deriveVaultResaleEscrow(listingPda);
+  const [extraAccountMetaList] = deriveExtraAccountMetaListPda(optionMint);
+  const [hookState] = deriveHookStatePda(optionMint);
+
+  const sellerOptionAccount = getAssociatedTokenAddressSync(
+    optionMint,
+    publicKey,
+    false,
+    TOKEN_2022_PROGRAM_ID,
+  );
+
+  // Defensive: the seller had to have an option ATA at list time, but they
+  // may have closed it afterward (rare). Idempotent re-create is free if it
+  // already exists and prevents a "destination ATA not found" revert.
+  const createSellerOptionAtaIx = createAssociatedTokenAccountIdempotentInstruction(
+    publicKey,
+    sellerOptionAccount,
+    publicKey,
+    optionMint,
+    TOKEN_2022_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+  );
+
+  await program.methods
+    .cancelV2Resale()
+    .accountsStrict({
+      seller: publicKey,
+      sharedVault: vault.publicKey,
+      optionMint,
+      listing: listingPda,
+      resaleEscrow: resaleEscrowPda,
+      sellerOptionAccount,
+      protocolState: protocolStatePda,
+      transferHookProgram: TRANSFER_HOOK_PROGRAM_ID,
+      extraAccountMetaList,
+      hookState,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    })
+    .preInstructions([EXTRA_CU, createSellerOptionAtaIx])
     .rpc({ commitment: "confirmed" });
 }
 

@@ -64,6 +64,9 @@ export const PortfolioPage: FC = () => {
     { publicKey: PublicKey; account: any }[]
   >([]);
   const [heldBalances, setHeldBalances] = useState<Map<string, number>>(new Map());
+  const [listingsRaw, setListingsRaw] = useState<
+    { publicKey: PublicKey; account: any }[]
+  >([]);
   const [denomination, setDenomination] = useState<Denomination>("USDC");
   const [resaleTarget, setResaleTarget] = useState<Position | null>(null);
 
@@ -84,16 +87,18 @@ export const PortfolioPage: FC = () => {
   const refetchAll = useCallback(async () => {
     if (!program) return;
     try {
-      const [posns, mkts, settles] = await Promise.all([
+      const [posns, mkts, settles, lists] = await Promise.all([
         safeFetchAll(program, "optionPosition"),
         safeFetchAll(program, "optionsMarket"),
         safeFetchAll(program, "settlementRecord"),
+        safeFetchAll(program, "vaultResaleListing"),
       ]);
       setPositionsRaw(posns as PositionAccount[]);
       setMarkets(mkts as MarketAccount[]);
       setSettlementRecords(
         settles as { publicKey: PublicKey; account: any }[],
       );
+      setListingsRaw(lists as { publicKey: PublicKey; account: any }[]);
       if (publicKey) {
         const accts = await program.provider.connection.getTokenAccountsByOwner(publicKey, {
           programId: TOKEN_2022_PROGRAM_ID,
@@ -168,6 +173,17 @@ export const PortfolioPage: FC = () => {
     return found;
   }, [vaultMints, vaults, marketMap, heldBalances, connected, publicKey]);
 
+  // Filter raw listings down to ones the connected wallet owns. The on-chain
+  // PDA seed [VAULT_RESALE_LISTING_SEED, mint, seller] guarantees at most one
+  // active listing per (mint, seller), so this maps cleanly into the
+  // listingByMint lookup inside buildPositions.
+  const myListings = useMemo(() => {
+    if (!connected || !publicKey) return [];
+    return listingsRaw.filter((l) =>
+      (l.account.seller as PublicKey).equals(publicKey),
+    );
+  }, [listingsRaw, connected, publicKey]);
+
   const positions = useMemo(
     () =>
       buildPositions({
@@ -177,8 +193,9 @@ export const PortfolioPage: FC = () => {
         marketMap,
         spotPrices,
         metadataSymbolByMint,
+        listings: myListings,
       }),
-    [v1Held, v2Held, heldBalances, marketMap, spotPrices, metadataSymbolByMint],
+    [v1Held, v2Held, heldBalances, marketMap, spotPrices, metadataSymbolByMint, myListings],
   );
 
   const openPositions = useMemo(

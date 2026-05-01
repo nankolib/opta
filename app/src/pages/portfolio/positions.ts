@@ -31,6 +31,10 @@ interface VaultMintAccount {
   publicKey: PublicKey;
   account: any;
 }
+interface ResaleListingAccount {
+  publicKey: PublicKey;
+  account: any;
+}
 
 export type PositionSource =
   | { kind: "v1"; position: PositionAccount; market: any }
@@ -97,6 +101,14 @@ type BuildPositionsArgs = {
   marketMap: Map<string, any>;
   spotPrices: Record<string, number>;
   metadataSymbolByMint?: Map<string, string>;
+  /**
+   * Active V2 secondary listings owned by the connected wallet.
+   * Caller (PortfolioPage) must filter to `seller === connected wallet`
+   * before passing in — buildPositions assumes at most one entry per mint.
+   * Optional with a default of [] so the existing call site keeps compiling
+   * during Stage Secondary 7.2 wiring; Slice B threads the real fetch in.
+   */
+  listings?: ResaleListingAccount[];
 };
 
 /**
@@ -114,12 +126,22 @@ export function buildPositions(args: BuildPositionsArgs): Position[] {
   // prevention — PortfolioPage still computes and passes them. v1 path
   // retired in P4a; v2 path reads balances and market straight off each
   // v2Held entry. Full type cleanup deferred to P4e.
-  const { v2Held, spotPrices, metadataSymbolByMint } = args;
+  const { v2Held, spotPrices, metadataSymbolByMint, listings = [] } = args;
   void args.v1Held;
   void args.heldBalances;
   void args.marketMap;
   const now = Math.floor(Date.now() / 1000);
   const result: Position[] = [];
+
+  // Map option_mint base58 → listing PDA + payload, used to flip each V2
+  // position's isListedForResale flag and to thread cancel-resale dispatch
+  // off the same row. Caller pre-filters listings to seller === wallet, so
+  // at most one entry per mint exists in this map (the on-chain PDA seed
+  // [VAULT_RESALE_LISTING_SEED, mint, seller] guarantees uniqueness too).
+  const listingByMint = new Map<string, ResaleListingAccount>();
+  for (const l of listings) {
+    listingByMint.set((l.account.optionMint as PublicKey).toBase58(), l);
+  }
 
   // ---- V2 (shared vault) ----
   for (const { vaultMint, vault, balance, market } of v2Held) {
@@ -159,8 +181,11 @@ export function buildPositions(args: BuildPositionsArgs): Position[] {
     const pnl = currentValue - costBasis;
     const pnlPercent = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
 
+    const mintKey = (vaultMint.account.optionMint as PublicKey).toBase58();
+    const isListedForResale = listingByMint.has(mintKey);
+
     result.push({
-      id: (vaultMint.account.optionMint as PublicKey).toBase58(),
+      id: mintKey,
       source: { kind: "v2", vault, vaultMint, market },
       asset: assetName || "?",
       side: isCall ? "call" : "put",
@@ -173,8 +198,8 @@ export function buildPositions(args: BuildPositionsArgs): Position[] {
       pnl,
       pnlPercent,
       state,
-      isListedForResale: false, // v2 has no on-chain resale path
-      action: deriveAction(state, false, "v2"),
+      isListedForResale,
+      action: deriveAction(state, isListedForResale, "v2"),
     });
   }
 
@@ -242,6 +267,6 @@ function deriveAction(
   if (state === "settled-otm") return "burn";
   if (state === "expired-unsettled") return "none";
   // active
-  if (kind === "v2") return "none"; // v2 has no resale
+  if (kind === "v2") return isListedForResale ? "cancel-resale" : "list-resale";
   return isListedForResale ? "cancel-resale" : "list-resale";
 }
