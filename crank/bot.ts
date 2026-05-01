@@ -34,6 +34,10 @@ import {
   type AutoFinalizeOptions,
   type AtaBudget,
 } from "./autoFinalize";
+import {
+  runAutoCancelListings,
+  type AutoCancelOptions,
+} from "./autoCancelListings";
 
 // ---- Constants -------------------------------------------------------------
 
@@ -47,6 +51,10 @@ const DEFAULT_WRITER_BATCH = 20;
 const DEFAULT_MAX_ATAS_PER_TICK = 100;
 const DEFAULT_STALE_S = 3600;
 const DEFAULT_AUTO_FINALIZE_CU = 1_400_000;
+
+// ---- Auto-cancel defaults (Step 6 wiring) ---------------------------------
+const DEFAULT_LISTINGS_PER_BATCH = 8;
+const DEFAULT_AUTO_CANCEL_CU = 800_000;
 
 // ---- Logging ---------------------------------------------------------------
 
@@ -83,6 +91,8 @@ interface CrankContext {
   maxAtasPerTick: number;
   staleS: number;
   fullyFinalized: Set<string>;
+  // Auto-cancel wiring (Step 6 — V2 secondary listing)
+  autoCancelOptions: AutoCancelOptions;
 }
 
 interface AccountRecord {
@@ -110,6 +120,11 @@ interface TickResult {
   finalizeVaultsErrors: number;
   finalizeAtasCreated: number;
   finalizeGpaCalls: number;
+  // Auto-cancel wiring (Step 6)
+  finalizeListingsConsidered: number;
+  finalizeListingsCancelled: number;
+  finalizeListingsAtaSkipped: number;
+  finalizeListingsErrors: number;
 }
 
 /**
@@ -166,6 +181,8 @@ function readEnv(): {
   maxAtasPerTick: number;
   staleS: number;
   dryRun: boolean;
+  // Auto-cancel wiring (Step 6)
+  listingsBatchSize: number;
 } {
   const rpcUrl = process.env.OPTA_RPC_URL;
   if (!rpcUrl) {
@@ -205,6 +222,11 @@ function readEnv(): {
     DEFAULT_WRITER_BATCH,
     "OPTA_AUTO_FINALIZE_WRITER_BATCH",
   );
+  const listingsBatchSize = parsePositiveInt(
+    process.env.OPTA_AUTO_CANCEL_BATCH_SIZE,
+    DEFAULT_LISTINGS_PER_BATCH,
+    "OPTA_AUTO_CANCEL_BATCH_SIZE",
+  );
   const maxAtasPerTick = parsePositiveInt(
     process.env.OPTA_AUTO_FINALIZE_MAX_ATAS_PER_TICK,
     DEFAULT_MAX_ATAS_PER_TICK,
@@ -225,6 +247,7 @@ function readEnv(): {
     hermesBase,
     holderBatchSize,
     writerBatchSize,
+    listingsBatchSize,
     maxAtasPerTick,
     staleS,
     dryRun,
@@ -317,6 +340,12 @@ async function bootstrapContext(): Promise<CrankContext> {
     dryRun: env.dryRun,
   };
 
+  const autoCancelOptions: AutoCancelOptions = {
+    listingsBatchSize: env.listingsBatchSize,
+    computeUnitLimit: DEFAULT_AUTO_CANCEL_CU,
+    dryRun: env.dryRun, // shares the OPTA_AUTO_FINALIZE_DRY_RUN flag
+  };
+
   return {
     connection,
     wallet,
@@ -328,6 +357,7 @@ async function bootstrapContext(): Promise<CrankContext> {
     maxAtasPerTick: env.maxAtasPerTick,
     staleS: env.staleS,
     fullyFinalized: new Set<string>(),
+    autoCancelOptions,
   };
 }
 
@@ -355,6 +385,10 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
     finalizeVaultsErrors: 0,
     finalizeAtasCreated: 0,
     finalizeGpaCalls: 0,
+    finalizeListingsConsidered: 0,
+    finalizeListingsCancelled: 0,
+    finalizeListingsAtaSkipped: 0,
+    finalizeListingsErrors: 0,
   };
 
   // ---- Phase 1: settle expired non-settled vaults (existing behavior) ----
@@ -447,10 +481,41 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
       });
     }
 
+    let listingsProgressed = false;
+    let listingsEmptyScan = false;
     let holderProgressed = false;
     let writerProgressed = false;
     let holderEmptyScan = false;
     let writerEmptyScan = false;
+
+    // Auto-cancel pass — runs FIRST so freshly-returned tokens become
+    // holder-finalize candidates. Per V2_SECONDARY_LISTING_PLAN.md §4.2
+    // (Design A). Failure here is logged but does NOT skip holder/writer:
+    // the holder pass naturally silent-skips protocol-state-owned escrows
+    // so leftover listings don't corrupt subsequent passes.
+    try {
+      const cancelReport = await runAutoCancelListings(
+        ctx.finalizeCtx,
+        v.publicKey,
+        ctx.autoCancelOptions,
+      );
+      result.finalizeListingsConsidered += 1;
+      result.finalizeListingsCancelled += cancelReport.listingsCancelledFromEvents;
+      result.finalizeListingsAtaSkipped += cancelReport.listingsSkippedMissingAta;
+      result.finalizeListingsErrors += cancelReport.txFailed;
+      listingsProgressed = cancelReport.txSent > 0;
+      listingsEmptyScan = cancelReport.listingsTotal === 0;
+      logInfo("auto-cancel pass", { ...cancelReport });
+    } catch (err) {
+      result.finalizeListingsErrors += 1;
+      logError("auto-cancel pass crashed", {
+        vault: vaultKey,
+        err: String(err),
+      });
+      // Do NOT continue — let holder/writer attempt regardless.
+    }
+
+    if (shutdownRequested) break;
 
     // Holder pass
     try {
@@ -508,8 +573,10 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
     // cache (the operator wants to see the same enumeration each tick).
     if (
       !ctx.finalizeOptions.dryRun &&
+      listingsEmptyScan &&
       holderEmptyScan &&
       writerEmptyScan &&
+      !listingsProgressed &&
       !holderProgressed &&
       !writerProgressed
     ) {
@@ -566,6 +633,11 @@ async function main(): Promise<void> {
       dryRun: ctx.finalizeOptions.dryRun,
       treasury: ctx.finalizeCtx.treasuryPda.toBase58(),
       usdcMint: ctx.finalizeCtx.usdcMint.toBase58(),
+    },
+    autoCancel: {
+      listingsBatchSize: ctx.autoCancelOptions.listingsBatchSize,
+      computeUnitLimit: ctx.autoCancelOptions.computeUnitLimit,
+      dryRun: ctx.autoCancelOptions.dryRun,
     },
   });
 

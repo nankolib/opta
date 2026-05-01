@@ -51,9 +51,10 @@ The crank fails fast at boot if `OPTA_RPC_URL` is unset.
 | `OPTA_HERMES_BASE` | `https://hermes.pyth.network` | Pyth Hermes endpoint. Override to `https://hermes-beta.pyth.network` for Beta-cluster testing. |
 | `OPTA_AUTO_FINALIZE_HOLDER_BATCH` | `20` | Holders per `auto_finalize_holders` transaction. Each holder occupies 2 remaining-account slots and ~50K CU. The default leaves headroom under the 1.4M-CU/64-account-per-tx ceiling. Tune up if your RPC handles tightly-packed txs reliably; tune down if you see CU-exceeded failures. |
 | `OPTA_AUTO_FINALIZE_WRITER_BATCH` | `20` | Writers per `auto_finalize_writers` transaction. Each writer is a triple of (writer_position, writer_usdc_ata, writer_wallet) — 3 remaining-account slots, ~30-80K CU each. Same tuning rules as the holder batch. |
+| `OPTA_AUTO_CANCEL_BATCH_SIZE` | `8` | Listings per `auto_cancel_listings` transaction. Each listing occupies 4 remaining-account slots and ~65K CU (Step 5 smoke measurement). The default leaves headroom under the 800K-CU budget for this pass. Tune up if you see consistent under-budget completion; tune down if you see CU-exceeded failures. |
 | `OPTA_AUTO_FINALIZE_MAX_ATAS_PER_TICK` | `100` | Per-tick cap on idempotent USDC-ATA creates by the crank wallet. Each ATA create costs ~0.002 SOL of rent paid by the crank wallet, so the default caps tick exposure at ~0.2 SOL. The budget is shared across the holder + writer passes (per-tick total, not per-pass). When exhausted, this tick processes whatever it can and the next tick picks up the rest. |
 | `OPTA_AUTO_FINALIZE_STALE_S` | `3600` (1 hour) | Threshold for "vault has been settled too long without being finalized." Each tick emits a `warn` log line for any vault whose expiry was more than this many seconds ago and is still not fully finalized. Real failures (constraint mismatches, IDL drift) won't self-heal; surfacing them helps the operator notice. |
-| `OPTA_AUTO_FINALIZE_DRY_RUN` | unset (false) | When set to `true`, `1`, or `yes`, the auto-finalize passes enumerate everything (holders, writers, missing ATAs) and emit normal log lines but send NO transactions. Designed as the operator's safety net for a first-time deploy and as a debugging tool for verifying the gpa filter shapes against real on-chain state without spending SOL. |
+| `OPTA_AUTO_FINALIZE_DRY_RUN` | unset (false) | When set to `true`, `1`, or `yes`, the auto-finalize **and auto-cancel** passes enumerate everything (holders, writers, listings, missing ATAs) and emit normal log lines but send NO transactions. Designed as the operator's safety net for a first-time deploy and as a debugging tool for verifying the gpa filter shapes against real on-chain state without spending SOL. |
 
 ### Endpoint selection
 
@@ -136,7 +137,18 @@ itself stays one-shot per instance.
 4. If the SettlementRecord already exists (a previous crank run posted it,
    or the UI did), Phase 1 is skipped and only the remaining
    `settle_vault` calls fire — the resume path.
-5. Log per-tuple success or failure as a single JSON line.
+5. **Phase 2a — auto-cancel pass.** Per settled vault: enumerate every
+   `VaultResaleListing` belonging to that vault. For each, return the
+   escrowed option tokens to the seller's regular Token-2022 ATA (signed
+   by `protocol_state` PDA — the transfer hook permits even post-expiry
+   because source is protocol-owned), close the escrow Token-2022 account
+   (rent → seller wallet), and close the listing PDA via manual lamport
+   drain. Runs **before** the holder finalize pass so the returned tokens
+   become regular holder candidates for that pass to burn + pay out.
+   Listings whose seller closed their Token-2022 ATA are skipped + logged
+   as `warn`; sellers can recover those tokens by manually calling
+   `cancel_v2_resale` from their wallet.
+6. Log per-tuple success or failure as a single JSON line.
 
 A tick with zero expired tuples logs nothing. The crank stays silent
 during quiet periods.
@@ -183,6 +195,7 @@ The Helius API key in the RPC URL is automatically redacted in the
 | Tx fails with `VaultAlreadySettled` (race with UI) | Tuple-level error, tick continues | No action — the vault was settled by another caller |
 | Tx confirmation timeout | Tuple-level error | Next tick re-reads chain state and resumes from wherever it left off (idempotent retries) |
 | Process killed mid-tick | Crank exits | Restart manually; idempotency guarantees no double-settlement |
+| Listing's seller option ATA missing | Per-listing `warn` logged, listing skipped in batch | Seller manually calls `cancel_v2_resale` from their wallet to recover the tokens; the crank does not pre-create user state |
 
 All on-chain instructions called by the crank (`settle_expiry`,
 `settle_vault`) are naturally idempotent — they reject re-execution against
@@ -236,6 +249,15 @@ ignored; the first is the one that triggers the shutdown flag.
   - `useFetchAccounts.safeFetchAll` — typed account scanner with
     discriminator-based memcmp.
   - `format.hexFromBytes` — feed_id byte-array → hex string.
+- **Three top-level finalize entry points** (per-vault, called in order
+  inside the bot's tick loop for each settled vault):
+  - `runAutoCancelListings` (`autoCancelListings.ts`) — drains open
+    listings on settled vaults; runs first so returned tokens become
+    holder candidates.
+  - `runHolderFinalize` (`autoFinalize.ts`) — burns holder tokens, pays
+    ITM payouts.
+  - `runWriterFinalize` (`autoFinalize.ts`) — pays writer collateral +
+    premium, closes vault USDC on the last writer.
 - **No daemon, no auto-restart**: see "Production / persistent server".
 - **No state on disk**: every tick re-reads chain state. Crash-restart
   safe.
