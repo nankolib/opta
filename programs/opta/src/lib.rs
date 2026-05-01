@@ -225,7 +225,7 @@ pub mod opta {
     /// V2 secondary listing — permissionless cleanup of stale listings at expiry.
     /// Spec: docs/V2_SECONDARY_LISTING_PLAN.md §4.2 (Design A).
     pub fn auto_cancel_listings<'info>(
-        ctx: Context<'_, '_, '_, 'info, AutoCancelListings<'info>>,
+        ctx: Context<'_, '_, 'info, 'info, AutoCancelListings<'info>>,
     ) -> Result<()> {
         instructions::auto_cancel_listings::handle_auto_cancel_listings(ctx)
     }

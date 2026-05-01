@@ -3679,6 +3679,11 @@
       "code": 6036,
       "name": "InvalidListingEscrow",
       "msg": "listing escrow does not belong to this vault"
+    },
+    {
+      "code": 6037,
+      "name": "ListingMismatch",
+      "msg": "listing PDA derivation failed or its mint/vault doesn't match the batch"
     }
   ],
   "types": [

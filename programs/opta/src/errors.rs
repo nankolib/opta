@@ -124,4 +124,7 @@ pub enum OptaError {
 
     #[msg("listing escrow does not belong to this vault")]
     InvalidListingEscrow,
+
+    #[msg("listing PDA derivation failed or its mint/vault doesn't match the batch")]
+    ListingMismatch,
 }

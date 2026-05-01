@@ -3685,6 +3685,11 @@ export type Opta = {
       "code": 6036,
       "name": "invalidListingEscrow",
       "msg": "listing escrow does not belong to this vault"
+    },
+    {
+      "code": 6037,
+      "name": "listingMismatch",
+      "msg": "listing PDA derivation failed or its mint/vault doesn't match the batch"
     }
   ],
   "types": [
