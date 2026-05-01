@@ -22,6 +22,12 @@ pub mod withdraw_post_settlement;
 pub mod auto_finalize_holders;
 pub mod auto_finalize_writers;
 
+// V2 secondary listing
+pub mod list_v2_for_resale;
+pub mod buy_v2_resale;
+pub mod cancel_v2_resale;
+pub mod auto_cancel_listings;
+
 pub use create_market::*;
 pub use initialize_protocol::*;
 pub use migrate_pyth_feed::*;
@@ -41,3 +47,9 @@ pub use exercise_from_vault::*;
 pub use withdraw_post_settlement::*;
 pub use auto_finalize_holders::*;
 pub use auto_finalize_writers::*;
+
+// V2 secondary listing
+pub use list_v2_for_resale::*;
+pub use buy_v2_resale::*;
+pub use cancel_v2_resale::*;
+pub use auto_cancel_listings::*;

@@ -189,4 +189,44 @@ pub mod opta {
     ) -> Result<()> {
         instructions::auto_finalize_writers::handle_auto_finalize_writers(ctx)
     }
+
+    // =========================================================================
+    // V2 secondary listing instructions
+    // =========================================================================
+
+    /// V2 secondary listing — list option tokens for resale.
+    /// Spec: docs/V2_SECONDARY_LISTING_PLAN.md §2.1.
+    pub fn list_v2_for_resale(
+        ctx: Context<ListV2ForResale>,
+        price_per_contract: u64,
+        quantity: u64,
+    ) -> Result<()> {
+        instructions::list_v2_for_resale::handle_list_v2_for_resale(
+            ctx, price_per_contract, quantity,
+        )
+    }
+
+    /// V2 secondary listing — fill (partially or fully) an existing listing.
+    /// Spec: docs/V2_SECONDARY_LISTING_PLAN.md §2.2.
+    pub fn buy_v2_resale(
+        ctx: Context<BuyV2Resale>,
+        quantity: u64,
+        max_total_price: u64,
+    ) -> Result<()> {
+        instructions::buy_v2_resale::handle_buy_v2_resale(ctx, quantity, max_total_price)
+    }
+
+    /// V2 secondary listing — seller cancels their own listing.
+    /// Spec: docs/V2_SECONDARY_LISTING_PLAN.md §2.3.
+    pub fn cancel_v2_resale(ctx: Context<CancelV2Resale>) -> Result<()> {
+        instructions::cancel_v2_resale::handle_cancel_v2_resale(ctx)
+    }
+
+    /// V2 secondary listing — permissionless cleanup of stale listings at expiry.
+    /// Spec: docs/V2_SECONDARY_LISTING_PLAN.md §4.2 (Design A).
+    pub fn auto_cancel_listings<'info>(
+        ctx: Context<'_, '_, '_, 'info, AutoCancelListings<'info>>,
+    ) -> Result<()> {
+        instructions::auto_cancel_listings::handle_auto_cancel_listings(ctx)
+    }
 }

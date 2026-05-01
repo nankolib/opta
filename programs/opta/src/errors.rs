@@ -112,4 +112,16 @@ pub enum OptaError {
 
     #[msg("writer_wallet pubkey does not match writer_position.owner — refusing to drain rent to a stranger")]
     WriterWalletMismatch,
+
+    // =========================================================================
+    // V2 secondary listing errors
+    // =========================================================================
+    #[msg("listing has fewer tokens available than requested")]
+    ListingExhausted,
+
+    #[msg("only the listing's seller can cancel it")]
+    NotResaleSeller,
+
+    #[msg("listing escrow does not belong to this vault")]
+    InvalidListingEscrow,
 }

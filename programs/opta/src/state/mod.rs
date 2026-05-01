@@ -12,6 +12,7 @@ pub mod protocol;
 pub mod settlement_record;
 pub mod shared_vault;
 pub mod vault_mint;
+pub mod vault_resale_listing;
 pub mod writer_position;
 
 pub use epoch_config::*;
@@ -20,4 +21,5 @@ pub use protocol::*;
 pub use settlement_record::*;
 pub use shared_vault::*;
 pub use vault_mint::*;
+pub use vault_resale_listing::*;
 pub use writer_position::*;

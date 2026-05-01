@@ -177,3 +177,47 @@ pub struct WritersFinalized {
     /// Non-zero only when this batch contained the last writer; otherwise 0.
     pub dust_swept_to_treasury: u64,
 }
+
+// =============================================================================
+// V2 secondary listing events
+// =============================================================================
+
+#[event]
+pub struct VaultListingCreated {
+    pub listing: Pubkey,
+    pub vault: Pubkey,
+    pub mint: Pubkey,
+    pub seller: Pubkey,
+    pub listed_quantity: u64,
+    pub price_per_contract: u64,
+    pub created_at: i64,
+}
+
+#[event]
+pub struct VaultListingFilled {
+    pub listing: Pubkey,
+    pub mint: Pubkey,
+    pub seller: Pubkey,
+    pub buyer: Pubkey,
+    pub quantity: u64,
+    pub total_price: u64,
+    pub fee: u64,
+    pub listing_remaining: u64,
+    pub listing_closed: bool,
+}
+
+#[event]
+pub struct VaultListingCancelled {
+    pub listing: Pubkey,
+    pub mint: Pubkey,
+    pub seller: Pubkey,
+    pub returned_quantity: u64,
+}
+
+#[event]
+pub struct VaultListingsAutoCancelled {
+    pub vault: Pubkey,
+    pub mint: Pubkey,
+    pub listings_cancelled: u32,
+    pub tokens_returned: u64,
+}

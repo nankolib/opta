@@ -8,6 +8,110 @@
   },
   "instructions": [
     {
+      "name": "auto_cancel_listings",
+      "docs": [
+        "V2 secondary listing — permissionless cleanup of stale listings at expiry.",
+        "Spec: docs/V2_SECONDARY_LISTING_PLAN.md §4.2 (Design A)."
+      ],
+      "discriminator": [
+        94,
+        64,
+        222,
+        215,
+        220,
+        179,
+        240,
+        248
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "docs": [
+            "Permissionless caller — pays the tx fee."
+          ],
+          "signer": true
+        },
+        {
+          "name": "shared_vault",
+          "docs": [
+            "Vault these listings belong to. Read-only."
+          ]
+        },
+        {
+          "name": "market",
+          "docs": [
+            "Market — pinned to the vault."
+          ]
+        },
+        {
+          "name": "vault_mint_record",
+          "docs": [
+            "VaultMint record — pins option_mint to this vault."
+          ]
+        },
+        {
+          "name": "option_mint",
+          "docs": [
+            "The single Token-2022 mint shared by every listing in this batch."
+          ],
+          "writable": true
+        },
+        {
+          "name": "protocol_state",
+          "docs": [
+            "Protocol state — signs the escrow-source token-return transfers."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "transfer_hook_program",
+          "docs": [
+            "Transfer hook program."
+          ]
+        },
+        {
+          "name": "extra_account_meta_list",
+          "docs": [
+            "ExtraAccountMetaList for the transfer hook."
+          ]
+        },
+        {
+          "name": "hook_state",
+          "docs": [
+            "HookState for the transfer hook."
+          ]
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "auto_finalize_holders",
       "docs": [
         "Auto-burn holder option tokens + auto-pay ITM USDC for a settled vault.",
@@ -379,6 +483,449 @@
             "Token-2022 program."
           ],
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "buy_v2_resale",
+      "docs": [
+        "V2 secondary listing — fill (partially or fully) an existing listing.",
+        "Spec: docs/V2_SECONDARY_LISTING_PLAN.md §2.2."
+      ],
+      "discriminator": [
+        201,
+        254,
+        202,
+        255,
+        49,
+        103,
+        103,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "buyer",
+          "docs": [
+            "Buyer — pays USDC, receives option tokens."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "shared_vault",
+          "docs": [
+            "Vault — read for collateral_mint constraints + is_settled / expiry guards."
+          ]
+        },
+        {
+          "name": "market",
+          "docs": [
+            "Market — pinned to the vault."
+          ]
+        },
+        {
+          "name": "vault_mint_record",
+          "docs": [
+            "VaultMint record — pins option_mint to this vault."
+          ]
+        },
+        {
+          "name": "listing",
+          "docs": [
+            "Listing being filled. Mut for listed_quantity decrement; close path",
+            "(when listed_quantity hits zero) is manual in handler — see Step 2."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  114,
+                  101,
+                  115,
+                  97,
+                  108,
+                  101,
+                  95,
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "option_mint"
+              },
+              {
+                "kind": "account",
+                "path": "listing.seller",
+                "account": "VaultResaleListing"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seller",
+          "docs": [
+            "Seller wallet — rent destination on full-fill close. Constraint pins",
+            "it to listing.seller so a third-party caller can't redirect rent."
+          ],
+          "writable": true
+        },
+        {
+          "name": "option_mint",
+          "docs": [
+            "Token-2022 mint."
+          ],
+          "writable": true
+        },
+        {
+          "name": "resale_escrow",
+          "docs": [
+            "Resale escrow — source of the option-token transfer."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  114,
+                  101,
+                  115,
+                  97,
+                  108,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer_option_account",
+          "docs": [
+            "Buyer's option ATA — destination. Frontend pre-creates idempotently."
+          ],
+          "writable": true
+        },
+        {
+          "name": "buyer_usdc_account",
+          "docs": [
+            "Buyer's USDC ATA."
+          ],
+          "writable": true
+        },
+        {
+          "name": "seller_usdc_account",
+          "docs": [
+            "Seller's USDC ATA — receives seller-share. Must exist (Open Q #6 locked)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Treasury — receives protocol fee."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_state",
+          "docs": [
+            "Protocol state — fee_bps + total_volume + escrow signer authority."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "transfer_hook_program",
+          "docs": [
+            "Transfer hook program."
+          ]
+        },
+        {
+          "name": "extra_account_meta_list",
+          "docs": [
+            "ExtraAccountMetaList for the transfer hook."
+          ]
+        },
+        {
+          "name": "hook_state",
+          "docs": [
+            "HookState for the transfer hook."
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "quantity",
+          "type": "u64"
+        },
+        {
+          "name": "max_total_price",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "cancel_v2_resale",
+      "docs": [
+        "V2 secondary listing — seller cancels their own listing.",
+        "Spec: docs/V2_SECONDARY_LISTING_PLAN.md §2.3."
+      ],
+      "discriminator": [
+        3,
+        116,
+        67,
+        205,
+        76,
+        179,
+        4,
+        254
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "docs": [
+            "Seller — only the listing's seller can cancel."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "shared_vault",
+          "docs": [
+            "Vault — read for context (no mutation here)."
+          ]
+        },
+        {
+          "name": "option_mint",
+          "docs": [
+            "Token-2022 mint."
+          ],
+          "writable": true
+        },
+        {
+          "name": "listing",
+          "docs": [
+            "Listing being cancelled. Mut; close attribute deferred to Step 2."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  114,
+                  101,
+                  115,
+                  97,
+                  108,
+                  101,
+                  95,
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "option_mint"
+              },
+              {
+                "kind": "account",
+                "path": "seller"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resale_escrow",
+          "docs": [
+            "Resale escrow — source of the token-return transfer."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  114,
+                  101,
+                  115,
+                  97,
+                  108,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing"
+              }
+            ]
+          }
+        },
+        {
+          "name": "seller_option_account",
+          "docs": [
+            "Seller's option ATA — destination of the returned tokens."
+          ],
+          "writable": true
+        },
+        {
+          "name": "protocol_state",
+          "docs": [
+            "Protocol state — signs the escrow-source transfer."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "transfer_hook_program",
+          "docs": [
+            "Transfer hook program."
+          ]
+        },
+        {
+          "name": "extra_account_meta_list",
+          "docs": [
+            "ExtraAccountMetaList for the transfer hook."
+          ]
+        },
+        {
+          "name": "hook_state",
+          "docs": [
+            "HookState for the transfer hook."
+          ]
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -1205,6 +1752,215 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "list_v2_for_resale",
+      "docs": [
+        "V2 secondary listing — list option tokens for resale.",
+        "Spec: docs/V2_SECONDARY_LISTING_PLAN.md §2.1."
+      ],
+      "discriminator": [
+        61,
+        108,
+        196,
+        219,
+        154,
+        142,
+        41,
+        201
+      ],
+      "accounts": [
+        {
+          "name": "seller",
+          "docs": [
+            "Seller — listing creator. Pays for listing PDA + escrow rent."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "shared_vault",
+          "docs": [
+            "The vault this option mint was minted from."
+          ]
+        },
+        {
+          "name": "market",
+          "docs": [
+            "Market — pinned to the vault for sanity."
+          ]
+        },
+        {
+          "name": "vault_mint_record",
+          "docs": [
+            "VaultMint record — pins option_mint to this vault."
+          ]
+        },
+        {
+          "name": "option_mint",
+          "docs": [
+            "Token-2022 mint being resold."
+          ],
+          "writable": true
+        },
+        {
+          "name": "seller_option_account",
+          "docs": [
+            "Seller's option ATA — source of the listing transfer."
+          ],
+          "writable": true
+        },
+        {
+          "name": "listing",
+          "docs": [
+            "Listing PDA — initialized in this instruction. One per (mint, seller)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  114,
+                  101,
+                  115,
+                  97,
+                  108,
+                  101,
+                  95,
+                  108,
+                  105,
+                  115,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "option_mint"
+              },
+              {
+                "kind": "account",
+                "path": "seller"
+              }
+            ]
+          }
+        },
+        {
+          "name": "resale_escrow",
+          "docs": [
+            "Resale escrow Token-2022 account. Owned by protocol_state PDA.",
+            "Created in handler via system_instruction + initialize_account3 (Step 2)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  114,
+                  101,
+                  115,
+                  97,
+                  108,
+                  101,
+                  95,
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "listing"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_state",
+          "docs": [
+            "Protocol state — escrow's owner authority."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "transfer_hook_program",
+          "docs": [
+            "Transfer hook program — pinned to the known opta-transfer-hook ID."
+          ]
+        },
+        {
+          "name": "extra_account_meta_list",
+          "docs": [
+            "ExtraAccountMetaList for the transfer hook."
+          ]
+        },
+        {
+          "name": "hook_state",
+          "docs": [
+            "HookState for the transfer hook."
+          ]
+        },
+        {
+          "name": "token_2022_program",
+          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "price_per_contract",
+          "type": "u64"
+        },
+        {
+          "name": "quantity",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "migrate_pyth_feed",
@@ -2383,6 +3139,19 @@
       ]
     },
     {
+      "name": "VaultResaleListing",
+      "discriminator": [
+        122,
+        137,
+        187,
+        45,
+        94,
+        125,
+        117,
+        110
+      ]
+    },
+    {
       "name": "WriterPosition",
       "discriminator": [
         195,
@@ -2590,6 +3359,58 @@
         53,
         104,
         154
+      ]
+    },
+    {
+      "name": "VaultListingCancelled",
+      "discriminator": [
+        97,
+        181,
+        225,
+        122,
+        44,
+        51,
+        153,
+        85
+      ]
+    },
+    {
+      "name": "VaultListingCreated",
+      "discriminator": [
+        50,
+        46,
+        115,
+        108,
+        83,
+        108,
+        160,
+        48
+      ]
+    },
+    {
+      "name": "VaultListingFilled",
+      "discriminator": [
+        140,
+        0,
+        162,
+        53,
+        253,
+        29,
+        112,
+        212
+      ]
+    },
+    {
+      "name": "VaultListingsAutoCancelled",
+      "discriminator": [
+        189,
+        153,
+        198,
+        220,
+        146,
+        251,
+        162,
+        20
       ]
     },
     {
@@ -2841,6 +3662,21 @@
       "code": 6033,
       "name": "WriterWalletMismatch",
       "msg": "writer_wallet pubkey does not match writer_position.owner — refusing to drain rent to a stranger"
+    },
+    {
+      "code": 6034,
+      "name": "ListingExhausted",
+      "msg": "listing has fewer tokens available than requested"
+    },
+    {
+      "code": 6035,
+      "name": "NotResaleSeller",
+      "msg": "only the listing's seller can cancel it"
+    },
+    {
+      "code": 6036,
+      "name": "InvalidListingEscrow",
+      "msg": "listing escrow does not belong to this vault"
     }
   ],
   "types": [
@@ -3700,6 +4536,134 @@
       }
     },
     {
+      "name": "VaultListingCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "listing",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "returned_quantity",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultListingCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "listing",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "listed_quantity",
+            "type": "u64"
+          },
+          {
+            "name": "price_per_contract",
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultListingFilled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "listing",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "seller",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "quantity",
+            "type": "u64"
+          },
+          {
+            "name": "total_price",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "listing_remaining",
+            "type": "u64"
+          },
+          {
+            "name": "listing_closed",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultListingsAutoCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "listings_cancelled",
+            "type": "u32"
+          },
+          {
+            "name": "tokens_returned",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "VaultMint",
       "type": {
         "kind": "struct",
@@ -3836,6 +4800,65 @@
           {
             "name": "total_premium",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultResaleListing",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "seller",
+            "docs": [
+              "Wallet that created the listing. Receives sale proceeds + rent on close."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "Which SharedVault this option mint was minted from. Stored for",
+              "reverse lookup + crank enumeration efficiency."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "option_mint",
+            "docs": [
+              "The Token-2022 mint being resold."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "listed_quantity",
+            "docs": [
+              "Tokens currently sitting in the resale_escrow PDA. Decremented on",
+              "each partial fill; listing auto-closes when this hits zero."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "price_per_contract",
+            "docs": [
+              "USDC per contract (6 decimals), set at listing time, immutable."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Unix timestamp when listing was created."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed."
+            ],
+            "type": "u8"
           }
         ]
       }
