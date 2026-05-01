@@ -1864,7 +1864,7 @@ export type Opta = {
           "name": "resaleEscrow",
           "docs": [
             "Resale escrow Token-2022 account. Owned by protocol_state PDA.",
-            "Created in handler via system_instruction + initialize_account3 (Step 2)."
+            "Created in handler via system_instruction + initialize_account3."
           ],
           "writable": true,
           "pda": {
