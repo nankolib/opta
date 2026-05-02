@@ -4,6 +4,7 @@ import { ToastContainer } from "./components/Toast";
 import { Landing } from "./pages/Landing";
 import { MarketsPage as Markets } from "./pages/markets";
 import { TradePage as Trade } from "./pages/trade";
+import { MarketplacePage } from "./pages/marketplace";
 import { WritePage as Write } from "./pages/write";
 import { PortfolioPage } from "./pages/portfolio";
 import { DocsLayout, DocsIndex, DocsSection } from "./pages/docs";
@@ -16,18 +17,19 @@ import { DocsLayout, DocsIndex, DocsSection } from "./pages/docs";
  * paper-surface routes which supply a brand-specific nav bar.
  *
  * Currently:
- *   /          — Landing (paper-surface; supplies its own nav)
- *   /docs      — Docs index + every /docs/<section> (paper-surface)
- *   /portfolio — Paper-surface trader page; supplies AppNav
- *   /markets   — Paper-surface trader page; supplies AppNav
- *   /write     — Paper-surface trader page; supplies AppNav
- *   /trade     — Paper-surface trader page; supplies AppNav
+ *   /            — Landing (paper-surface; supplies its own nav)
+ *   /docs        — Docs index + every /docs/<section> (paper-surface)
+ *   /portfolio   — Paper-surface trader page; supplies AppNav
+ *   /markets     — Paper-surface trader page; supplies AppNav
+ *   /write       — Paper-surface trader page; supplies AppNav
+ *   /trade       — Paper-surface trader page; supplies AppNav
+ *   /marketplace — Paper-surface trader page; supplies AppNav
  *
- * All logged-in trader pages (Markets / Trade / Write / Portfolio)
- * have migrated to AppNav. The global Header is now only shown on
- * routes not listed above (currently none).
+ * All logged-in trader pages (Markets / Trade / Marketplace / Write /
+ * Portfolio) have migrated to AppNav. The global Header is now only
+ * shown on routes not listed above (currently none).
  */
-const HEADER_HIDDEN_PATHS = ["/", "/docs", "/portfolio", "/markets", "/write", "/trade"];
+const HEADER_HIDDEN_PATHS = ["/", "/docs", "/portfolio", "/markets", "/write", "/trade", "/marketplace"];
 
 /**
  * True iff `path` exactly matches one of `patterns` or is a descendant
@@ -53,6 +55,7 @@ function AppShell() {
         <Route path="/" element={<Landing />} />
         <Route path="/markets" element={<Markets />} />
         <Route path="/trade" element={<Trade />} />
+        <Route path="/marketplace" element={<MarketplacePage />} />
         <Route path="/write" element={<Write />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/docs" element={<DocsLayout />}>
