@@ -59,7 +59,6 @@ export const AppNav: FC = () => {
       <div className="hidden md:flex gap-7">
         <AppNavLink to="/markets">Markets</AppNavLink>
         <AppNavLink to="/trade">Trade</AppNavLink>
-        <AppNavLink to="/marketplace">Marketplace</AppNavLink>
         <AppNavLink to="/write">Write</AppNavLink>
         <AppNavLink to="/portfolio">Portfolio</AppNavLink>
         <AppNavLink to="/docs">Docs</AppNavLink>

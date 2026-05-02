@@ -1,10 +1,9 @@
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Header } from "./components/Header";
 import { ToastContainer } from "./components/Toast";
 import { Landing } from "./pages/Landing";
 import { MarketsPage as Markets } from "./pages/markets";
 import { TradePage as Trade } from "./pages/trade";
-import { MarketplacePage } from "./pages/marketplace";
 import { WritePage as Write } from "./pages/write";
 import { PortfolioPage } from "./pages/portfolio";
 import { DocsLayout, DocsIndex, DocsSection } from "./pages/docs";
@@ -23,11 +22,15 @@ import { DocsLayout, DocsIndex, DocsSection } from "./pages/docs";
  *   /markets     — Paper-surface trader page; supplies AppNav
  *   /write       — Paper-surface trader page; supplies AppNav
  *   /trade       — Paper-surface trader page; supplies AppNav
- *   /marketplace — Paper-surface trader page; supplies AppNav
+ *   /marketplace — Soft-redirect to /trade (Slice 6 of the merge arc).
+ *                  Kept in HEADER_HIDDEN_PATHS for one release cycle to
+ *                  suppress the global Header during the brief redirect
+ *                  frame; remove this line + the route + the path entry
+ *                  together when the redirect itself retires.
  *
- * All logged-in trader pages (Markets / Trade / Marketplace / Write /
- * Portfolio) have migrated to AppNav. The global Header is now only
- * shown on routes not listed above (currently none).
+ * All logged-in trader pages (Markets / Trade / Write / Portfolio)
+ * have migrated to AppNav. The global Header is now only shown on
+ * routes not listed above (currently none).
  */
 const HEADER_HIDDEN_PATHS = ["/", "/docs", "/portfolio", "/markets", "/write", "/trade", "/marketplace"];
 
@@ -55,7 +58,7 @@ function AppShell() {
         <Route path="/" element={<Landing />} />
         <Route path="/markets" element={<Markets />} />
         <Route path="/trade" element={<Trade />} />
-        <Route path="/marketplace" element={<MarketplacePage />} />
+        <Route path="/marketplace" element={<Navigate replace to="/trade" />} />
         <Route path="/write" element={<Write />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/docs" element={<DocsLayout />}>
