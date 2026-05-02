@@ -13,6 +13,7 @@ import {
   getDefaultVolatility,
 } from "../../utils/blackScholes";
 import { useWriteSubmit, type WriteSubmitResult } from "./useWriteSubmit";
+import { decodeError } from "../../utils/errorDecoder";
 
 type EpochVaultSectionProps = {
   values: WriterFormValues;
@@ -96,10 +97,19 @@ export const EpochVaultSection: FC<EpochVaultSectionProps> = ({
         onSuccess({ ...result, kind: "epoch" });
       }
     } catch (err: any) {
+      const msg = decodeError(err);
+      if (msg.includes("already confirmed")) {
+        showToast({
+          type: "success",
+          title: "Epoch vault written",
+          message: "Tx already confirmed — refresh to verify state.",
+        });
+        return;
+      }
       showToast({
         type: "error",
         title: "Write failed",
-        message: err?.message ?? "Unknown error",
+        message: msg,
       });
     }
   };

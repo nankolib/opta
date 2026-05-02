@@ -73,7 +73,17 @@ export function usePortfolioActions(onSuccess: () => void): PortfolioActions {
         await exerciseV2({ program, publicKey, position: p });
         onSuccess();
       } catch (err: any) {
-        showToast({ type: "error", title: "Exercise failed", message: decodeError(err) });
+        const msg = decodeError(err);
+        if (msg.includes("already confirmed")) {
+          showToast({
+            type: "success",
+            title: "Exercised",
+            message: "Tx already confirmed; refreshing.",
+          });
+          onSuccess();
+          return;
+        }
+        showToast({ type: "error", title: "Exercise failed", message: msg });
       } finally {
         setBusyId(null);
       }
@@ -98,7 +108,17 @@ export function usePortfolioActions(onSuccess: () => void): PortfolioActions {
         });
         onSuccess();
       } catch (err: any) {
-        showToast({ type: "error", title: "Listing failed", message: decodeError(err) });
+        const msg = decodeError(err);
+        if (msg.includes("already confirmed")) {
+          showToast({
+            type: "success",
+            title: "Listed for resale",
+            message: "Tx already confirmed; refreshing.",
+          });
+          onSuccess();
+          return;
+        }
+        showToast({ type: "error", title: "Listing failed", message: msg });
       } finally {
         setBusyId(null);
       }
@@ -123,7 +143,17 @@ export function usePortfolioActions(onSuccess: () => void): PortfolioActions {
         });
         onSuccess();
       } catch (err: any) {
-        showToast({ type: "error", title: "Cancel listing failed", message: decodeError(err) });
+        const msg = decodeError(err);
+        if (msg.includes("already confirmed")) {
+          showToast({
+            type: "success",
+            title: "Listing cancelled",
+            message: "Tx already confirmed; refreshing.",
+          });
+          onSuccess();
+          return;
+        }
+        showToast({ type: "error", title: "Cancel listing failed", message: msg });
       } finally {
         setBusyId(null);
       }
@@ -144,7 +174,17 @@ export function usePortfolioActions(onSuccess: () => void): PortfolioActions {
         });
         onSuccess();
       } catch (err: any) {
-        showToast({ type: "error", title: "Burn failed", message: decodeError(err) });
+        const msg = decodeError(err);
+        if (msg.includes("already confirmed")) {
+          showToast({
+            type: "success",
+            title: "Tokens burned",
+            message: "Tx already confirmed; refreshing.",
+          });
+          onSuccess();
+          return;
+        }
+        showToast({ type: "error", title: "Burn failed", message: msg });
       } finally {
         setBusyId(null);
       }

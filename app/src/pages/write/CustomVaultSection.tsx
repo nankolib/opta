@@ -13,6 +13,7 @@ import {
   getDefaultVolatility,
 } from "../../utils/blackScholes";
 import { useWriteSubmit, type WriteSubmitResult } from "./useWriteSubmit";
+import { decodeError } from "../../utils/errorDecoder";
 
 type CustomVaultSectionProps = {
   values: WriterFormValues;
@@ -84,10 +85,19 @@ export const CustomVaultSection: FC<CustomVaultSectionProps> = ({
         onSuccess({ ...result, kind: "custom" });
       }
     } catch (err: any) {
+      const msg = decodeError(err);
+      if (msg.includes("already confirmed")) {
+        showToast({
+          type: "success",
+          title: "Custom vault written",
+          message: "Tx already confirmed — refresh to verify state.",
+        });
+        return;
+      }
       showToast({
         type: "error",
         title: "Write failed",
-        message: err?.message ?? "Unknown error",
+        message: msg,
       });
     }
   };

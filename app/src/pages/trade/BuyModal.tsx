@@ -209,6 +209,22 @@ export const BuyModal: FC<BuyModalProps> = ({
       }
     } catch (err: any) {
       const msg: string = err?.message ?? "Unknown error";
+
+      // Wallet-replay artifact — tx already on-chain. Upgrade to
+      // success: refetch + close, no failure toast. The wallet's
+      // optimistic resimulate against a lagged RPC pool saw the
+      // now-landed tx; this is not a real failure.
+      if (msg.includes("already confirmed")) {
+        showToast({
+          type: "success",
+          title: selected!.kind === "vault" ? "Contracts purchased" : "Listing filled",
+          message: `${qtyNum} ${asset} ${side.toUpperCase()} @ $${strike.toFixed(2)} — tx already confirmed`,
+        });
+        onSuccess();
+        onClose();
+        return;
+      }
+
       showToast({ type: "error", title: "Purchase failed", message: msg });
       // Race-detected errors mean another buyer/cancel hit first. Auto-
       // close + parent refetch on next paint.

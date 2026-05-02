@@ -63,6 +63,15 @@ export function decodeError(error: any): string {
   if (!error) return "Unknown error";
   const msg = error?.message || error?.toString() || "";
 
+  // Wallet-replay artifact — wallet's optimistic resimulate against
+  // a lagged RPC pool sees the now-landed tx as "already processed".
+  // Decode to a stable substring ("already confirmed") that consumer
+  // catch blocks detect to upgrade the error path to success +
+  // refetch instead of showing a "failed" toast.
+  if (msg.includes("already been processed")) {
+    return "Transaction already confirmed.";
+  }
+
   // User rejection
   if (msg.includes("User rejected")) return "Transaction rejected in wallet.";
 
