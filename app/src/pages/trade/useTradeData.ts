@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useSearchParams } from "react-router-dom";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useProgram } from "../../hooks/useProgram";
 import { safeFetchAll } from "../../hooks/useFetchAccounts";
 import { useVaults } from "../../hooks/useVaults";
@@ -20,6 +21,42 @@ export type ChainBest = {
   premium: number;
 };
 
+/**
+ * A single buyable offering at a (strike, expiry, side) cell. Two
+ * variants:
+ *
+ *   - vault: protocol-issued primary mint, live B-S premium, inventory
+ *     drawn from `quantityMinted - quantitySold` on the parent VaultMint.
+ *   - resale: a holder's secondary listing, fixed price, qty drawn from
+ *     `listing.listedQuantity` (decremented by partial fills).
+ *
+ * `isSelfListing` is true when the connected wallet equals
+ * `listing.seller`. Slice 5 uses this flag to dim the row in the panel
+ * and to attach the cell-level "·your listing" tag. Slice 1 sets the
+ * flag but does not yet use it to gate UI behavior.
+ */
+export type Offering =
+  | {
+      kind: "vault";
+      premium: number;
+      inventory: number;
+      vaultMint: { publicKey: PublicKey; account: any };
+      vault: { publicKey: PublicKey; account: any };
+      market: any;
+    }
+  | {
+      kind: "resale";
+      premium: number;
+      qty: number;
+      seller: PublicKey;
+      createdAt: number;
+      isSelfListing: boolean;
+      listing: { publicKey: PublicKey; account: any };
+      vaultMint: { publicKey: PublicKey; account: any };
+      vault: { publicKey: PublicKey; account: any };
+      market: any;
+    };
+
 export type ChainRow = {
   strike: number;
   callBest: ChainBest | null;
@@ -36,6 +73,15 @@ export type ChainRow = {
   putLast: number | null;
   /** Distance from spot in % (signed). Drives row dimming + ATM detection. */
   moneynessPct: number;
+  /**
+   * Sorted ascending by premium. Includes the vault tier (when
+   * unsold > 0) and every active resale listing whose option_mint maps
+   * to a vaultMint at this strike+side. Self-listings ARE included and
+   * tagged via Offering.isSelfListing — Slice 5 filters them out of
+   * the headline-display path; Slice 1 leaves them in for completeness.
+   */
+  callOfferings: Offering[];
+  putOfferings: Offering[];
 };
 
 export type TradeSummary = {
@@ -93,8 +139,10 @@ const roundToDay = (ts: number) => Math.floor(ts / DAY) * DAY;
  */
 export function useTradeData(): UseTradeData {
   const { program } = useProgram();
+  const { publicKey: connectedWallet } = useWallet();
   const { vaults, vaultMints } = useVaults();
   const [markets, setMarkets] = useState<{ publicKey: PublicKey; account: any }[]>([]);
+  const [listingsRaw, setListingsRaw] = useState<{ publicKey: PublicKey; account: any }[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAsset, setSelectedAsset] = useState<string>("");
   const [selectedExpiry, setSelectedExpiry] = useState<number>(0);
@@ -106,8 +154,12 @@ export function useTradeData(): UseTradeData {
     if (!program) return;
     setLoading(true);
     try {
-      const mkts = await safeFetchAll(program, "optionsMarket");
+      const [mkts, lists] = await Promise.all([
+        safeFetchAll(program, "optionsMarket"),
+        safeFetchAll(program, "vaultResaleListing"),
+      ]);
       setMarkets(mkts as any);
+      setListingsRaw(lists as any);
     } catch (err) {
       console.error("Trade fetch failed", err);
     } finally {
@@ -219,6 +271,22 @@ export function useTradeData(): UseTradeData {
 
   const spot = selectedAsset ? spotPrices[selectedAsset] ?? null : null;
 
+  // Index resale listings by option_mint for O(1) per-cell lookup
+  // during the chain row build. Each option_mint can have 0..N active
+  // listings (one per (mint, seller) pair, enforced by the on-chain
+  // PDA seed). Sorting happens per-cell during the row build, ascending
+  // by premium.
+  const listingsByOptionMint = useMemo(() => {
+    const m = new Map<string, { publicKey: PublicKey; account: any }[]>();
+    for (const l of listingsRaw) {
+      const mintKey = (l.account.optionMint as PublicKey).toBase58();
+      const arr = m.get(mintKey);
+      if (arr) arr.push(l);
+      else m.set(mintKey, [l]);
+    }
+    return m;
+  }, [listingsRaw]);
+
   // ---- Chain row build (V2-only) ----
   const rows = useMemo<ChainRow[]>(() => {
     if (!selectedAsset || !selectedExpiry) return [];
@@ -252,6 +320,8 @@ export function useTradeData(): UseTradeData {
       let putBest: ChainBest | null = null;
       let callOi = 0;
       let putOi = 0;
+      const callOfferings: Offering[] = [];
+      const putOfferings: Offering[] = [];
 
       // Walk vault mints for this strike + expiry-day under the selected asset.
       for (const vm of vaultMints) {
@@ -274,8 +344,58 @@ export function useTradeData(): UseTradeData {
         const unsold = minted - sold;
         if (vIsCall) callOi += minted;
         else putOi += minted;
+
+        // Resale offerings keyed off this vaultMint's option_mint. Built
+        // BEFORE the unsold gate below so resale offerings light up cells
+        // whose vault is fully written-out (vault.unsold == 0 but listings
+        // remain). Slice 2 will surface this through the headline.
+        const optionMintB58 = (vm.account.optionMint as PublicKey).toBase58();
+        const listingsForMint = listingsByOptionMint.get(optionMintB58) ?? [];
+        for (const listing of listingsForMint) {
+          const lq = listing.account.listedQuantity;
+          const qty = typeof lq === "number" ? lq : (lq?.toNumber?.() ?? Number(lq));
+          if (qty <= 0) continue;
+          const seller = listing.account.seller as PublicKey;
+          const createdAtRaw = listing.account.createdAt;
+          const createdAt =
+            typeof createdAtRaw === "number"
+              ? createdAtRaw
+              : (createdAtRaw?.toNumber?.() ?? Number(createdAtRaw));
+          const resaleOffering: Offering = {
+            kind: "resale",
+            premium: usdcToNumber(listing.account.pricePerContract),
+            qty,
+            seller,
+            createdAt,
+            isSelfListing: connectedWallet ? seller.equals(connectedWallet) : false,
+            listing,
+            vaultMint: vm,
+            vault: parentVault,
+            market: parentMkt.account,
+          };
+          if (vIsCall) callOfferings.push(resaleOffering);
+          else putOfferings.push(resaleOffering);
+        }
+
         if (unsold <= 0) continue;
         const price = usdcToNumber(vm.account.premiumPerContract);
+
+        // Vault Offering for the unified panel — pushed only when there's
+        // actual unsold inventory. The cheapest vault offering is also
+        // tracked separately as `callBest`/`putBest` for back-compat with
+        // the existing BuyModal consumer; Slice 4 deprecates that path
+        // when onBuyClick widens to take Offering[].
+        const vaultOffering: Offering = {
+          kind: "vault",
+          premium: price,
+          inventory: unsold,
+          vaultMint: vm,
+          vault: parentVault,
+          market: parentMkt.account,
+        };
+        if (vIsCall) callOfferings.push(vaultOffering);
+        else putOfferings.push(vaultOffering);
+
         const candidate: ChainBest = {
           vaultMint: vm,
           vault: parentVault,
@@ -292,6 +412,9 @@ export function useTradeData(): UseTradeData {
       // V1 OI contribution loop removed in P4a — read now-gone market
       // fields (expiryTimestamp / strikePrice / optionType). V2-only product
       // post-migration; v1 contributes nothing in production.
+
+      callOfferings.sort((a, b) => a.premium - b.premium);
+      putOfferings.sort((a, b) => a.premium - b.premium);
 
       const moneynessPct = liveSpot > 0 ? ((strike - liveSpot) / liveSpot) * 100 : 0;
 
@@ -310,9 +433,20 @@ export function useTradeData(): UseTradeData {
         callLast: null,
         putLast: null,
         moneynessPct,
+        callOfferings,
+        putOfferings,
       };
     });
-  }, [vaults, vaultMints, markets, selectedAsset, selectedExpiry, spot]);
+  }, [
+    vaults,
+    vaultMints,
+    markets,
+    selectedAsset,
+    selectedExpiry,
+    spot,
+    listingsByOptionMint,
+    connectedWallet,
+  ]);
 
   const atmStrike = useMemo(() => {
     if (rows.length === 0) return null;
