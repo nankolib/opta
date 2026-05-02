@@ -1,9 +1,10 @@
 import { FC, useEffect, useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { useAnchorWallet } from "@solana/wallet-adapter-react";
+import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import { showToast } from "../Toast";
 import { decodeError } from "../../utils/errorDecoder";
 import { hexFromBytes, hexToBytes32 } from "../../utils/format";
+import { inferClusterFromUrl, getSolscanTxUrl } from "../../utils/env";
 
 interface AccountRecord {
   publicKey: PublicKey;
@@ -32,6 +33,11 @@ export const MigrateFeedTools: FC<MigrateFeedToolsProps> = ({
   onRefetch,
 }) => {
   const wallet = useAnchorWallet();
+  const { connection } = useConnection();
+  const cluster = useMemo(
+    () => inferClusterFromUrl(connection.rpcEndpoint),
+    [connection.rpcEndpoint],
+  );
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
   const [newHexInput, setNewHexInput] = useState("");
   const [modal, setModal] = useState<ModalState>({ kind: "idle" });
@@ -304,7 +310,7 @@ export const MigrateFeedTools: FC<MigrateFeedToolsProps> = ({
               </Row>
               <Row label="Tx">
                 <a
-                  href={`https://solscan.io/tx/${modal.txSig}?cluster=devnet`}
+                  href={getSolscanTxUrl(modal.txSig, cluster)}
                   target="_blank"
                   rel="noreferrer"
                   className="opacity-80 hover:opacity-100 hover:text-crimson transition-colors duration-200"

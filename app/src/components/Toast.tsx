@@ -1,4 +1,6 @@
-import { FC, useEffect, useState } from "react";
+import { FC, useEffect, useMemo, useState } from "react";
+import { useConnection } from "@solana/wallet-adapter-react";
+import { inferClusterFromUrl, getSolscanTxUrl } from "../utils/env";
 
 export interface ToastMessage {
   id: string;
@@ -19,6 +21,11 @@ export function showToast(toast: Omit<ToastMessage, "id">) {
 /** Toast container — renders at the top-right of the screen. */
 export const ToastContainer: FC = () => {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const { connection } = useConnection();
+  const cluster = useMemo(
+    () => inferClusterFromUrl(connection.rpcEndpoint),
+    [connection.rpcEndpoint],
+  );
 
   useEffect(() => {
     const handler = (toast: ToastMessage) => {
@@ -60,12 +67,12 @@ export const ToastContainer: FC = () => {
               )}
               {toast.txSignature && (
                 <a
-                  href={`https://explorer.solana.com/tx/${toast.txSignature}?cluster=devnet`}
+                  href={getSolscanTxUrl(toast.txSignature, cluster)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs text-gold hover:underline mt-1 inline-block"
                 >
-                  View on Explorer
+                  View on Solscan
                 </a>
               )}
             </div>

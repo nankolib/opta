@@ -1,6 +1,6 @@
 import { FC, useEffect, useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { useAnchorWallet } from "@solana/wallet-adapter-react";
+import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import { showToast } from "../Toast";
 import { decodeError } from "../../utils/errorDecoder";
 import { hexFromBytes, formatExpiry } from "../../utils/format";
@@ -8,7 +8,7 @@ import {
   settleAllForExpiry,
   fetchHermesParsedPrice,
 } from "../../utils/pythPullPost";
-import { getHermesBase } from "../../utils/env";
+import { getHermesBase, inferClusterFromUrl, getSolscanTxUrl } from "../../utils/env";
 
 interface AccountRecord {
   publicKey: PublicKey;
@@ -57,6 +57,11 @@ export const AdminTools: FC<AdminToolsProps> = ({
   onRefetch,
 }) => {
   const wallet = useAnchorWallet();
+  const { connection } = useConnection();
+  const cluster = useMemo(
+    () => inferClusterFromUrl(connection.rpcEndpoint),
+    [connection.rpcEndpoint],
+  );
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<SettleConfirm | null>(null);
 
@@ -237,7 +242,7 @@ export const AdminTools: FC<AdminToolsProps> = ({
               <Row label="Tx">
                 {confirmation.txSignature ? (
                   <a
-                    href={`https://solscan.io/tx/${confirmation.txSignature}?cluster=devnet`}
+                    href={getSolscanTxUrl(confirmation.txSignature, cluster)}
                     target="_blank"
                     rel="noreferrer"
                     className="opacity-80 hover:opacity-100 hover:text-crimson transition-colors duration-200"

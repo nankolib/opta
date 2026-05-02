@@ -12,6 +12,7 @@ import {
 } from "@solana/spl-token";
 import { showToast } from "./Toast";
 import { DEVNET_FAUCET_KEYPAIR, DEVNET_USDC_MINT } from "../utils/constants";
+import { inferClusterFromUrl } from "../utils/env";
 
 /**
  * Header — persistent navigation bar across all pages.
@@ -29,7 +30,10 @@ export const Header: FC = () => {
   const { connection } = useConnection();
   const [airdropping, setAirdropping] = useState(false);
   const [mintingUsdc, setMintingUsdc] = useState(false);
-  const isDevnet = useMemo(() => connection.rpcEndpoint.includes("devnet"), [connection]);
+  const isDevnet = useMemo(
+    () => inferClusterFromUrl(connection.rpcEndpoint) === "devnet",
+    [connection.rpcEndpoint],
+  );
 
   const navLinks = [
     { path: "/markets", label: "Markets" },

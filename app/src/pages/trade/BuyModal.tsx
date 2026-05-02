@@ -3,13 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddress } from "@solana/spl-token";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useProgram } from "../../hooks/useProgram";
 import { showToast } from "../../components/Toast";
 import { MoneyAmount } from "../../components/MoneyAmount";
 import { HairlineRule } from "../../components/layout";
 import { usdcToNumber } from "../../utils/format";
+import { inferClusterFromUrl, getSolscanTxUrl } from "../../utils/env";
 import { usePurchaseFlow } from "./usePurchaseFlow";
 import type { ChainBest } from "./useTradeData";
 
@@ -36,8 +37,13 @@ type BuyModalProps = {
 export const BuyModal: FC<BuyModalProps> = ({ best, side, onClose, onSuccess }) => {
   const { connected, publicKey } = useWallet();
   const { setVisible } = useWalletModal();
+  const { connection } = useConnection();
   const { program } = useProgram();
   const { submitting, submit } = usePurchaseFlow();
+  const cluster = useMemo(
+    () => inferClusterFromUrl(connection.rpcEndpoint),
+    [connection.rpcEndpoint],
+  );
 
   const [quantity, setQuantity] = useState("1");
   const [usdcBalance, setUsdcBalance] = useState<number | null>(null);
@@ -176,7 +182,11 @@ export const BuyModal: FC<BuyModalProps> = ({ best, side, onClose, onSuccess }) 
         </div>
 
         {confirmedTx ? (
-          <ConfirmedBlock txSignature={confirmedTx} onDismiss={onClose} />
+          <ConfirmedBlock
+            txSignature={confirmedTx}
+            solscanUrl={getSolscanTxUrl(confirmedTx, cluster)}
+            onDismiss={onClose}
+          />
         ) : (
           <>
             <Field label="Contracts to buy">
@@ -257,17 +267,18 @@ const Field: FC<{ label: string; children: React.ReactNode }> = ({ label, childr
   </div>
 );
 
-const ConfirmedBlock: FC<{ txSignature: string; onDismiss: () => void }> = ({
-  txSignature,
-  onDismiss,
-}) => (
+const ConfirmedBlock: FC<{
+  txSignature: string;
+  solscanUrl: string;
+  onDismiss: () => void;
+}> = ({ txSignature, solscanUrl, onDismiss }) => (
   <div>
     <p className="m-0 font-fraunces-text italic font-light leading-[1.55] opacity-75 text-[15px] mb-4">
       Your contracts are minted into your wallet. Solscan link below;
       Portfolio shows them in your open positions.
     </p>
     <a
-      href={`https://solscan.io/tx/${txSignature}?cluster=devnet`}
+      href={solscanUrl}
       target="_blank"
       rel="noreferrer"
       className="block font-mono text-[10.5px] uppercase tracking-[0.18em] opacity-65 hover:opacity-100 hover:text-crimson transition-colors duration-300 ease-opta mb-6"

@@ -1,5 +1,8 @@
 import type { FC } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
+import { useConnection } from "@solana/wallet-adapter-react";
+import { inferClusterFromUrl, getClusterDisplayLabel } from "../../utils/env";
 
 export type Denomination = "USDC" | "SOL";
 
@@ -28,62 +31,74 @@ type StatementHeaderProps = {
  * Right cluster: as-of timestamp / USDC↔SOL toggle / NEW POSITION CTA.
  * The toggle is visual-only in Stage 1 — actual FX conversion lands
  * in a later stage. NEW POSITION routes to /write.
+ *
+ * Stage Secondary 7.5: cluster label is derived at render time from
+ * the active connection RPC URL via inferClusterFromUrl, so the
+ * eyebrow reflects the actual deploy posture (devnet today, mainnet
+ * later) without per-build edits.
  */
 export const StatementHeader: FC<StatementHeaderProps> = ({
   monthLabel,
   timestampLabel,
   denomination,
   onDenominationChange,
-}) => (
-  <header className="border-b border-rule pb-12 mb-12">
-    <div className="flex items-center flex-wrap gap-x-[14px] gap-y-2 font-mono text-[11.5px] uppercase tracking-[0.22em] opacity-85 mb-8">
-      <span className="font-serif italic font-normal opacity-55 normal-case tracking-normal">§</span>
-      <span className="text-ink">
-        Statement<em className="font-serif italic text-crimson px-[1px]">·</em>
-      </span>
-      <span className="opacity-75">{monthLabel}</span>
-      <span className="opacity-30">·</span>
-      <span className="opacity-75">Mainnet · Solana</span>
-      <span className="opacity-30">·</span>
-      <span className="opacity-75">v0.1.4</span>
-    </div>
-
-    <div className="flex flex-wrap items-end justify-between gap-8">
-      <h1 className="m-0 font-fraunces-display font-light text-ink leading-[0.92] tracking-[-0.04em] text-[clamp(72px,10vw,144px)]">
-        Portfolio<span className="italic font-fraunces-display-em text-crimson">.</span>
-      </h1>
-
-      <div className="flex flex-wrap items-center gap-6">
-        <span className="font-mono text-[11px] uppercase tracking-[0.2em] opacity-60">
-          As of {timestampLabel}
+}) => {
+  const { connection } = useConnection();
+  const clusterLabel = useMemo(
+    () => getClusterDisplayLabel(inferClusterFromUrl(connection.rpcEndpoint)),
+    [connection.rpcEndpoint],
+  );
+  return (
+    <header className="border-b border-rule pb-12 mb-12">
+      <div className="flex items-center flex-wrap gap-x-[14px] gap-y-2 font-mono text-[11.5px] uppercase tracking-[0.22em] opacity-85 mb-8">
+        <span className="font-serif italic font-normal opacity-55 normal-case tracking-normal">§</span>
+        <span className="text-ink">
+          Statement<em className="font-serif italic text-crimson px-[1px]">·</em>
         </span>
-
-        <div className="inline-flex items-center gap-1 border border-rule rounded-full p-1 font-mono text-[10.5px] uppercase tracking-[0.18em]">
-          <DenomButton
-            active={denomination === "USDC"}
-            onClick={() => onDenominationChange("USDC")}
-          >
-            USDC
-          </DenomButton>
-          <DenomButton
-            active={denomination === "SOL"}
-            onClick={() => onDenominationChange("SOL")}
-          >
-            SOL
-          </DenomButton>
-        </div>
-
-        <Link
-          to="/write"
-          className="group inline-flex items-center gap-2 rounded-full border border-ink bg-ink text-paper px-[18px] py-[10px] font-mono text-[11px] uppercase tracking-[0.2em] no-underline transition-[background-color,color] duration-500 ease-opta hover:bg-transparent hover:text-ink"
-        >
-          New Position
-          <span className="transition-transform duration-500 ease-opta group-hover:translate-x-[3px]">→</span>
-        </Link>
+        <span className="opacity-75">{monthLabel}</span>
+        <span className="opacity-30">·</span>
+        <span className="opacity-75">{clusterLabel}</span>
+        <span className="opacity-30">·</span>
+        <span className="opacity-75">v0.1.4</span>
       </div>
-    </div>
-  </header>
-);
+
+      <div className="flex flex-wrap items-end justify-between gap-8">
+        <h1 className="m-0 font-fraunces-display font-light text-ink leading-[0.92] tracking-[-0.04em] text-[clamp(72px,10vw,144px)]">
+          Portfolio<span className="italic font-fraunces-display-em text-crimson">.</span>
+        </h1>
+
+        <div className="flex flex-wrap items-center gap-6">
+          <span className="font-mono text-[11px] uppercase tracking-[0.2em] opacity-60">
+            As of {timestampLabel}
+          </span>
+
+          <div className="inline-flex items-center gap-1 border border-rule rounded-full p-1 font-mono text-[10.5px] uppercase tracking-[0.18em]">
+            <DenomButton
+              active={denomination === "USDC"}
+              onClick={() => onDenominationChange("USDC")}
+            >
+              USDC
+            </DenomButton>
+            <DenomButton
+              active={denomination === "SOL"}
+              onClick={() => onDenominationChange("SOL")}
+            >
+              SOL
+            </DenomButton>
+          </div>
+
+          <Link
+            to="/write"
+            className="group inline-flex items-center gap-2 rounded-full border border-ink bg-ink text-paper px-[18px] py-[10px] font-mono text-[11px] uppercase tracking-[0.2em] no-underline transition-[background-color,color] duration-500 ease-opta hover:bg-transparent hover:text-ink"
+          >
+            New Position
+            <span className="transition-transform duration-500 ease-opta group-hover:translate-x-[3px]">→</span>
+          </Link>
+        </div>
+      </div>
+    </header>
+  );
+};
 
 const DenomButton: FC<{
   active: boolean;

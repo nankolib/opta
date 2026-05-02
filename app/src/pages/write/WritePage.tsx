@@ -2,7 +2,9 @@ import type { FC } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { PublicKey } from "@solana/web3.js";
+import { useConnection } from "@solana/wallet-adapter-react";
 import { useProgram } from "../../hooks/useProgram";
+import { inferClusterFromUrl, getSolscanTxUrl } from "../../utils/env";
 import { safeFetchAll } from "../../hooks/useFetchAccounts";
 import { usePythPrices } from "../../hooks/usePythPrices";
 import { usePaperPalette } from "../../hooks";
@@ -38,6 +40,11 @@ interface MarketAccount {
 export const WritePage: FC = () => {
   usePaperPalette();
   const { program } = useProgram();
+  const { connection } = useConnection();
+  const cluster = useMemo(
+    () => inferClusterFromUrl(connection.rpcEndpoint),
+    [connection.rpcEndpoint],
+  );
   const [markets, setMarkets] = useState<MarketAccount[]>([]);
   const [lastSuccess, setLastSuccess] = useState<
     (WriteSubmitResult & { kind: "epoch" | "custom" }) | null
@@ -166,7 +173,7 @@ export const WritePage: FC = () => {
                 {lastSuccess.kind === "epoch" ? "Epoch" : "Custom"} write confirmed
               </span>
               <a
-                href={`https://solscan.io/tx/${lastSuccess.txSignature}?cluster=devnet`}
+                href={getSolscanTxUrl(lastSuccess.txSignature, cluster)}
                 target="_blank"
                 rel="noreferrer"
                 className="font-mono text-[10.5px] uppercase tracking-[0.18em] opacity-60 hover:opacity-100 hover:text-crimson transition-colors duration-300 ease-opta"

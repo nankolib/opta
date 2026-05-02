@@ -3,13 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddress } from "@solana/spl-token";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useProgram } from "../../hooks/useProgram";
 import { showToast } from "../../components/Toast";
 import { MoneyAmount } from "../../components/MoneyAmount";
 import { HairlineRule } from "../../components/layout";
 import { truncateAddress } from "../../utils/format";
+import { inferClusterFromUrl, getSolscanTxUrl } from "../../utils/env";
 import { useResaleBuyFlow } from "./useResaleBuyFlow";
 import type { ResaleListingRow } from "./useMarketplaceData";
 
@@ -63,8 +64,13 @@ export const BuyListingModal: FC<BuyListingModalProps> = ({
 }) => {
   const { connected, publicKey } = useWallet();
   const { setVisible } = useWalletModal();
+  const { connection } = useConnection();
   const { program } = useProgram();
   const { submitting, submit } = useResaleBuyFlow();
+  const cluster = useMemo(
+    () => inferClusterFromUrl(connection.rpcEndpoint),
+    [connection.rpcEndpoint],
+  );
 
   // Default qty per OQ-E: full-fill (row.qtyAvailable). Capped at qtyAvailable.
   const [quantity, setQuantity] = useState<string>(String(row.qtyAvailable));
@@ -213,7 +219,11 @@ export const BuyListingModal: FC<BuyListingModalProps> = ({
         </div>
 
         {confirmedTx ? (
-          <ConfirmedBlock txSignature={confirmedTx} onDone={onSuccess} />
+          <ConfirmedBlock
+            txSignature={confirmedTx}
+            solscanUrl={getSolscanTxUrl(confirmedTx, cluster)}
+            onDone={onSuccess}
+          />
         ) : (
           <>
             <Field label="Contracts to buy">
@@ -378,17 +388,18 @@ const FairValueLine: FC<{ row: ResaleListingRow; qtyNum: number }> = ({ row, qty
   );
 };
 
-const ConfirmedBlock: FC<{ txSignature: string; onDone: () => void }> = ({
-  txSignature,
-  onDone,
-}) => (
+const ConfirmedBlock: FC<{
+  txSignature: string;
+  solscanUrl: string;
+  onDone: () => void;
+}> = ({ txSignature, solscanUrl, onDone }) => (
   <div>
     <p className="m-0 font-fraunces-text italic font-light leading-[1.55] opacity-75 text-[15px] mb-4">
       Your contracts are in your wallet. Solscan link below; Portfolio shows
       them in your open positions.
     </p>
     <a
-      href={`https://solscan.io/tx/${txSignature}?cluster=devnet`}
+      href={solscanUrl}
       target="_blank"
       rel="noreferrer"
       className="block font-mono text-[10.5px] uppercase tracking-[0.18em] opacity-65 hover:opacity-100 hover:text-crimson transition-colors duration-300 ease-opta mb-6"
