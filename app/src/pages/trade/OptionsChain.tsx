@@ -1,7 +1,21 @@
 import type { FC, ReactNode } from "react";
 import { useEffect, useMemo, useRef } from "react";
 import { MoneyAmount } from "../../components/MoneyAmount";
-import type { ChainBest, ChainRow } from "./useTradeData";
+import type { ChainRow, Offering } from "./useTradeData";
+
+/**
+ * Click-target shape passed up to TradePage when a premium cell is
+ * clicked. Carries the per-row data TradePage needs to construct its
+ * widened buyTarget — strike + fairPremium + ivSmiled live on
+ * ChainRow only; asset/expiry/spot are page-level state TradePage
+ * merges in itself.
+ */
+export type BuyClickTarget = {
+  offerings: Offering[];
+  strike: number;
+  fairPremium: number;
+  ivSmiled: number;
+};
 
 type OptionsChainProps = {
   asset: string;
@@ -9,7 +23,7 @@ type OptionsChainProps = {
   rows: ChainRow[];
   atmStrike: number | null;
   highlightedStrike: number | null;
-  onBuyClick: (best: ChainBest, side: "call" | "put") => void;
+  onBuyClick: (target: BuyClickTarget, side: "call" | "put") => void;
   /** Empty-state copy when no rows. Defensive — expiries are pre-filtered to ones that have markets. */
   emptyState?: ReactNode;
 };
@@ -133,7 +147,7 @@ const ChainRowEl: FC<{
   row: ChainRow;
   isAtm: boolean;
   isHighlighted: boolean;
-  onBuyClick: (best: ChainBest, side: "call" | "put") => void;
+  onBuyClick: (target: BuyClickTarget, side: "call" | "put") => void;
 }> = ({ row, isAtm, isHighlighted, onBuyClick }) => {
   // Dimming weight: 1.0 at ATM, fades to ~0.55 at >= ±15% from spot.
   const opacity = useMemo(() => {
@@ -166,11 +180,21 @@ const ChainRowEl: FC<{
       {/* CALLS — toward strike */}
       <Td align="right">{row.callOi > 0 ? row.callOi.toLocaleString() : "—"}</Td>
       <Td align="right">
-        {row.callBest ? (
+        {row.callOfferings.length > 0 ? (
           <PremiumButton
-            value={row.callBest.premium}
+            value={row.callOfferings[0].premium}
             depthCount={Math.max(0, row.callOfferings.length - 1)}
-            onClick={() => onBuyClick(row.callBest!, "call")}
+            onClick={() =>
+              onBuyClick(
+                {
+                  offerings: row.callOfferings,
+                  strike: row.strike,
+                  fairPremium: row.callPremium,
+                  ivSmiled: row.ivSmiled,
+                },
+                "call",
+              )
+            }
           />
         ) : (
           <FairPremium value={row.callPremium} />
@@ -191,11 +215,21 @@ const ChainRowEl: FC<{
 
       {/* PUTS — away from strike */}
       <Td align="left">
-        {row.putBest ? (
+        {row.putOfferings.length > 0 ? (
           <PremiumButton
-            value={row.putBest.premium}
+            value={row.putOfferings[0].premium}
             depthCount={Math.max(0, row.putOfferings.length - 1)}
-            onClick={() => onBuyClick(row.putBest!, "put")}
+            onClick={() =>
+              onBuyClick(
+                {
+                  offerings: row.putOfferings,
+                  strike: row.strike,
+                  fairPremium: row.putPremium,
+                  ivSmiled: row.ivSmiled,
+                },
+                "put",
+              )
+            }
           />
         ) : (
           <FairPremium value={row.putPremium} />

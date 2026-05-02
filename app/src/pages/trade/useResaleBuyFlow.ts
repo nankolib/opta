@@ -23,12 +23,20 @@ import {
 } from "../../utils/constants";
 import { toUsdcBN } from "../../utils/format";
 import { decodeError } from "../../utils/errorDecoder";
-import type { ResaleListingRow } from "./useMarketplaceData";
+import type { Offering } from "./useTradeData";
 
 const EXTRA_CU = ComputeBudgetProgram.setComputeUnitLimit({ units: 800_000 });
 
+/**
+ * Resale-variant of Offering — the discriminated union narrowed to
+ * the fields submit() actually consumes. Both the unified Trade
+ * BuyModal and the soon-to-be-deleted marketplace BuyListingModal
+ * project to this shape at their call sites.
+ */
+type ResaleOffering = Extract<Offering, { kind: "resale" }>;
+
 export type ResaleBuyInput = {
-  row: ResaleListingRow;
+  offering: ResaleOffering;
   quantity: number;
 };
 
@@ -52,9 +60,16 @@ export type UseResaleBuyFlow = {
  *     5% buffer in usePurchaseFlow exists because vault premiums move
  *     between fetch and confirm via real-time B-S, which doesn't apply
  *     here. maxTotalPrice = pricePerContract * quantity exactly.
- *   - Refuses self-buy off-chain (publicKey === row.seller) before the
- *     on-chain CannotBuyOwnOption guard fires — same UX defense the
- *     BuyListingModal will layer at the Confirm-button level.
+ *   - Refuses self-buy off-chain (publicKey === offering.seller) before
+ *     the on-chain CannotBuyOwnOption guard fires.
+ *
+ * Lifted from app/src/pages/marketplace/useResaleBuyFlow.ts in Slice 4
+ * of the Trade × Marketplace merge arc. Input type widened from
+ * ResaleListingRow → Offering's resale variant; the field projection
+ * (premium ← pricePerContract, qty ← qtyAvailable) is structurally
+ * trivial. The original marketplace location is deleted in this same
+ * slice; BuyListingModal projects ResaleListingRow → Offering at its
+ * call site for the two-slice window before Slice 6 deletes the file.
  *
  * On any failure, throws an Error whose message is `decodeError(err)`
  * so the caller routes through showToast unchanged.
@@ -65,14 +80,14 @@ export function useResaleBuyFlow(): UseResaleBuyFlow {
   const [submitting, setSubmitting] = useState(false);
 
   const submit = useCallback(
-    async ({ row, quantity }: ResaleBuyInput): Promise<ResaleBuyResult | null> => {
+    async ({ offering, quantity }: ResaleBuyInput): Promise<ResaleBuyResult | null> => {
       if (!program || !publicKey) return null;
-      if (quantity <= 0 || quantity > row.qtyAvailable) return null;
-      if (publicKey.equals(row.seller)) return null;
+      if (quantity <= 0 || quantity > offering.qty) return null;
+      if (publicKey.equals(offering.seller)) return null;
 
       setSubmitting(true);
       try {
-        const optionMint = row.vaultMint.account.optionMint as PublicKey;
+        const optionMint = offering.vaultMint.account.optionMint as PublicKey;
 
         const [protocolStatePda] = PublicKey.findProgramAddressSync(
           [Buffer.from("protocol_v2")],
@@ -85,7 +100,7 @@ export function useResaleBuyFlow(): UseResaleBuyFlow {
         const protocolState = await program.account.protocolState.fetch(protocolStatePda);
         const usdcMint = protocolState.usdcMint as PublicKey;
 
-        const [resaleEscrowPda] = deriveVaultResaleEscrow(row.listing.publicKey);
+        const [resaleEscrowPda] = deriveVaultResaleEscrow(offering.listing.publicKey);
         const [extraAccountMetaList] = deriveExtraAccountMetaListPda(optionMint);
         const [hookState] = deriveHookStatePda(optionMint);
 
@@ -119,28 +134,29 @@ export function useResaleBuyFlow(): UseResaleBuyFlow {
           ASSOCIATED_TOKEN_PROGRAM_ID,
         );
 
-        // Seller's USDC ATA — Slice C's listResaleV2 ALWAYS pre-creates this
-        // at list time (CRITICAL guarantee per FRONTEND_PLAN §10), so no
-        // idempotent IX needed here. Just derive and pass the address.
+        // Seller's USDC ATA — Slice C's listResaleV2 ALWAYS pre-creates
+        // this at list time (CRITICAL guarantee per FRONTEND_PLAN §10),
+        // so no idempotent IX needed here. Just derive and pass the
+        // address.
         const sellerUsdcAccount = getAssociatedTokenAddressSync(
           usdcMint,
-          row.seller,
+          offering.seller,
           false,
           TOKEN_PROGRAM_ID,
         );
 
         // Exact total — no slippage cushion; resale listings are fixed-price.
-        const maxTotalPrice = toUsdcBN(row.pricePerContract * quantity);
+        const maxTotalPrice = toUsdcBN(offering.premium * quantity);
 
         const tx = await program.methods
           .buyV2Resale(new BN(quantity), maxTotalPrice)
           .accountsStrict({
             buyer: publicKey,
-            sharedVault: row.vault.publicKey,
-            market: row.vault.account.market,
-            vaultMintRecord: row.vaultMint.publicKey,
-            listing: row.listing.publicKey,
-            seller: row.seller,
+            sharedVault: offering.vault.publicKey,
+            market: offering.vault.account.market,
+            vaultMintRecord: offering.vaultMint.publicKey,
+            listing: offering.listing.publicKey,
+            seller: offering.seller,
             optionMint,
             resaleEscrow: resaleEscrowPda,
             buyerOptionAccount,

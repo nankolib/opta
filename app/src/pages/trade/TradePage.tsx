@@ -11,7 +11,7 @@ import { ExpiryTabs } from "./ExpiryTabs";
 import { OptionsChain } from "./OptionsChain";
 import { BuyModal } from "./BuyModal";
 import { TradeFooter } from "./TradeFooter";
-import { useTradeData, type ChainBest } from "./useTradeData";
+import { useTradeData, type Offering } from "./useTradeData";
 
 /**
  * TradePage — the trader's options chain surface.
@@ -27,9 +27,17 @@ import { useTradeData, type ChainBest } from "./useTradeData";
 export const TradePage: FC = () => {
   usePaperPalette();
   const data = useTradeData();
-  const [buyTarget, setBuyTarget] = useState<{ best: ChainBest; side: "call" | "put" } | null>(
-    null,
-  );
+  const [buyTarget, setBuyTarget] = useState<{
+    offerings: Offering[];
+    side: "call" | "put";
+    asset: string;
+    strike: number;
+    expiry: number;
+    fairPremium: number;
+    ivSmiled: number;
+    spot: number | null;
+    initialSelected: Offering | null;
+  } | null>(null);
 
   const monthLabel = useMemo(
     () => new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" }),
@@ -135,7 +143,19 @@ export const TradePage: FC = () => {
               rows={data.rows}
               atmStrike={data.atmStrike}
               highlightedStrike={data.highlightedStrike}
-              onBuyClick={(best, side) => setBuyTarget({ best, side })}
+              onBuyClick={(target, side) =>
+                setBuyTarget({
+                  ...target,
+                  side,
+                  asset: data.selectedAsset,
+                  expiry: data.selectedExpiry,
+                  spot: data.spot,
+                  initialSelected:
+                    target.offerings.find(
+                      (o) => !(o.kind === "resale" && o.isSelfListing),
+                    ) ?? null,
+                })
+              }
             />
 
             {/* Hairline-divided 5-cell summary band — same rhythm as the 4-cell
@@ -149,8 +169,15 @@ export const TradePage: FC = () => {
 
       {buyTarget && (
         <BuyModal
-          best={buyTarget.best}
+          asset={buyTarget.asset}
           side={buyTarget.side}
+          strike={buyTarget.strike}
+          expiry={buyTarget.expiry}
+          spot={buyTarget.spot}
+          fairPremium={buyTarget.fairPremium}
+          ivSmiled={buyTarget.ivSmiled}
+          offerings={buyTarget.offerings}
+          initialSelected={buyTarget.initialSelected}
           onClose={() => setBuyTarget(null)}
           onSuccess={() => {
             // Refetch chain data so OI / available reflect the buy.

@@ -59,8 +59,6 @@ export type Offering =
 
 export type ChainRow = {
   strike: number;
-  callBest: ChainBest | null;
-  putBest: ChainBest | null;
   callPremium: number;
   putPremium: number;
   callDelta: number;
@@ -73,6 +71,13 @@ export type ChainRow = {
   putLast: number | null;
   /** Distance from spot in % (signed). Drives row dimming + ATM detection. */
   moneynessPct: number;
+  /**
+   * Smile-adjusted IV at this strike (decimal, e.g. 0.78 = 78%). Same
+   * value for call and put — the smile is symmetric per strike. Slice 4
+   * added this field so the BuyModal's OfferingsPanel header strip can
+   * render IV without re-deriving it page-side.
+   */
+  ivSmiled: number;
   /**
    * Sorted ascending by premium. Includes the vault tier (when
    * unsold > 0) and every active resale listing whose option_mint maps
@@ -316,8 +321,6 @@ export function useTradeData(): UseTradeData {
       const callGreeks = calculateCallGreeks(liveSpot, strike, days, smiledVol);
       const putGreeks = calculatePutGreeks(liveSpot, strike, days, smiledVol);
 
-      let callBest: ChainBest | null = null;
-      let putBest: ChainBest | null = null;
       let callOi = 0;
       let putOi = 0;
       const callOfferings: Offering[] = [];
@@ -395,18 +398,6 @@ export function useTradeData(): UseTradeData {
         };
         if (vIsCall) callOfferings.push(vaultOffering);
         else putOfferings.push(vaultOffering);
-
-        const candidate: ChainBest = {
-          vaultMint: vm,
-          vault: parentVault,
-          market: parentMkt.account,
-          premium: price,
-        };
-        if (vIsCall) {
-          if (!callBest || price < callBest.premium) callBest = candidate;
-        } else {
-          if (!putBest || price < putBest.premium) putBest = candidate;
-        }
       }
 
       // V1 OI contribution loop removed in P4a — read now-gone market
@@ -420,8 +411,6 @@ export function useTradeData(): UseTradeData {
 
       return {
         strike,
-        callBest,
-        putBest,
         callPremium: callGreeks.premium,
         putPremium: putGreeks.premium,
         callDelta: callGreeks.delta,
@@ -433,6 +422,7 @@ export function useTradeData(): UseTradeData {
         callLast: null,
         putLast: null,
         moneynessPct,
+        ivSmiled: smiledVol,
         callOfferings,
         putOfferings,
       };

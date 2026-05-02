@@ -11,7 +11,7 @@ import { MoneyAmount } from "../../components/MoneyAmount";
 import { HairlineRule } from "../../components/layout";
 import { truncateAddress } from "../../utils/format";
 import { inferClusterFromUrl, getSolscanTxUrl } from "../../utils/env";
-import { useResaleBuyFlow } from "./useResaleBuyFlow";
+import { useResaleBuyFlow } from "../trade/useResaleBuyFlow";
 import type { ResaleListingRow } from "./useMarketplaceData";
 
 type BuyListingModalProps = {
@@ -132,7 +132,25 @@ export const BuyListingModal: FC<BuyListingModalProps> = ({
 
   const handleConfirm = async () => {
     try {
-      const result = await submit({ row, quantity: qtyNum });
+      // Project ResaleListingRow → Offering's resale shape for the lifted
+      // hook. createdAt + isSelfListing aren't read by submit() but the
+      // type requires them; Slice 6 deletes this whole file when the
+      // marketplace page goes away.
+      const result = await submit({
+        offering: {
+          kind: "resale",
+          premium: row.pricePerContract,
+          qty: row.qtyAvailable,
+          seller: row.seller,
+          createdAt: 0,
+          isSelfListing: false,
+          listing: row.listing,
+          vaultMint: row.vaultMint,
+          vault: row.vault,
+          market: row.market,
+        },
+        quantity: qtyNum,
+      });
       if (result) {
         setConfirmedTx(result.txSignature);
         showToast({
