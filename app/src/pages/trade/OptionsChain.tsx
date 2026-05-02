@@ -18,13 +18,15 @@ type OptionsChainProps = {
  * Symmetric options chain: Calls (left) | Strike (centre) | Puts (right).
  *
  * Column order:
- *   Calls toward strike: OI · BID · LAST · DELTA · PREMIUM
+ *   Calls toward strike: OI · PREMIUM
  *   Centre: STRIKE
- *   Puts away from strike: PREMIUM · DELTA · LAST · BID · OI
+ *   Puts away from strike: PREMIUM · OI
  *
  * Premium cells are buttons that open the BuyModal for the cheapest
- * vault mint at that (strike, side). BID and LAST always render —
- * (no on-chain source).
+ * vault mint at that (strike, side). A `·N` depth badge appears next
+ * to the headline price when the unified offerings array (vault tier
+ * plus active resale listings) has more than one entry — N counts
+ * everything beyond the headline.
  *
  * Visual rhythm:
  *   - ATM row gets a hairline above + below + a small ATM label.
@@ -66,15 +68,9 @@ export const OptionsChain: FC<OptionsChainProps> = ({
           <thead>
             <tr className="border-b border-rule">
               <Th align="right">OI</Th>
-              <Th align="right">Bid</Th>
-              <Th align="right">Last</Th>
-              <Th align="right">Delta</Th>
               <Th align="right">Premium</Th>
               <Th align="center">Strike</Th>
               <Th align="left">Premium</Th>
-              <Th align="left">Delta</Th>
-              <Th align="left">Last</Th>
-              <Th align="left">Bid</Th>
               <Th align="left">OI</Th>
             </tr>
           </thead>
@@ -169,13 +165,11 @@ const ChainRowEl: FC<{
     >
       {/* CALLS — toward strike */}
       <Td align="right">{row.callOi > 0 ? row.callOi.toLocaleString() : "—"}</Td>
-      <Td align="right" muted>{row.callBid != null ? row.callBid.toFixed(2) : "—"}</Td>
-      <Td align="right" muted>{row.callLast != null ? row.callLast.toFixed(2) : "—"}</Td>
-      <Td align="right">{row.callDelta.toFixed(2)}</Td>
       <Td align="right">
         {row.callBest ? (
           <PremiumButton
             value={row.callBest.premium}
+            depthCount={Math.max(0, row.callOfferings.length - 1)}
             onClick={() => onBuyClick(row.callBest!, "call")}
           />
         ) : (
@@ -200,15 +194,13 @@ const ChainRowEl: FC<{
         {row.putBest ? (
           <PremiumButton
             value={row.putBest.premium}
+            depthCount={Math.max(0, row.putOfferings.length - 1)}
             onClick={() => onBuyClick(row.putBest!, "put")}
           />
         ) : (
           <FairPremium value={row.putPremium} />
         )}
       </Td>
-      <Td align="left">{row.putDelta.toFixed(2)}</Td>
-      <Td align="left" muted>{row.putLast != null ? row.putLast.toFixed(2) : "—"}</Td>
-      <Td align="left" muted>{row.putBid != null ? row.putBid.toFixed(2) : "—"}</Td>
       <Td align="left">{row.putOi > 0 ? row.putOi.toLocaleString() : "—"}</Td>
     </tr>
   );
@@ -228,13 +220,26 @@ const Td: FC<{
   </td>
 );
 
-const PremiumButton: FC<{ value: number; onClick: () => void }> = ({ value, onClick }) => (
+const PremiumButton: FC<{
+  value: number;
+  /** Count of OTHER offerings beyond the headline. 0 hides the badge. */
+  depthCount: number;
+  onClick: () => void;
+}> = ({ value, depthCount, onClick }) => (
   <button
     type="button"
     onClick={onClick}
-    className="font-mono text-[12.5px] text-ink hover:text-crimson border-b border-transparent hover:border-crimson transition-colors duration-200"
+    className="font-mono text-[12.5px] text-ink hover:text-crimson border-b border-transparent hover:border-crimson transition-colors duration-200 inline-flex items-baseline gap-1.5"
   >
     <MoneyAmount value={value} />
+    {depthCount > 0 && (
+      <span
+        title={`${depthCount} more offering${depthCount === 1 ? "" : "s"}`}
+        className="font-mono text-[10.5px] opacity-55"
+      >
+        ·{depthCount}
+      </span>
+    )}
   </button>
 );
 
