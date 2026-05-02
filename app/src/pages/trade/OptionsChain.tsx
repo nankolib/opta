@@ -180,25 +180,7 @@ const ChainRowEl: FC<{
       {/* CALLS — toward strike */}
       <Td align="right">{row.callOi > 0 ? row.callOi.toLocaleString() : "—"}</Td>
       <Td align="right">
-        {row.callOfferings.length > 0 ? (
-          <PremiumButton
-            value={row.callOfferings[0].premium}
-            depthCount={Math.max(0, row.callOfferings.length - 1)}
-            onClick={() =>
-              onBuyClick(
-                {
-                  offerings: row.callOfferings,
-                  strike: row.strike,
-                  fairPremium: row.callPremium,
-                  ivSmiled: row.ivSmiled,
-                },
-                "call",
-              )
-            }
-          />
-        ) : (
-          <FairPremium value={row.callPremium} />
-        )}
+        <ChainCell row={row} side="call" onBuyClick={onBuyClick} />
       </Td>
 
       {/* STRIKE */}
@@ -215,25 +197,7 @@ const ChainRowEl: FC<{
 
       {/* PUTS — away from strike */}
       <Td align="left">
-        {row.putOfferings.length > 0 ? (
-          <PremiumButton
-            value={row.putOfferings[0].premium}
-            depthCount={Math.max(0, row.putOfferings.length - 1)}
-            onClick={() =>
-              onBuyClick(
-                {
-                  offerings: row.putOfferings,
-                  strike: row.strike,
-                  fairPremium: row.putPremium,
-                  ivSmiled: row.ivSmiled,
-                },
-                "put",
-              )
-            }
-          />
-        ) : (
-          <FairPremium value={row.putPremium} />
-        )}
+        <ChainCell row={row} side="put" onBuyClick={onBuyClick} />
       </Td>
       <Td align="left">{row.putOi > 0 ? row.putOi.toLocaleString() : "—"}</Td>
     </tr>
@@ -258,8 +222,10 @@ const PremiumButton: FC<{
   value: number;
   /** Count of OTHER offerings beyond the headline. 0 hides the badge. */
   depthCount: number;
+  /** Whether the connected wallet has a resale listing at this cell. Renders a muted "·your listing" tag. */
+  hasSelfListing: boolean;
   onClick: () => void;
-}> = ({ value, depthCount, onClick }) => (
+}> = ({ value, depthCount, hasSelfListing, onClick }) => (
   <button
     type="button"
     onClick={onClick}
@@ -274,8 +240,63 @@ const PremiumButton: FC<{
         ·{depthCount}
       </span>
     )}
+    {hasSelfListing && (
+      <span
+        title="You have an active listing at this cell"
+        className="font-mono italic text-[10.5px] opacity-55"
+      >
+        ·your listing
+      </span>
+    )}
   </button>
 );
+
+/**
+ * Cell renderer for a (call|put) premium column. Picks the headline
+ * source from row.{call,put}Offerings (excluding self-listings —
+ * useTradeData partitions self to the back), and renders either a
+ * clickable PremiumButton (third-party headline available) or a muted
+ * FairPremium fallback (all-self edge case → cell not buyable).
+ *
+ * Both calls and puts cells reduce to:
+ *   <ChainCell row={row} side="call" onBuyClick={onBuyClick} />
+ *
+ * Slice 5 introduced the helper to dedupe the per-side render logic.
+ */
+const ChainCell: FC<{
+  row: ChainRow;
+  side: "call" | "put";
+  onBuyClick: (target: BuyClickTarget, side: "call" | "put") => void;
+}> = ({ row, side, onBuyClick }) => {
+  const offerings = side === "call" ? row.callOfferings : row.putOfferings;
+  const fairPremium = side === "call" ? row.callPremium : row.putPremium;
+  const head = offerings[0];
+  const headIsSelf = head?.kind === "resale" && head.isSelfListing;
+  const hasSelfListing = offerings.some(
+    (o) => o.kind === "resale" && o.isSelfListing,
+  );
+  if (head && !headIsSelf) {
+    return (
+      <PremiumButton
+        value={head.premium}
+        depthCount={Math.max(0, offerings.length - 1)}
+        hasSelfListing={hasSelfListing}
+        onClick={() =>
+          onBuyClick(
+            {
+              offerings,
+              strike: row.strike,
+              fairPremium,
+              ivSmiled: row.ivSmiled,
+            },
+            side,
+          )
+        }
+      />
+    );
+  }
+  return <FairPremium value={fairPremium} />;
+};
 
 const FairPremium: FC<{ value: number }> = ({ value }) => (
   <span className="opacity-50">

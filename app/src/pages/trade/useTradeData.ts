@@ -127,6 +127,27 @@ const DAY = 86400;
 const roundToDay = (ts: number) => Math.floor(ts / DAY) * DAY;
 
 /**
+ * Sort an offerings array ascending by premium, then partition
+ * self-listings to the back. After this call:
+ *   - arr[0] is the cheapest non-self offering when any non-self exists
+ *   - arr[0].isSelfListing === true only when every offering is self
+ *
+ * Slice 5 partition strategy. The OfferingsPanel re-partitions by kind
+ * (vault vs resale), so the inner panel layout is unaffected; this
+ * function only controls which entry is at index 0 (the cell headline)
+ * and the order resale rows render in the panel's resale section
+ * (non-self before self, both ascending within their group).
+ */
+function sortAndPartition(arr: Offering[]): void {
+  arr.sort((a, b) => a.premium - b.premium);
+  const isSelf = (o: Offering) => o.kind === "resale" && o.isSelfListing;
+  const nonSelf = arr.filter((o) => !isSelf(o));
+  const self = arr.filter((o) => isSelf(o));
+  arr.length = 0;
+  arr.push(...nonSelf, ...self);
+}
+
+/**
  * Bundles all data the Trade page needs:
  *   - Markets, vaults, vault mints, positions
  *   - Pyth-fed spot prices
@@ -404,8 +425,13 @@ export function useTradeData(): UseTradeData {
       // fields (expiryTimestamp / strikePrice / optionType). V2-only product
       // post-migration; v1 contributes nothing in production.
 
-      callOfferings.sort((a, b) => a.premium - b.premium);
-      putOfferings.sort((a, b) => a.premium - b.premium);
+      // Sort ascending by premium, then partition self-listings to the
+      // back so callOfferings[0] / putOfferings[0] is always the cheapest
+      // THIRD-PARTY offering when one exists. The all-self edge case
+      // leaves a self-listing at index 0; OptionsChain catches that and
+      // renders FairPremium fallback (cell muted, not buyable).
+      sortAndPartition(callOfferings);
+      sortAndPartition(putOfferings);
 
       const moneynessPct = liveSpot > 0 ? ((strike - liveSpot) / liveSpot) * 100 : 0;
 

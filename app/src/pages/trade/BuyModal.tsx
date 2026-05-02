@@ -106,6 +106,32 @@ export const BuyModal: FC<BuyModalProps> = ({
     qtyNum <= selectedInventory &&
     !isSelfListing &&
     !insufficient;
+  const exceedsInventory = qtyNum > selectedInventory;
+
+  // Cheapest non-self, non-currently-selected offering with enough
+  // inventory to fill the requested qty in a single source.
+  const nextCheapestWithEnough = useMemo<Offering | null>(() => {
+    if (!exceedsInventory) return null;
+    for (const o of offerings) {
+      if (o === selected) continue;
+      if (o.kind === "resale" && o.isSelfListing) continue;
+      const inv = o.kind === "vault" ? o.inventory : o.qty;
+      if (inv >= qtyNum) return o;
+    }
+    return null;
+  }, [offerings, selected, qtyNum, exceedsInventory]);
+
+  // Largest single-source non-self inventory — used for the no-fit
+  // fallback hint copy. Single-source-fill is locked (no splits per plan §0).
+  const largestNonSelfInventory = useMemo(() => {
+    let max = 0;
+    for (const o of offerings) {
+      if (o.kind === "resale" && o.isSelfListing) continue;
+      const inv = o.kind === "vault" ? o.inventory : o.qty;
+      if (inv > max) max = inv;
+    }
+    return max;
+  }, [offerings]);
 
   // Esc dismiss
   useEffect(() => {
@@ -284,6 +310,35 @@ export const BuyModal: FC<BuyModalProps> = ({
               {isSelfListing && (
                 <div className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-crimson mb-4">
                   You can't buy your own listing.
+                </div>
+              )}
+              {exceedsInventory && nextCheapestWithEnough && (
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-crimson mb-4">
+                  Only {selectedInventory.toLocaleString()} available at{" "}
+                  <MoneyAmount value={selected?.premium ?? 0} />.{" "}
+                  {nextCheapestWithEnough.kind === "vault"
+                    ? "Vault"
+                    : `Resale · ${truncateAddress(nextCheapestWithEnough.seller.toBase58())}`}{" "}
+                  has{" "}
+                  {(nextCheapestWithEnough.kind === "vault"
+                    ? nextCheapestWithEnough.inventory
+                    : nextCheapestWithEnough.qty
+                  ).toLocaleString()}{" "}
+                  at <MoneyAmount value={nextCheapestWithEnough.premium} />.{" "}
+                  <button
+                    type="button"
+                    className="underline text-crimson hover:opacity-80 transition-opacity"
+                    onClick={() => setSelected(nextCheapestWithEnough)}
+                  >
+                    Switch source
+                  </button>
+                </div>
+              )}
+              {exceedsInventory && !nextCheapestWithEnough && (
+                <div className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-crimson mb-4">
+                  Largest single source has{" "}
+                  {largestNonSelfInventory.toLocaleString()}. Reduce quantity
+                  to {largestNonSelfInventory.toLocaleString()} or less.
                 </div>
               )}
 
