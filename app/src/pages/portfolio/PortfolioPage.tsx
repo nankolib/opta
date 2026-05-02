@@ -158,21 +158,6 @@ export const PortfolioPage: FC = () => {
     });
   }, [positionsRaw, heldBalances, connected, publicKey]);
 
-  const v2Held = useMemo(() => {
-    if (!connected || !publicKey) return [];
-    const found: { vaultMint: any; vault: any; balance: number; market: any | null }[] = [];
-    for (const vm of vaultMints) {
-      const mintKey = (vm.account.optionMint as PublicKey).toBase58();
-      const balance = heldBalances.get(mintKey);
-      if (!balance) continue;
-      const vault = vaults.find((v) => v.publicKey.equals(vm.account.vault as PublicKey));
-      if (!vault) continue;
-      const market = marketMap.get((vault.account.market as PublicKey).toBase58()) ?? null;
-      found.push({ vaultMint: vm, vault, balance, market });
-    }
-    return found;
-  }, [vaultMints, vaults, marketMap, heldBalances, connected, publicKey]);
-
   // Filter raw listings down to ones the connected wallet owns. The on-chain
   // PDA seed [VAULT_RESALE_LISTING_SEED, mint, seller] guarantees at most one
   // active listing per (mint, seller), so this maps cleanly into the
@@ -183,6 +168,37 @@ export const PortfolioPage: FC = () => {
       (l.account.seller as PublicKey).equals(publicKey),
     );
   }, [listingsRaw, connected, publicKey]);
+
+  // V2 positions surface when the wallet either (a) holds option tokens
+  // directly OR (b) has an active resale listing whose tokens are escrowed.
+  // Without (b), listing your entire balance would make the row vanish from
+  // Portfolio because the on-chain ATA balance drops to 0 — and the user
+  // would lose the only path to cancel the listing from the existing UI.
+  // Effective balance = direct + escrowed; positions.ts's downstream logic
+  // treats this as the wallet's total economic exposure to the contract.
+  const v2Held = useMemo(() => {
+    if (!connected || !publicKey) return [];
+    const listedByMint = new Map<string, number>();
+    for (const l of myListings) {
+      const mk = (l.account.optionMint as PublicKey).toBase58();
+      const lq = l.account.listedQuantity;
+      const qty = typeof lq === "number" ? lq : (lq?.toNumber?.() ?? Number(lq));
+      listedByMint.set(mk, (listedByMint.get(mk) ?? 0) + qty);
+    }
+    const found: { vaultMint: any; vault: any; balance: number; market: any | null }[] = [];
+    for (const vm of vaultMints) {
+      const mintKey = (vm.account.optionMint as PublicKey).toBase58();
+      const heldBal = heldBalances.get(mintKey) ?? 0;
+      const listedQty = listedByMint.get(mintKey) ?? 0;
+      const totalBal = heldBal + listedQty;
+      if (totalBal <= 0) continue;
+      const vault = vaults.find((v) => v.publicKey.equals(vm.account.vault as PublicKey));
+      if (!vault) continue;
+      const market = marketMap.get((vault.account.market as PublicKey).toBase58()) ?? null;
+      found.push({ vaultMint: vm, vault, balance: totalBal, market });
+    }
+    return found;
+  }, [vaultMints, vaults, marketMap, heldBalances, connected, publicKey, myListings]);
 
   const positions = useMemo(
     () =>
