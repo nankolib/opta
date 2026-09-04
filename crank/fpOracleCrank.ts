@@ -63,7 +63,10 @@ export const OPTA_PRICE_FEED_SEED = "opta_price_feed";
 
 // ---- types ------------------------------------------------------------------
 
-export type FpLogLevel = "info" | "warn" | "error" | "fatal";
+// "debug" is for absorbed, non-actionable conditions that must stay greppable
+// without becoming journal noise -- e.g. the web3.js transport rejection the
+// push path plugs at source (see fpOracleMain.ts / ledger section 22).
+export type FpLogLevel = "debug" | "info" | "warn" | "error" | "fatal";
 export type FpLogger = (level: FpLogLevel, msg: string, fields?: Record<string, unknown>) => void;
 
 export interface FpCrankContext {

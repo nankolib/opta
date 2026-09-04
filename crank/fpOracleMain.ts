@@ -136,6 +136,60 @@ async function main(): Promise<void> {
 
   const keypair = loadKeypair(keypairPath);
   const connection = new Connection(rpcUrl, "confirmed");
+
+  // --- web3.js confirmation-race leak plug (see ledger section 22) ----------
+  //
+  // web3.js 1.98.4 Connection.getTransactionConfirmationPromise builds the
+  // confirmation as a Promise.race between a websocket onSignature subscription
+  // and an expiry poller. Alongside the race it fires a FLOATING async IIFE
+  // (lib/index.cjs.js:6587) as a fast path:
+  //
+  //     (async () => {
+  //       await subscriptionSetupPromise;
+  //       if (done) return;
+  //       const response = await this.getSignatureStatus(signature);  // HTTP
+  //       if (done) return;
+  //       if (response == null) return;
+  //       ...
+  //     })();          <-- not awaited, no .catch attached
+  //
+  // That IIFE has no try/catch and nothing holds its promise. When the race is
+  // won by the websocket, `done` is set and sendAndConfirm returns -- but the
+  // getSignatureStatus HTTP request is ALREADY IN FLIGHT. If it then rejects
+  // (transport error), the `if (done) return` guard is never reached: a
+  // rejection skips the line entirely. The rejection is unhandled and Node
+  // kills the process.
+  //
+  // That is exactly what killed this lane at 2026-09-04T10:35:51Z, 0.5s after a
+  // SUCCESSFUL push: ECONNRESET on a leftover status call from an already
+  // completed confirmation.
+  //
+  // We cannot attach .catch to that promise -- it is internal and never
+  // exposed. So we make the call it awaits non-rejecting instead. Returning
+  // null is the graceful-degrade path web3.js itself defines one line later
+  // (`if (response == null) return;`): the fast path is skipped and the
+  // websocket subscription resolves the confirmation as normal. The stray
+  // promise dies silently AS A PROMISE. The process lives.
+  //
+  // Surgical by construction: getSignatureStatus (singular) has exactly two
+  // internal call sites -- this IIFE and the durable-nonce strategy we never
+  // use -- and this lane never calls it directly.
+  {
+    const inner = connection.getSignatureStatus.bind(connection);
+    (connection as any).getSignatureStatus = async (...args: any[]) => {
+      try {
+        return await (inner as any)(...args);
+      } catch (e) {
+        // Never a correctness signal: confirmation still arrives over the
+        // subscription. Debug-level so it is greppable without being noise.
+        log("debug", "fp-oracle: getSignatureStatus transport error absorbed (confirmation unaffected)", {
+          err: String(e).slice(0, 200),
+        });
+        return null;
+      }
+    };
+  }
+
   const wallet = new anchor.Wallet(keypair);
   const provider = new anchor.AnchorProvider(connection, wallet, { commitment: "confirmed" });
 
@@ -164,6 +218,44 @@ async function main(): Promise<void> {
   };
   await runFpOracleCrank(ctx, { tickOnce });
 }
+
+// ---- last-resort loudness ---------------------------------------------------
+//
+// A rejection that reaches here was never awaited by anything, so no catch in
+// the call graph could have seen it -- including main().catch below. Before
+// this handler existed, Node's default killed the process with a RAW STACK
+// TRACE and no JSON line, which is how the 2026-09-04T10:35:51Z death came to
+// be invisible to every log-based check (grep '"level":"fatal"' returned 0
+// across the whole soak journal, while the process had in fact died).
+//
+// This does NOT make the lane survive. It makes it die LOUDLY and in-band.
+// systemd remains the sole restart authority -- we exit non-zero and let
+// Restart= do its job. Deliberately no swallow-and-continue: a rejection
+// arriving here is by definition one we have not accounted for, and continuing
+// on unexamined state in a process that signs prices is not a trade worth
+// making. The one leak we HAVE accounted for is plugged at its source above,
+// so it never reaches this handler at all.
+process.on("unhandledRejection", (reason, promise) => {
+  const r: any = reason;
+  log("fatal", "fp-oracle: UNHANDLED REJECTION — exiting for systemd restart", {
+    err: String(reason).slice(0, 500),
+    name: r?.name ?? null,
+    code: r?.code ?? r?.cause?.code ?? null,
+    errno: r?.errno ?? r?.cause?.errno ?? null,
+    syscall: r?.syscall ?? r?.cause?.syscall ?? null,
+    cause: r?.cause ? String(r.cause).slice(0, 300) : null,
+    stack: (r?.stack ?? "").slice(0, 2000),
+    promise: String(promise).slice(0, 200),
+  });
+  process.exit(1);
+});
+
+process.on("uncaughtException", (e) => {
+  log("fatal", "fp-oracle: UNCAUGHT EXCEPTION — exiting for systemd restart", {
+    err: String(e).slice(0, 500), stack: (e?.stack ?? "").slice(0, 2000),
+  });
+  process.exit(1);
+});
 
 main().catch((e) => {
   log("fatal", "fp-oracle crashed", { err: String(e), stack: (e as any)?.stack });
