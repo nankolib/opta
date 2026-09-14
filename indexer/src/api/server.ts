@@ -4,7 +4,7 @@
 //
 // Binds 127.0.0.1 by default and is never exposed directly. Public access is
 // nginx's job, and that conf ships STAGED (deploy/nginx/points-api.conf.staged)
-// rather than applied — see GO-LIVE.md. Nothing about this listener is reachable
+// rather than applied — see indexer/GO-LIVE.md in the private opta-ops repo. Nothing about this listener is reachable
 // from the internet until that step is taken deliberately.
 //
 // In-process by design: no second service, no second RPC client, no second copy

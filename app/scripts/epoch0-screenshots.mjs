@@ -11,7 +11,7 @@
 //   npx playwright install chromium && sudo npx playwright install-deps chromium
 //
 // RUN (flag ON, pointed at the VPS loopback API through an SSH tunnel)
-//   ssh -N -L 8791:127.0.0.1:8791 root@144.202.58.6 &
+//   ssh -N -L 8791:127.0.0.1:8791 <VPS_USER>@<VPS_IP> &
 //   cd app && VITE_EPOCH0_UI=1 \
 //     VITE_POINTS_API_BASE=http://127.0.0.1:8791/api/points npx vite --port 5199
 //   PW_CORE=~/pw/node_modules/playwright-core/index.mjs \

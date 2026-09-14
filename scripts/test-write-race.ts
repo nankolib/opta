@@ -190,7 +190,7 @@ async function main() {
 
   const keypairPath =
     process.env.OPTA_KEYPAIR ??
-    path.join(process.env.HOME ?? "/home/nanko", ".config/solana/id.json");
+    path.join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".config/solana/id.json");
   if (!fs.existsSync(keypairPath)) {
     console.error(`FATAL: keypair not found at ${keypairPath}`);
     console.error(`Set OPTA_KEYPAIR or place the wallet at ~/.config/solana/id.json`);

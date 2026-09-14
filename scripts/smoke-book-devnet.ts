@@ -67,7 +67,7 @@ async function main() {
   const rpcUrl = process.env.RPC_URL ?? process.env.OPTA_RPC_URL ?? "https://api.devnet.solana.com";
   const conn = new Connection(rpcUrl, { commitment: "confirmed", confirmTransactionInitialTimeout: 90_000 });
 
-  const opPath = process.env.OPTA_KEYPAIR ?? path.join(process.env.HOME ?? "/home/nanko", ".config/solana/id.json");
+  const opPath = process.env.OPTA_KEYPAIR ?? path.join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".config/solana/id.json");
   const D = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(opPath, "utf-8"))));
   const aPath = path.join(__dirname, ".devnet-writer-keypair.json");
   if (!fs.existsSync(aPath)) { console.error(`FATAL: writer keypair not found at ${aPath}`); process.exit(1); }
