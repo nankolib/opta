@@ -60,7 +60,7 @@ async function main() {
   const rpcUrl = process.env.RPC_URL ?? "https://api.devnet.solana.com";
   const conn = new Connection(rpcUrl, { commitment: "confirmed", confirmTransactionInitialTimeout: 90_000 });
   const D = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(
-    process.env.OPTA_KEYPAIR ?? path.join(process.env.HOME ?? "/home/nanko", ".config/solana/id.json"), "utf-8"))));
+    process.env.OPTA_KEYPAIR ?? path.join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".config/solana/id.json"), "utf-8"))));
   const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "target", "idl", "opta.json"), "utf-8"));
   const dProgram = progFor(conn, idl, D);
   console.log("=== epoch-write→series live gate ===\nRPC:", redact(rpcUrl), "| D(faucet):", D.publicKey.toBase58());

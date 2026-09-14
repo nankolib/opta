@@ -51,7 +51,7 @@ const DRY = process.argv.includes("--dry-run");
 const RPC = process.env.OPTA_RPC_URL || "https://rpc.opta.fyi/devnet";
 
 const KEY_FOR: Record<string, string> = {
-  local: process.env.OPTA_CANARY_OWNER_KEY || "/home/nanko/.config/solana/id.json",
+  local: process.env.OPTA_CANARY_OWNER_KEY || (process.env.HOME ?? process.env.USERPROFILE ?? ".") + "/.config/solana/id.json",
   box: process.env.OPTA_CANARY_WRITER_KEY || "/opt/opta-writer/secrets/writer-keypair.json",
 };
 const JOURNAL_DIR = process.env.OPTA_CANARY_JOURNAL_DIR

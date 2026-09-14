@@ -66,7 +66,7 @@ async function main() {
 
   const operatorKeypairPath =
     process.env.OPTA_KEYPAIR ??
-    path.join(process.env.HOME ?? "/home/nanko", ".config/solana/id.json");
+    path.join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".config/solana/id.json");
   const operator = Keypair.fromSecretKey(
     Uint8Array.from(JSON.parse(fs.readFileSync(operatorKeypairPath, "utf-8"))),
   );

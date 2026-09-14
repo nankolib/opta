@@ -2,6 +2,10 @@
 
 P2P composable tokenized options protocol on Solana (Token-2022).
 
+## Public-repo rule
+
+`nankolib/opta` is public. Nothing in this tree may carry server IPs, SSH logins, local usernames or machine paths (home directories, drive letters), investor or contact names, third-party social handles, or session diaries; use `<VPS_IP>`, `<VPS_USER>`, `$HOME` and `<REPO_ROOT>` placeholders in docs and comments, and resolve key paths in code from `HOME`/`USERPROFILE`. The ops narrative (the HANDOFF diary, migration log, runbooks, audit reports) lives in the private repo `nankolib/opta-ops`, cloned as a sibling at `../opta-ops`: at session close, write the HANDOFF block to `../opta-ops/HANDOFF.md` and commit + push there, never here. The public `HANDOFF.md` is a three-line stub and must stay one. A local pre-commit gate (`.context/snapshot/secret-scan.js`, list in `.context/snapshot/forbidden.txt`) blocks any commit that stages a forbidden string or a secret-shaped value; fix the file rather than passing `--no-verify`.
+
 ## Security
 
 ### Audit — April 4, 2026

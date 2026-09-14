@@ -171,7 +171,7 @@ export default defineConfig({
    *
    * Set OPTA_POINTS_PROXY to the tunnelled listener and
    * VITE_POINTS_API_BASE=/api/points:
-   *   ssh -N -L 8791:127.0.0.1:8791 root@144.202.58.6
+   *   ssh -N -L 8791:127.0.0.1:8791 <VPS_USER>@<VPS_IP>
    *
    * `server` applies to `vite dev` only; the production build is unaffected.
    */

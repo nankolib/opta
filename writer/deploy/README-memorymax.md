@@ -1,4 +1,4 @@
-# MemoryMax on the shared VPS (144.202.58.6, 1958 MB total)
+# MemoryMax on the shared VPS (<VPS_IP>, 1958 MB total)
 
 Live measurement (Gate 2A, 2026-07-17):
 
@@ -23,7 +23,7 @@ Combined hard cap = 750 MB of 1958 MB → ~1.2 GB headroom + 5.4 GB swap backsto
 ## Apply the crank cap on the box (one-time, alongside the writer deploy)
 
 ```bash
-# On 144.202.58.6:
+# On <VPS_IP>:
 sudo systemctl edit opta-crank          # (or edit the unit directly)
 # add under [Service]:
 #   MemoryMax=400M

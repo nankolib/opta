@@ -7,7 +7,7 @@
 # Until then the points API is loopback-only (127.0.0.1:8791) and unreachable
 # from the internet.
 #
-# See indexer/GO-LIVE.md step 1 for the ordered apply + verify + rollback.
+# See GO-LIVE.md in the private opta-ops repo (indexer/GO-LIVE.md there) for the ordered apply + verify + rollback.
 #
 # opta.fyi is the LIVE production site (nginx reverse-proxy -> Vercel). Every
 # edit here risks the whole domain, which is why it ships staged.

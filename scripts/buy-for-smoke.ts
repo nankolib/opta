@@ -66,7 +66,7 @@ async function main() {
 
   const keypairPath =
     process.env.OPTA_KEYPAIR ??
-    path.join(process.env.HOME ?? "/home/nanko", ".config/solana/id.json");
+    path.join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".config/solana/id.json");
   const rawKey = JSON.parse(fs.readFileSync(keypairPath, "utf-8"));
   const operator = Keypair.fromSecretKey(Uint8Array.from(rawKey));
   const wallet = new anchor.Wallet(operator);

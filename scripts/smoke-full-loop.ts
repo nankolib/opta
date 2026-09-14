@@ -103,7 +103,7 @@ async function main() {
   // ---- 1. Connect ----------------------------------------------------------
   const operatorKeypairPath =
     process.env.OPTA_KEYPAIR ??
-    path.join(process.env.HOME ?? "/home/nanko", ".config/solana/id.json");
+    path.join(process.env.HOME ?? process.env.USERPROFILE ?? ".", ".config/solana/id.json");
   const operator = Keypair.fromSecretKey(
     Uint8Array.from(JSON.parse(fs.readFileSync(operatorKeypairPath, "utf-8"))),
   );
@@ -542,7 +542,7 @@ async function main() {
   console.log(``);
   console.log(`START THE CRANK in a separate WSL shell:`);
   console.log(
-    `wsl -- bash -lc "cd '/mnt/d/claude everything/butter_options/crank' && export OPTA_RPC_URL='${rpcUrl}' && export OPTA_CRANK_TICK_MS=30000 && npm start"`,
+    `wsl -- bash -lc "cd '<REPO_ROOT>/crank' && export OPTA_RPC_URL='${rpcUrl}' && export OPTA_CRANK_TICK_MS=30000 && npm start"`,
   );
   console.log(``);
   console.log(`THEN WATCH for these log lines (in this order, on the same vault):`);
@@ -555,7 +555,7 @@ async function main() {
   console.log(``);
   console.log(`STOP THE CRANK after step 6 fires (Ctrl+C). Then run:`);
   console.log(
-    `wsl -- bash -lc "cd '/mnt/d/claude everything/butter_options' && export RPC_URL='${rpcUrl}' && npx ts-node scripts/smoke-full-loop-verify.ts"`,
+    `wsl -- bash -lc "cd '<REPO_ROOT>' && export RPC_URL='${rpcUrl}' && npx ts-node scripts/smoke-full-loop-verify.ts"`,
   );
   console.log(sep);
 

@@ -22,7 +22,7 @@ export const EPOCH0_UI: boolean = import.meta.env.VITE_EPOCH0_UI === "1";
  * Points API origin.
  *
  * Dev: an SSH tunnel to the VPS loopback listener —
- *   ssh -N -L 8791:127.0.0.1:8791 root@144.202.58.6
+ *   ssh -N -L 8791:127.0.0.1:8791 <VPS_USER>@<VPS_IP>
  *   VITE_POINTS_API_BASE=http://127.0.0.1:8791/api/points
  * Prod: https://opta.fyi/api/points, set only at the GO-LIVE nginx flip.
  */

@@ -1,7 +1,7 @@
 // LOCAL one-shot — fund the opta-writer wallet for the FULL-BOARD scale-up.
 // Mints devnet test USDC (admin 5YRMuuoY is the mint authority) to the writer's
 // USDC ATA, and optionally tops up SOL for the cold-board account-rent lock.
-// Signs with the admin keypair (WSL-only /home/nanko/.config/solana/id.json) —
+// Signs with the admin keypair (WSL-only $HOME/.config/solana/id.json) —
 // read in place, never printed. SIMULATE by default; OPTA_FUND_SEND=1 to send.
 //
 // Sizing (from crank/_probe_fullboard_collateral.ts at current SB spots), with
@@ -24,7 +24,7 @@ import { getAssociatedTokenAddressSync, createMintToInstruction, TOKEN_PROGRAM_I
 
 const RPC = process.env.OPTA_RPC_URL || "https://api.devnet.solana.com";
 const SEND = process.env.OPTA_FUND_SEND === "1";
-const KEYPATH = process.env.ADMIN_KEYPATH || "/home/nanko/.config/solana/id.json";
+const KEYPATH = process.env.ADMIN_KEYPATH || (process.env.HOME ?? process.env.USERPROFILE ?? ".") + "/.config/solana/id.json";
 const USDC_MINT = new PublicKey("AytU5HUQRew9VdUdrzQuZvZ7s14pHLiYjAF5WqdK3oxL");
 const WRITER = new PublicKey("HgafDv195BtNc8X4uvNoRuGcUra5PuUwDJgHeKHvgFiS");
 const USDC_AMOUNT = Number(process.env.OPTA_FUND_USDC ?? "1650000");   // human USDC to MINT (board net SBXAU + buffer)
