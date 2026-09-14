@@ -28,7 +28,7 @@ pub const TREASURY_SEED: &[u8] = b"treasury_v2";
 /// initialize_protocol. Closes audit Run-6 finding CRIT-3, which
 /// flagged the original unauthenticated handler as letting the
 /// first on-chain caller seize protocol admin permanently. The
-/// literal corresponds to $HOME/.config/solana/id.json on
+/// literal corresponds to /home/nanko/.config/solana/id.json on
 /// the dev machine; this is also the upgrade authority on devnet
 /// for both opta and opta-transfer-hook.
 pub const DEPLOYER_PUBKEY: Pubkey =
