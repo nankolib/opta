@@ -94,3 +94,6 @@ crank/_sb_endpoint.log
 
 # vC3 test runner transpile output (node --test consumes it; never committed)
 mobile/test/out/
+
+# Codex CLI config (carries a Colosseum PAT)
+.codex/
