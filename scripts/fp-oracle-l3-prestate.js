@@ -62,12 +62,12 @@ const g = (o, a, b) => (o[a] !== undefined ? o[a] : o[b]);
       if (potLive) potOpen++;
       if (!clean || potLive || (!settled && !voided)) rows.push(`${d.pk.toBase58()} settled=${settled} voided=${voided} total_collateral=${coll} pots=${vp.length} pot_collateral=[${potColl.join(",")}]${clean ? "" : "  <-- OPEN"}${potLive ? "  <-- POT LIVE (invisible to the on-chain guard)" : ""}`);
     }
-    console.log(`  pots on this market: ${potCount}; unsettled vaults with live pot collateral: ${potOpen}`);
     console.log(`\n== ${name} ==`);
     console.log(`  market          ${market.toBase58()} exists=${!!mi} len=${mi ? mi.data.length : "-"} oracle_source=${m ? g(m, "oracle_source", "oracleSource") : "-"} feed_id_matches=${m ? Buffer.from(g(m, "pyth_feed_id", "pythFeedId")).equals(feed) : "-"}`);
     console.log(`  vol_oracle      ${vol.toBase58()} exists=${!!vi} oracle_source=${v ? g(v, "oracle_source", "oracleSource") : "-"} sample_count=${v ? g(v, "sample_count", "sampleCount") : "-"} last_sample_ts=${v ? g(v, "last_sample_ts", "lastSampleTs") : "-"} seed_vol=${v ? g(v, "seed_vol", "seedVol") : "-"}`);
     console.log(`  opta_price_feed ${opta.toBase58()} exists=${!!oi}${oi ? "  (NOT a genesis — STOP)" : "  (absent: genesis pending)"}`);
     console.log(`  vaults: memcmp=${target.length} in-memory=${mem.length} agree=${agree} unclean=${unclean}${agree ? "" : "  <-- OFFSET WRONG, STOP"}`);
+    console.log(`  pots on this market: ${potCount}; unsettled vaults with live pot collateral: ${potOpen}`);
     for (const r of rows) console.log("    " + r);
   }
 })().catch((e) => { console.error("failed:", e.message); process.exit(2); });
