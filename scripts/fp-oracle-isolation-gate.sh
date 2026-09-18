@@ -27,7 +27,7 @@
 # isolation and the plug ceremony has begun -- not a reason to weaken the gate.
 # =============================================================================
 
-set -uo pipefail
+set -euo pipefail
 
 BASE="${1:-origin/master}"
 SCOPE="programs/opta/src"
@@ -72,7 +72,7 @@ done < <(echo "${changed}" | grep -E "${REGISTRATION_FILES}")
 echo
 
 echo "FORBIDDEN — anything else in ${SCOPE}:"
-others=$(echo "${changed}" | grep -Ev "${MODULE_FILES}" | grep -Ev "${REGISTRATION_FILES}")
+others=$(echo "${changed}" | grep -Ev "${MODULE_FILES}" | grep -Ev "${REGISTRATION_FILES}" || true)
 if [ -n "${others}" ]; then
   echo "${others}" | sed 's/^/    FAIL /'
   fail=1

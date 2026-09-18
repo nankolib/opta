@@ -19,7 +19,7 @@
 # Logs are written under .context/fp/ — WSL /tmp does not survive between
 # invocations, and a proof whose evidence evaporates is not a proof.
 # ============================================================================
-set -u
+set -euo pipefail
 cd "$(dirname "$0")/.."
 SRC="programs/opta/src/instructions/set_oracle_source.rs"
 TEST="tests/bankrun/fp-oracle-arms.test.ts"
@@ -30,6 +30,7 @@ MUT_TEST_LOG="$LOGDIR/mutation-mocha.log"
 say() { printf '%s\n' "$*"; }
 inconclusive() { say ""; say "RESULT: INCONCLUSIVE — $*"; say "(not a pass)"; restore; exit 2; }
 
+[ -f "$SRC" ] || { say "RESULT: INCONCLUSIVE — $SRC missing"; say "(not a pass)"; exit 2; }
 ORIG="$(cat "$SRC")"
 restore() {
   printf '%s\n' "$ORIG" > "$SRC"
@@ -47,7 +48,7 @@ say "FP-ORACLE D1 GUARD MUTATION"
 say "=========================================================================="
 
 # ---- mutate: drop everything between the markers (inclusive) ---------------
-python3 - "$SRC" <<'PY'
+python3 - "$SRC" <<'PY' || inconclusive "could not strip the guard block"
 import sys, io, re
 p = sys.argv[1]; s = io.open(p, encoding="utf-8").read()
 m = re.search(r"    // ---- D1 GUARD.*?// END D1-GUARD\n", s, re.S)
@@ -55,7 +56,6 @@ if not m: sys.exit(9)
 s2 = s[:m.start()] + "    // [MUTANT] D1 guard deleted by scripts/fp-oracle-guard-mutation.sh\n" + s[m.end():]
 io.open(p, "w", encoding="utf-8", newline="\n").write(s2)
 PY
-[ $? -eq 0 ] || inconclusive "could not strip the guard block"
 grep -q "BEGIN D1-GUARD" "$SRC" && inconclusive "mutation did not apply"
 say "mutant written (guard block removed): $(grep -c MUTANT "$SRC") marker"
 
@@ -68,14 +68,13 @@ fi
 
 # ---- run the arms suite; the guard tests must FAIL --------------------------
 say "running $TEST against the mutant ..."
-npx ts-mocha -p ./tsconfig.json -t 180000 "$TEST" >"$MUT_TEST_LOG" 2>&1
-rc=$?
+rc=0; npx ts-mocha -p ./tsconfig.json -t 180000 "$TEST" >"$MUT_TEST_LOG" 2>&1 || rc=$?
 GUARD_IN_FILE=$(grep -cE '^\s*it\("D1 guard' "$TEST" || true)
-FAIL_NAMES=$(grep -E '^\s+[0-9]+\) ' "$MUT_TEST_LOG" | grep -vE '^\s+[0-9]+\) FP-ORACLE wave' | sed -E 's/^\s+[0-9]+\) //' | sort -u)
+FAIL_NAMES=$(grep -E '^\s+[0-9]+\) ' "$MUT_TEST_LOG" | grep -vE '^\s+[0-9]+\) FP-ORACLE wave' | sed -E 's/^\s+[0-9]+\) //' | sort -u || true)
 GUARD_FAILS=$(printf '%s\n' "$FAIL_NAMES" | grep -c "D1 guard" || true)
 OTHER_FAILS=$(printf '%s\n' "$FAIL_NAMES" | grep -v "D1 guard" | grep -c . || true)
 say "  mocha exit=$rc   D1-guard tests in file: $GUARD_IN_FILE   failing on mutant: guard=$GUARD_FAILS other=$OTHER_FAILS"
-grep -E "passing|failing" "$MUT_TEST_LOG" | sed 's/^/  /'
+grep -E "passing|failing" "$MUT_TEST_LOG" | sed 's/^/  /' || true
 say "  failing on the mutant — the names ARE the proof:"
 printf '%s\n' "$FAIL_NAMES" | sed 's/^/    /'
 

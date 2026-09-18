@@ -23,7 +23,7 @@
 #           absorbed to null (web3.js graceful-degrade path) and must NOT
 #           reach the unhandledRejection handler at all.
 # ============================================================================
-set -u
+set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$REPO/crank/fpOracleMain.ts"
@@ -55,7 +55,7 @@ say "  node   : $(node --version)"
 say "=========================================================================="
 
 # ---- extract the two handlers verbatim -------------------------------------
-node -e '
+if ! node -e '
 const fs=require("fs");
 const s=fs.readFileSync(process.argv[1],"utf8");
 function grab(name){
@@ -70,8 +70,7 @@ function grab(name){
 const a=grab("unhandledRejection"), b=grab("uncaughtException");
 if(!a){ console.error("NOTFOUND"); process.exit(9); }
 fs.writeFileSync(process.argv[2], a+"\n"+(b||"")+"\n");
-' "$SRC" "$WORK/handlers.ts"
-if [ $? -ne 0 ]; then
+' "$SRC" "$WORK/handlers.ts"; then
   say ""
   say "RESULT: FAIL — no process.on(\"unhandledRejection\") found in fpOracleMain.ts"
   exit 1
@@ -113,7 +112,7 @@ setTimeout(() => { log("error", "SURVIVED — process did not die"); process.exi
 LEAK
 
 run_case() {  # $1=file  -> sets RC, OUT
-  OUT="$(cd "$REPO/crank" && "$NODE_BIN" --require "$TSNODE/register" "$1" 2>&1)"; RC=$?
+  RC=0; OUT="$(cd "$REPO/crank" && "$NODE_BIN" --require "$TSNODE/register" "$1" 2>&1)" || RC=$?
   # A TS compile failure also exits 1 and would let "exits 1" pass for the
   # wrong reason. Treat it as inconclusive, never as a result.
   case "$OUT" in *"Unable to compile TypeScript"*|*"TSError"*)

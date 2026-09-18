@@ -9,7 +9,7 @@
 # `anchor` on PATH stays 1.1.2. A build under the wrong CLI is not the artifact
 # that was soaked. Run with PATH="$HOME/.local/anchor032:$PATH".
 # ============================================================================
-set -u
+set -euo pipefail
 want_anchor="0.32.1"
 want_solana="4.1.0"      # Agave 4.1.x — SBPFv3 verifier; 2.2.14 rejects locally
 fail=0; inc=0
