@@ -24,6 +24,8 @@ import {
   OptionPriceQuoteFailure, type OptionPriceQuote,
 } from "../../utils/optionPriceQuote";
 import type { UnifiedChainRow } from "../../hooks/useUnifiedChain";
+import { useVolOracleStatus } from "../../hooks/useVolOracleStatus";
+import { writeWarmupGate } from "../../utils/oracleArm";
 import {
   alreadyMetLegs, alreadyMetMessage, formatSpotForLabel, isEffectivelyWorthless,
   spotAnchoredPlaceholder,
@@ -552,6 +554,29 @@ export const OrderTicket: FC<{
     return `$${s}`;
   };
 
+  // Plug wave 1 write-gate (D2 condition 2): a source-2 market is write-closed
+  // until its vol ring is warm. Read the market for source + feed, then the
+  // oracle's sample_count; self-lifting at 168. Sources 0/1 are unaffected.
+  const [writeMarket, setWriteMarket] = useState<{ feedIdHex: string; oracleSource: number } | null>(null);
+  useEffect(() => {
+    if (!isWrite || !program) { setWriteMarket(null); return; }
+    let alive = true;
+    (async () => {
+      try {
+        const marketPda = PublicKey.findProgramAddressSync([Buffer.from(MARKET_SEED), Buffer.from(row.asset)], PROGRAM_ID)[0];
+        const mkt: any = await (program.account as any).optionsMarket.fetch(marketPda);
+        if (alive) setWriteMarket({ feedIdHex: Buffer.from(mkt.pythFeedId as number[]).toString("hex"), oracleSource: Number(mkt.oracleSource ?? 0) });
+      } catch {
+        if (alive) setWriteMarket(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, [isWrite, program, row.asset]);
+  const writeFeeds = useMemo(() => (writeMarket ? [writeMarket.feedIdHex] : []), [writeMarket]);
+  const writeOracle = useVolOracleStatus(writeFeeds);
+  const warmupGate = !isWrite || !writeMarket ? null
+    : writeWarmupGate(writeMarket.oracleSource, writeOracle.warmup.get(writeMarket.feedIdHex)?.sampleCount ?? null);
+
   // Write (WriterAsk) collateral gate — series+American only; collateral = strike × qty.
   const writeNeed = row.strike * qty;
   const writeGate = !isWrite ? null
@@ -559,6 +584,7 @@ export const OrderTicket: FC<{
     : row.exerciseStyle !== "american" ? "Writer-asks are American-only"
     : (usdcBalance != null && usdcBalance < writeNeed) ? `Insufficient USDC · need ${fmt(writeNeed)}`
     : !(limitPrice > 0) ? "Set an ask price"
+    : warmupGate ? warmupGate
     : null;
 
   const limitGate = (!isWrite && type === "limit" && !(limitPrice > 0)) ? "Set a limit price" : null;

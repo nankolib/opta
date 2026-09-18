@@ -3,6 +3,7 @@ import { useConnection } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { useProgram } from "./useProgram";
 import { VOL_ORACLE_SEED } from "../utils/constants";
+import { decodeVolOracleWarmup, writeWarmupGate, type VolOracleWarmup } from "../utils/oracleArm";
 
 // =============================================================================
 // useVolOracleStatus — surface vol-oracle coverage state to the Write flow
@@ -88,6 +89,10 @@ export function decodeOracleSpot(data: Uint8Array | Buffer): number | null {
  *  10 s poll surfaces the flip promptly without being a busy-wait. */
 export const VOL_ORACLE_POLL_MS = 10_000;
 
+/** Poll cadence while a seeded source-2 oracle is still WARMING (write-gate
+ *  closed). sample_count moves once an hour, so a minute is generous. */
+export const VOL_ORACLE_WARMUP_POLL_MS = 60_000;
+
 /** Human-facing wait, used by every "oracle pending" string. ONE constant, so
  *  the copy can never drift from the crank's actual behaviour again — it said
  *  "~1 hour" for weeks after the hourly pass stopped being the only seeder. */
@@ -113,6 +118,10 @@ export type VolOracleStatus = {
   /** Feed ids confirmed unseeded as of the last scan. May be stale —
    *  always re-check via checkOne before throwing a hard block. */
   unseeded: ReadonlySet<string>;
+  /** Per feed id: sample_count + oracle_source from the last read of a
+   *  SEEDED oracle. Feeds the plug-wave-1 write-gate (utils/oracleArm
+   *  writeWarmupGate). Re-read each scan while the gate is closed. */
+  warmup: ReadonlyMap<string, VolOracleWarmup>;
   /** True while a scan is in flight. */
   loading: boolean;
   /** Trigger a fresh batched re-scan of all currently-known feeds. */
@@ -120,6 +129,9 @@ export type VolOracleStatus = {
   /** Submit-click pre-flight. Returns true iff the oracle exists on-chain
    *  at call time. Updates the cache in either direction. */
   checkOne: (feedIdHex: string) => Promise<boolean>;
+  /** Submit-click pre-flight for WRITES: fresh chain read; null = writable
+   *  now, string = the reason it is not (unseeded, or source-2 warming). */
+  checkWritable: (feedIdHex: string) => Promise<string | null>;
 };
 
 export function useVolOracleStatus(
@@ -129,11 +141,14 @@ export function useVolOracleStatus(
   const { program } = useProgram();
   const [seeded, setSeeded] = useState<Set<string>>(new Set());
   const [unseeded, setUnseeded] = useState<Set<string>>(new Set());
+  const [warmup, setWarmup] = useState<Map<string, VolOracleWarmup>>(new Map());
   const [loading, setLoading] = useState(false);
 
   // Stable refs so callbacks don't re-create on every state update.
   const seededRef = useRef(seeded);
   seededRef.current = seeded;
+  const warmupRef = useRef(warmup);
+  warmupRef.current = warmup;
   const programIdRef = useRef<PublicKey | null>(program?.programId ?? null);
   programIdRef.current = program?.programId ?? null;
 
@@ -147,8 +162,14 @@ export function useVolOracleStatus(
     setLoading(true);
     try {
       const normalized = feedIdHexes.map(normFeed);
-      // Skip ones we already know are seeded (monotonic property).
-      const toCheck = normalized.filter((f) => !seededRef.current.has(f));
+      // Skip ones we already know are seeded (monotonic property) — EXCEPT a
+      // seeded source-2 oracle whose write-gate is still closed: its
+      // sample_count moves hourly and the gate must lift on its own.
+      const toCheck = normalized.filter((f) => {
+        if (!seededRef.current.has(f)) return true;
+        const w = warmupRef.current.get(f);
+        return !!w && writeWarmupGate(w.oracleSource, w.sampleCount) !== null;
+      });
       if (toCheck.length === 0) {
         // Reset unseeded to empty — everything we know about is seeded.
         setUnseeded(new Set());
@@ -158,14 +179,19 @@ export function useVolOracleStatus(
       const infos = await connection.getMultipleAccountsInfo(pdas, "confirmed");
       const newSeeded = new Set(seededRef.current);
       const newUnseeded = new Set<string>();
+      const newWarmup = new Map(warmupRef.current);
       for (let i = 0; i < toCheck.length; i++) {
         const acct = infos[i];
         const exists = !!acct && acct.owner.equals(pid);
-        if (exists) newSeeded.add(toCheck[i]);
-        else newUnseeded.add(toCheck[i]);
+        if (exists) {
+          newSeeded.add(toCheck[i]);
+          const w = decodeVolOracleWarmup(acct!.data);
+          if (w) newWarmup.set(toCheck[i], w);
+        } else newUnseeded.add(toCheck[i]);
       }
       setSeeded(newSeeded);
       setUnseeded(newUnseeded);
+      setWarmup(newWarmup);
     } catch (err) {
       console.warn("[useVolOracleStatus] scan failed:", err);
       // Leave existing cache state untouched on transient RPC errors.
@@ -203,13 +229,19 @@ export function useVolOracleStatus(
   // the effect tears its own interval down the moment the set empties (and
   // `seeded` is monotonic, so it cannot re-arm spuriously). Paused while the
   // tab is hidden — the visibilitychange handler above re-scans on return.
+  //
+  // Plug wave 1: also poll (slowly) while any seeded source-2 oracle is still
+  // warming, so the write-gate lifts without a reload.
+  let warmingCount = 0;
+  for (const w of warmup.values()) if (writeWarmupGate(w.oracleSource, w.sampleCount) !== null) warmingCount++;
   useEffect(() => {
-    if (unseeded.size === 0) return;
+    const cadence = unseeded.size > 0 ? VOL_ORACLE_POLL_MS : warmingCount > 0 ? VOL_ORACLE_WARMUP_POLL_MS : 0;
+    if (cadence === 0) return;
     const id = window.setInterval(() => {
       if (!document.hidden) scan();
-    }, VOL_ORACLE_POLL_MS);
+    }, cadence);
     return () => window.clearInterval(id);
-  }, [unseeded.size, scan]);
+  }, [unseeded.size, warmingCount, scan]);
 
   const checkOne = useCallback(
     async (feedIdHex: string): Promise<boolean> => {
@@ -253,5 +285,31 @@ export function useVolOracleStatus(
     [connection],
   );
 
-  return { seeded, unseeded, loading, refresh: scan, checkOne };
+  // Write pre-flight: existence AND warmup, from one fresh read.
+  const checkWritable = useCallback(
+    async (feedIdHex: string): Promise<string | null> => {
+      const pid = programIdRef.current;
+      if (!pid) return "Wallet program not ready — please retry.";
+      const normalized = normFeed(feedIdHex);
+      const pda = deriveVolOraclePda(normalized, pid);
+      try {
+        const info = await connection.getAccountInfo(pda, "confirmed");
+        const exists = !!info && info.owner.equals(pid);
+        if (!exists) {
+          setUnseeded((prev) => (prev.has(normalized) ? prev : new Set(prev).add(normalized)));
+          return `Pricing is still warming up — this takes ${VOL_ORACLE_EXPECTED_WAIT} after a market is created. This unblocks itself; no need to reload.`;
+        }
+        setSeeded((prev) => (prev.has(normalized) ? prev : new Set(prev).add(normalized)));
+        const w = decodeVolOracleWarmup(info!.data);
+        if (w) setWarmup((prev) => new Map(prev).set(normalized, w));
+        return writeWarmupGate(w?.oracleSource ?? null, w?.sampleCount ?? null);
+      } catch (err) {
+        console.warn("[useVolOracleStatus] checkWritable RPC failed:", err);
+        return "Could not confirm pricing state — please retry.";
+      }
+    },
+    [connection],
+  );
+
+  return { seeded, unseeded, warmup, loading, refresh: scan, checkOne, checkWritable };
 }

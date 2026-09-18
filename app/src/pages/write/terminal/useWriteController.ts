@@ -100,7 +100,10 @@ type ControllerInput = {
   singleTenor: TenorLabel;
   split: Record<TenorLabel, number>;
   unseededTickers: ReadonlySet<string>;
-  checkVolOracle: (feedIdHex: string) => Promise<boolean>;
+  /** Plug wave 1: ticker -> reason for source-2 markets whose vol ring is still warming. */
+  warmupBlocks: ReadonlyMap<string, string>;
+  /** Fresh chain read at submit: null = writable now, string = why not. */
+  checkVolOracle: (feedIdHex: string) => Promise<string | null>;
   onSuccess: (payload: WriteSuccessPayload) => void;
 };
 
@@ -114,6 +117,7 @@ export function useWriteController(input: ControllerInput): WriteController {
     singleTenor,
     split,
     unseededTickers,
+    warmupBlocks,
     checkVolOracle,
     onSuccess,
   } = input;
@@ -254,11 +258,13 @@ export function useWriteController(input: ControllerInput): WriteController {
 
   const volOracleBlock = useMemo<Gate>(() => {
     if (!chosen) return null;
+    const warming = warmupBlocks.get(chosen.ticker);
+    if (warming) return { tooltip: warming };
     if (!unseededTickers.has(chosen.ticker)) return null;
     return {
       tooltip: `Pricing for ${chosen.ticker} is still warming up — this takes ${VOL_ORACLE_EXPECTED_WAIT} after a market is created. This unblocks itself; no need to reload.`,
     };
-  }, [chosen, unseededTickers]);
+  }, [chosen, unseededTickers, warmupBlocks]);
 
   // H-05 American on-chain quote freshness — expiry-independent verdict, so the
   // front/single expiry validates the whole write. Same authority as Trade.
@@ -314,12 +320,8 @@ export function useWriteController(input: ControllerInput): WriteController {
       // Submit-click pre-flight — re-check the oracle against the chain right now
       // (the crank may have seeded it since the last scan).
       const feedIdHex = Buffer.from(chosen.market.account.pythFeedId as number[]).toString("hex");
-      const oracleOk = await checkVolOracle(feedIdHex);
-      if (!oracleOk) {
-        throw new Error(
-          `Pricing for ${chosen.ticker} is still warming up — this takes ${VOL_ORACLE_EXPECTED_WAIT} after a market is created. This unblocks itself; no need to reload.`,
-        );
-      }
+      const notWritable = await checkVolOracle(feedIdHex);
+      if (notWritable) throw new Error(notWritable);
 
       const writeCells: WriteCell[] = cells.map((c) => ({
         expiryTs: c.expiryTs,

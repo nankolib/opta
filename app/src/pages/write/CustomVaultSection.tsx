@@ -40,7 +40,10 @@ type CustomVaultSectionProps = {
   /** Submit-click pre-flight that re-checks the chosen asset's oracle PDA
    *  against the chain — catches the race where the crank just seeded it
    *  but the cache hasn't refreshed. Returns true iff oracle exists now. */
-  checkVolOracle: (feedIdHex: string) => Promise<boolean>;
+  /** Plug wave 1: ticker -> reason for source-2 markets whose vol ring is still warming. */
+  warmupBlocks: ReadonlyMap<string, string>;
+  /** Fresh chain read at submit: null = writable now, string = why not. */
+  checkVolOracle: (feedIdHex: string) => Promise<string | null>;
 };
 
 /**
@@ -56,6 +59,7 @@ export const CustomVaultSection: FC<CustomVaultSectionProps> = ({
   spotStale,
   onSuccess,
   unseededTickers,
+  warmupBlocks,
   checkVolOracle,
 }) => {
   const { connected } = useWallet();
@@ -89,11 +93,13 @@ export const CustomVaultSection: FC<CustomVaultSectionProps> = ({
   // on chain — otherwise mint_from_vault reverts with Anchor 3007.
   const volOracleBlock = useMemo<{ tooltip: string } | null>(() => {
     if (!chosen) return null;
+    const warming = warmupBlocks.get(chosen.ticker);
+    if (warming) return { tooltip: warming };
     if (!unseededTickers.has(chosen.ticker)) return null;
     return {
       tooltip: `Vol oracle for ${chosen.ticker} not yet seeded. New markets need ~1 hour for the oracle crank to initialize the oracle. Try again later, or contact support if this persists past 24 hours.`,
     };
-  }, [chosen, unseededTickers]);
+  }, [chosen, unseededTickers, warmupBlocks]);
 
   // H-05: American writes require a FRESH on-chain quote (vol oracle warm +
   // not-stale + initialized). The freshness verdict is expiry-independent, so
@@ -130,12 +136,8 @@ export const CustomVaultSection: FC<CustomVaultSectionProps> = ({
       // oracle since the last scan. If still missing, refuse with a
       // friendly toast rather than letting the mint revert with 3007 mid-flight.
       const feedIdHex = Buffer.from(chosen.market.account.pythFeedId as number[]).toString("hex");
-      const oracleOk = await checkVolOracle(feedIdHex);
-      if (!oracleOk) {
-        throw new Error(
-          `Vol oracle for ${chosen.ticker} not yet seeded. New markets need ~1 hour for the oracle crank to initialize the oracle. Try again later, or contact support if this persists past 24 hours.`,
-        );
-      }
+      const notWritable = await checkVolOracle(feedIdHex);
+      if (notWritable) throw new Error(notWritable);
 
       // MED-6: prefer Advanced-mode override if writer provided a valid
       // positive value. Empty string or invalid input falls back to the

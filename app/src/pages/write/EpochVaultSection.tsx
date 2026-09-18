@@ -41,7 +41,10 @@ type EpochVaultSectionProps = {
   onSuccess: (payload: WriteSuccessPayload) => void;
   /** W1 vol-oracle gate inputs. See CustomVaultSection for full notes. */
   unseededTickers: ReadonlySet<string>;
-  checkVolOracle: (feedIdHex: string) => Promise<boolean>;
+  /** Plug wave 1: ticker -> reason for source-2 markets whose vol ring is still warming. */
+  warmupBlocks: ReadonlyMap<string, string>;
+  /** Fresh chain read at submit: null = writable now, string = why not. */
+  checkVolOracle: (feedIdHex: string) => Promise<string | null>;
 };
 
 /**
@@ -58,6 +61,7 @@ export const EpochVaultSection: FC<EpochVaultSectionProps> = ({
   spotStale,
   onSuccess,
   unseededTickers,
+  warmupBlocks,
   checkVolOracle,
 }) => {
   const { connected } = useWallet();
@@ -148,11 +152,13 @@ export const EpochVaultSection: FC<EpochVaultSectionProps> = ({
   // W1 vol-oracle gate. See CustomVaultSection for full notes.
   const volOracleBlock = useMemo<{ tooltip: string } | null>(() => {
     if (!chosen) return null;
+    const warming = warmupBlocks.get(chosen.ticker);
+    if (warming) return { tooltip: warming };
     if (!unseededTickers.has(chosen.ticker)) return null;
     return {
       tooltip: `Vol oracle for ${chosen.ticker} not yet seeded. New markets need ~1 hour for the oracle crank to initialize the oracle. Try again later, or contact support if this persists past 24 hours.`,
     };
-  }, [chosen, unseededTickers]);
+  }, [chosen, unseededTickers, warmupBlocks]);
 
   // H-05: American writes require a FRESH on-chain quote (vol oracle warm +
   // not-stale + initialized) — expiry-independent, so the front (earliest)
@@ -183,12 +189,8 @@ export const EpochVaultSection: FC<EpochVaultSectionProps> = ({
     try {
       // W1 submit-click pre-flight — see CustomVaultSection for full notes.
       const feedIdHex = Buffer.from(chosen.market.account.pythFeedId as number[]).toString("hex");
-      const oracleOk = await checkVolOracle(feedIdHex);
-      if (!oracleOk) {
-        throw new Error(
-          `Vol oracle for ${chosen.ticker} not yet seeded. New markets need ~1 hour for the oracle crank to initialize the oracle. Try again later, or contact support if this persists past 24 hours.`,
-        );
-      }
+      const notWritable = await checkVolOracle(feedIdHex);
+      if (notWritable) throw new Error(notWritable);
 
       // MED-6: prefer Advanced-mode override if valid + positive. Otherwise the
       // Black-Scholes default — recomputed PER CELL on each cell's expiry below.

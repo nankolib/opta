@@ -17,6 +17,8 @@ import { AnchorProvider, BN, Program, Wallet } from "@coral-xyz/anchor";
 import {
   chooseOracleArm, spotSourceOf, optaPriceFeedPda, decodeOptaFeed,
   ORACLE_SOURCE_OPTA, OPTA_FEED_MIN_LEN, UnknownOracleSourceError,
+  decodeVolOracleWarmup, writeWarmupGate, VOL_ORACLE_WARMUP_SAMPLES, VOL_ORACLE_ACCOUNT_LEN,
+  VOL_ORACLE_SAMPLE_COUNT_OFFSET, VOL_ORACLE_SOURCE_OFFSET,
 } from "./oracleArm";
 import { chooseExerciseArm, EXERCISE_ACCOUNT_INDEX } from "./exerciseArm";
 import { buildOptaExerciseAmericanIx } from "./pythPullPost";
@@ -150,4 +152,28 @@ test("trigger placement and mint builders carry no oracle account; exactly the p
   }
   // execute_trigger is the crank's instruction; the FE never builds it.
   assert.equal(byName.get("place_trigger")!.includes("opta_price_feed"), false);
+});
+
+// ---- write-gate through vol warmup (D2 condition 2) ---------------------------
+test("write-gate: sources 0/1 never gated; source 2 gated until 168 samples; unread = gated", () => {
+  for (const src of [0, 1, 7]) for (const n of [null, 0, 167, 720]) assert.equal(writeWarmupGate(src, n), null);
+  assert.match(writeWarmupGate(2, null)!, /first pricing week/);
+  assert.match(writeWarmupGate(2, undefined)!, /first pricing week/);
+  assert.match(writeWarmupGate(2, 0)!, /0 of 168/);
+  assert.match(writeWarmupGate(2, 167)!, /167 of 168/);
+  assert.equal(writeWarmupGate(2, VOL_ORACLE_WARMUP_SAMPLES), null, "self-lifts at exactly 168");
+  assert.equal(writeWarmupGate(2, 720), null);
+  for (const g of [writeWarmupGate(2, null)!, writeWarmupGate(2, 5)!]) assert.doesNotMatch(g, /pyth|switchboard|hermes|vendor/i);
+});
+
+test("decodeVolOracleWarmup reads sample_count and oracle_source at the live-verified offsets", () => {
+  const d = new Uint8Array(VOL_ORACLE_ACCOUNT_LEN);
+  const v = new DataView(d.buffer);
+  v.setUint16(VOL_ORACLE_SAMPLE_COUNT_OFFSET, 720, true); d[VOL_ORACLE_SOURCE_OFFSET] = 1;
+  assert.deepEqual(decodeVolOracleWarmup(d), { sampleCount: 720, oracleSource: 1 }, "the BTC oracle as read on 2026-09-18");
+  v.setUint16(VOL_ORACLE_SAMPLE_COUNT_OFFSET, 42, true); d[VOL_ORACLE_SOURCE_OFFSET] = 2;
+  const w = decodeVolOracleWarmup(d)!;
+  assert.deepEqual(w, { sampleCount: 42, oracleSource: 2 });
+  assert.match(writeWarmupGate(w.oracleSource, w.sampleCount)!, /42 of 168/);
+  assert.equal(decodeVolOracleWarmup(new Uint8Array(100)), null, "short buffer");
 });

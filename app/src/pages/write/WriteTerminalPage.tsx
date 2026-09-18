@@ -27,6 +27,7 @@ import { safeFetchAll } from "../../hooks/useFetchAccounts";
 import { useSpotPrices } from "../../hooks/useSpotPrices";
 import { useVolOracleStatus } from "../../hooks/useVolOracleStatus";
 import { hexFromBytes } from "../../utils/format";
+import { spotSourceOf, writeWarmupGate } from "../../utils/oracleArm";
 import { canonicalAsset } from "../../utils/assetDisplay";
 import { ASSET_CLASS_EQUITY, ASSET_CLASS_ETF } from "../../utils/marketHours";
 import { TerminalAppBar } from "../../components/TerminalAppBar";
@@ -119,7 +120,7 @@ export const WriteTerminalPage: FC = () => {
       assets.map((a) => ({
         ticker: a.ticker,
         feedIdHex: hexFromBytes(a.market.account.pythFeedId as number[]),
-        oracleSource: (((a.market.account.oracleSource as number) ?? 0) === 1 ? 1 : 0) as 0 | 1,
+        oracleSource: spotSourceOf(a.market.account.oracleSource),
       })),
     [assets],
   );
@@ -133,6 +134,19 @@ export const WriteTerminalPage: FC = () => {
     }
     return out;
   }, [feeds, volOracleStatus.unseeded]);
+
+  // Plug wave 1 write-gate: a source-2 market is write-closed until its vol
+  // ring is warm (sample_count >= 168). Data-driven, self-lifting, fail-closed
+  // while the oracle has not been read yet. ticker -> reason.
+  const warmupBlocks = useMemo<ReadonlyMap<string, string>>(() => {
+    const out = new Map<string, string>();
+    for (const f of feeds) {
+      const w = volOracleStatus.warmup.get(f.feedIdHex.toLowerCase().replace(/^0x/, ""));
+      const reason = writeWarmupGate(f.oracleSource, w?.sampleCount ?? null);
+      if (reason) out.set(f.ticker, reason);
+    }
+    return out;
+  }, [feeds, volOracleStatus.warmup]);
 
   const tickers = useMemo(() => assets.map((a) => a.ticker), [assets]);
   const chosen = useMemo(() => assets.find((a) => a.ticker === values.asset) ?? null, [assets, values.asset]);
@@ -202,7 +216,8 @@ export const WriteTerminalPage: FC = () => {
     singleTenor,
     split,
     unseededTickers,
-    checkVolOracle: volOracleStatus.checkOne,
+    warmupBlocks,
+    checkVolOracle: volOracleStatus.checkWritable,
     onSuccess: handleSuccess,
   });
 

@@ -11,6 +11,7 @@ import { useVolOracleStatus } from "../../hooks/useVolOracleStatus";
 import { canonicalAsset } from "../../utils/assetDisplay";
 import { usePaperPalette } from "../../hooks";
 import { hexFromBytes } from "../../utils/format";
+import { spotSourceOf, writeWarmupGate } from "../../utils/oracleArm";
 import { PaperGrain, HairlineRule } from "../../components/layout";
 import { AppNav } from "../../components/AppNav";
 import { WRITE_TERMINAL_UI } from "../../utils/constants";
@@ -95,7 +96,7 @@ const WritePageLegacy: FC = () => {
       assets.map((a) => ({
         ticker: a.ticker,
         feedIdHex: hexFromBytes(a.market.account.pythFeedId as number[]),
-        oracleSource: (((a.market.account.oracleSource as number) ?? 0) === 1 ? 1 : 0) as 0 | 1,
+        oracleSource: spotSourceOf(a.market.account.oracleSource),
       })),
     [assets],
   );
@@ -117,6 +118,19 @@ const WritePageLegacy: FC = () => {
     }
     return out;
   }, [feeds, volOracleStatus.unseeded]);
+
+  // Plug wave 1 write-gate: a source-2 market is write-closed until its vol
+  // ring is warm (sample_count >= 168). Data-driven, self-lifting, fail-closed
+  // while the oracle has not been read yet. ticker -> reason.
+  const warmupBlocks = useMemo<ReadonlyMap<string, string>>(() => {
+    const out = new Map<string, string>();
+    for (const f of feeds) {
+      const w = volOracleStatus.warmup.get(f.feedIdHex.toLowerCase().replace(/^0x/, ""));
+      const reason = writeWarmupGate(f.oracleSource, w?.sampleCount ?? null);
+      if (reason) out.set(f.ticker, reason);
+    }
+    return out;
+  }, [feeds, volOracleStatus.warmup]);
 
   const [epochValues, setEpochValues] = useState<WriterFormValues>({
     asset: null,
@@ -283,7 +297,8 @@ const WritePageLegacy: FC = () => {
           spotStale={pricesStale}
           onSuccess={handleSuccess}
           unseededTickers={unseededTickers}
-          checkVolOracle={volOracleStatus.checkOne}
+          warmupBlocks={warmupBlocks}
+          checkVolOracle={volOracleStatus.checkWritable}
         />
 
         <div className="mt-16">
@@ -298,7 +313,8 @@ const WritePageLegacy: FC = () => {
           spotStale={pricesStale}
           onSuccess={handleSuccess}
           unseededTickers={unseededTickers}
-          checkVolOracle={volOracleStatus.checkOne}
+          warmupBlocks={warmupBlocks}
+          checkVolOracle={volOracleStatus.checkWritable}
         />
       </main>
     </div>
