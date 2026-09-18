@@ -28,10 +28,15 @@ if [ "$(command -v anchor 2>/dev/null)" = "$HOME/.cargo/bin/anchor" ]; then
   echo "  WRONG    anchor resolves to ~/.cargo/bin/anchor (the 1.x shadow)"; fail=1
 fi
 # the tree must be the committed one
-if [ -n "$(git status --porcelain -- programs crank app/src tests scripts 2>/dev/null | grep -v '^??')" ]; then
-  echo "  WRONG    working tree has uncommitted changes under programs/crank/app/tests/scripts"; fail=1
+# Content, not bytes: this is a Windows checkout read from WSL, and line endings
+# differ by design (autocrlf on one side only). A CR-only difference is not a
+# change; a real one is.
+if git diff --ignore-cr-at-eol --quiet -- programs crank app/src tests scripts 2>/dev/null; then
+  echo "  ok       working tree clean (content)   HEAD $(git rev-parse --short HEAD)"
 else
-  echo "  ok       working tree clean (tracked)   HEAD $(git rev-parse --short HEAD)"
+  echo "  WRONG    working tree has uncommitted CONTENT changes under programs/crank/app/tests/scripts:"
+  git diff --ignore-cr-at-eol --stat -- programs crank app/src tests scripts | tail -6 | sed 's/^/           /'
+  fail=1
 fi
 [ -f "$HOME/.opta-rpc-helius" ] && echo "  ok       ~/.opta-rpc-helius present (never echoed)" || { echo "  MISSING  ~/.opta-rpc-helius"; inc=1; }
 [ -f "$HOME/.config/solana/id.json" ] && echo "  ok       upgrade-authority keypair present at ~/.config/solana/id.json" || { echo "  MISSING  ~/.config/solana/id.json"; inc=1; }
