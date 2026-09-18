@@ -139,21 +139,52 @@ export function pushAccounts(signer: PublicKey, volOracle: PublicKey, optaPriceF
   };
 }
 
+// ---- decoded-account adapters -------------------------------------------------
+//
+// `program.account.X.fetch` decodes through the PROGRAM-level coder, which
+// camelCases every IDL field: `price_6dec` arrives as `price6Dec` (capital D —
+// the camelcase rule treats the digit as a word boundary), not `price6dec`.
+// The first live tick after the BTC flip (2026-09-18 14:10Z) read `price6dec`,
+// got undefined, threw inside a bare catch and reported a present, fresh feed
+// as "no-feed" — every hour, forever. These adapters are strict: a missing
+// field is a shape error that surfaces as `errored` + a log line, never a
+// silent "absent". Exported so the tests decode through the REAL coder.
+function must(o: any, k: string, what: string): any {
+  if (o == null || o[k] === undefined) throw new Error(`opta-vol: decoded ${what} has no field "${k}" (keys: ${o ? Object.keys(o).join(",") : "none"})`);
+  return o[k];
+}
+export function feedSnapshot(f: any): FeedSnapshot {
+  return {
+    frozen: !!must(f, "frozen", "OptaPriceFeed"),
+    publishTime: Number(must(f, "publishTime", "OptaPriceFeed")),
+    price6dec: BigInt(must(f, "price6Dec", "OptaPriceFeed").toString()),
+  };
+}
+export function oracleSnapshot(o: any): OracleSnapshot {
+  return {
+    lastSampleTs: Number(must(o, "lastSampleTs", "VolOracle")),
+    sampleCount: Number(must(o, "sampleCount", "VolOracle")),
+  };
+}
+/** True for the "account does not exist" failure of anchor's fetch — the only
+ *  failure that legitimately means "absent". Anything else propagates. */
+function isAbsent(err: unknown): boolean {
+  return /does not exist|could not find|Account not found/i.test(String(err));
+}
+
 export function realDeps(ctx: OptaVolCrankContext): OptaVolDeps {
   const acct = ctx.program.account as any;
   return {
     fetchMarkets: () => safeFetchAll<any>(ctx.program, "optionsMarket"),
     fetchFeed: async (pda) => {
-      try {
-        const f: any = await acct.optaPriceFeed.fetch(pda);
-        return { frozen: !!f.frozen, publishTime: Number(f.publishTime), price6dec: BigInt(f.price6dec.toString()) };
-      } catch { return null; }
+      let f: any;
+      try { f = await acct.optaPriceFeed.fetch(pda); } catch (err) { if (isAbsent(err)) return null; throw err; }
+      return feedSnapshot(f);
     },
     fetchOracle: async (pda) => {
-      try {
-        const o: any = await acct.volOracle.fetch(pda);
-        return { lastSampleTs: Number(o.lastSampleTs), sampleCount: Number(o.sampleCount) };
-      } catch { return null; }
+      let o: any;
+      try { o = await acct.volOracle.fetch(pda); } catch (err) { if (isAbsent(err)) return null; throw err; }
+      return oracleSnapshot(o);
     },
     sendPush: async (_feedBytes, volOracle, optaPriceFeed) => {
       // Cast: the runtime IDL carries the trailing optional; Program<any> makes
@@ -190,7 +221,17 @@ export async function tickOnce(ctx: OptaVolCrankContext, deps: OptaVolDeps = rea
     const feedShort = hexFromBytes(feedBytes).slice(0, 8);
     const feedPda = feedPdaFor(programId, feedBytes);
     const oraclePda = volOraclePdaFor(programId, feedBytes);
-    const [feed, oracle] = await Promise.all([deps.fetchFeed(feedPda), deps.fetchOracle(oraclePda)]);
+    let feed: FeedSnapshot | null, oracle: OracleSnapshot | null;
+    try {
+      [feed, oracle] = await Promise.all([deps.fetchFeed(feedPda), deps.fetchOracle(oraclePda)]);
+    } catch (err) {
+      // A read that fails for any reason other than "absent" is an error, not a
+      // skip: it is counted and logged with the cause, so a decode-shape drift
+      // can never masquerade as a missing feed again.
+      report.errored += 1;
+      ctx.log("error", "opta-vol read failed", { feed: feedShort, err: String(err).slice(0, 300) });
+      continue;
+    }
     const now = deps.now();
     const d = decidePush(feed, oracle, now);
     if (!d.push) {
