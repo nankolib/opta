@@ -29,7 +29,7 @@ import * as path from "path";
 import { PublicKey } from "@solana/web3.js";
 
 import {
-  tickFeed, MIN_RESPONDERS, MAX_PUSH_SPREAD_BPS, VERIFY_GATE_BPS, RESEED_GAP_SECS,
+  tickFeed, MIN_RESPONDERS, MAX_PUSH_SPREAD_BPS, VERIFY_GATE_BPS, VERIFY_QUALITY_MAX_SPREAD_BPS, RESEED_GAP_SECS,
   type FpCrankContext, type FpTickReport, type SampleRecord,
 } from "./fpOracleCrank";
 import { FP_FEEDS, assertDisjoint, median, spreadBps, resolvePath } from "./fpOracleRegistry";
@@ -103,7 +103,7 @@ function ctxFor(program: any, jsonl: string): FpCrankContext {
   };
 }
 const emptyReport = (): FpTickReport => ({
-  feedsConsidered: 0, pushed: 0, aborted: 0, failed: 0, reseeds: 0, outsideGate: 0, durationMs: 0,
+  feedsConsidered: 0, pushed: 0, aborted: 0, failed: 0, reseeds: 0, outsideGate: 0, referenceUnreliable: 0, durationMs: 0,
 });
 
 // ---- pure helpers ----------------------------------------------------------
@@ -210,6 +210,65 @@ async function main() {
     assert.equal(s[0].within_gate, false);
     assert.ok(s[0].bps_delta! > VERIFY_GATE_BPS);
     console.log("  ok  verify-gate breach is flagged in the artifact, not hidden");
+  }
+
+  // ---- D3: per-feed gate is what gets recorded ------------------------------
+  {
+    const XRP = FP_FEEDS.find((f) => f.symbol === "XRP/USD")!;
+    assert.equal(BTC.verifyGateBps, 30, "BTC re-fit 2026-09-18");
+    assert.equal(XRP.verifyGateBps, 50, "XRP held at the global gate (D3 ruling b)");
+    const jsonl = freshJsonl();
+    const un = stubFetch([
+      ["crypto.com", 100], ["coinbase", 100], ["okx", 100],       // push 100
+      ["gateio", 100.4], ["kucoin", 100.4], ["bitget", 100.4],  // reference +40bps: inside 50, OUTSIDE 30
+    ]);
+    const rep = emptyReport();
+    await tickFeed(ctxFor(fakeProgram(Math.floor(Date.now() / 1000) - 60), jsonl), BTC, rep);
+    un();
+    const s = readSamples(jsonl);
+    assert.equal(s[0].gate_bps, 30, "the per-feed gate is the one written to the artifact");
+    assert.equal(s[0].within_gate, false, "40bps is outside BTC gate 30 even though inside the old global 50");
+    assert.equal(rep.outsideGate, 1);
+    console.log("  ok  D3: per-feed gate (BTC 30) is recorded and judged, not the global 50");
+  }
+
+  // ---- D3 ruling (b): verify-quality gate -----------------------------------
+  {
+    const jsonl = freshJsonl();
+    // Verify venues DISAGREE among themselves by ~300bps (1.3102 / 1.3055 pattern
+    // from the soak, exaggerated): the reference is not a measurement this tick.
+    const un = stubFetch([
+      ["crypto.com", 100], ["coinbase", 100], ["okx", 100],
+      ["gateio", 98.5], ["kucoin", 101.5], ["bitget", 100],
+    ]);
+    const rep = emptyReport();
+    await tickFeed(ctxFor(fakeProgram(Math.floor(Date.now() / 1000) - 60), jsonl), BTC, rep);
+    un();
+    const s = readSamples(jsonl);
+    assert.equal(rep.pushed, 1, "the push still goes out -- the push side was tight");
+    assert.ok(s[0].verify_spread_bps! > VERIFY_QUALITY_MAX_SPREAD_BPS);
+    assert.equal(s[0].reference_unreliable, true);
+    assert.equal(s[0].within_gate, null, "S3 is NOT evaluated against an unreliable reference");
+    assert.equal(rep.outsideGate, 0, "an unreliable reference is not a breach");
+    assert.equal(rep.referenceUnreliable, 1, "...it is counted on its own");
+    console.log("  ok  verify-quality gate: disagreeing reference => within_gate null, counted separately");
+  }
+  {
+    // And the converse must hold, or the gate above proves nothing: a TIGHT
+    // reference exactly at the floor is still judged.
+    const jsonl = freshJsonl();
+    const un = stubFetch([
+      ["crypto.com", 100], ["coinbase", 100], ["okx", 100],
+      ["gateio", 100], ["kucoin", 100.19], ["bitget", 100.1],   // spread ~19bps: under the 20 floor
+    ]);
+    const rep = emptyReport();
+    await tickFeed(ctxFor(fakeProgram(Math.floor(Date.now() / 1000) - 60), jsonl), BTC, rep);
+    un();
+    const s = readSamples(jsonl);
+    assert.equal(s[0].reference_unreliable, false);
+    assert.notEqual(s[0].within_gate, null, "a reference under the floor IS judged");
+    assert.equal(rep.referenceUnreliable, 0);
+    console.log("  ok  verify-quality gate: a reference under the floor is still judged (the gate can fail)");
   }
 
   // ---- reseed classification ------------------------------------------------

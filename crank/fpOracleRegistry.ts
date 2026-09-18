@@ -44,6 +44,12 @@ export interface FpFeedEntry {
   assetClass: "crypto" | "commodity" | "equity";
   push: SourceSpec[];
   verify: SourceSpec[];
+  /** S3 accuracy gate, PER FEED (D3, adopted 2026-09-09, re-fit on the full
+   *  soak 2026-09-18). Rule: ceil(2 x observed max |bps_delta| / 5) x 5, floor
+   *  10 -- except where that would LOOSEN the gate past the global 50, which
+   *  the verify-quality gate (VERIFY_QUALITY_MAX_SPREAD_BPS) exists to avoid.
+   *  Recorded per sample as gate_bps; not enforced on-chain. */
+  verifyGateBps: number;
 }
 
 // ---- venue URL builders ----------------------------------------------------
@@ -123,6 +129,7 @@ const VERIFY_SET: readonly SourceId[] = ["gate", "kucoin", "bitget"];
 export const FP_FEEDS: FpFeedEntry[] = [
   {
     symbol: "BTC/USD",
+    verifyGateBps: 30, // D3 re-fit 2026-09-18: 2x max 14.0 -> 30
     feedHashHex: "baf182b54386b4a1c0354b7d64fb33d679301087a8b509d6a397d7b4f5162ee2",
     assetClass: "crypto",
     push: [cryptocom("BTC_USD"), coinbase("BTC-USD"), okx("BTC-USDT")],
@@ -130,6 +137,7 @@ export const FP_FEEDS: FpFeedEntry[] = [
   },
   {
     symbol: "ETH/USD",
+    verifyGateBps: 40, // D3 re-fit 2026-09-18: 2x max 18.2 -> 40
     feedHashHex: "1d8f55a03da760d0f322bc1d066427e95573f651d506e0e31a5499659349caa3",
     assetClass: "crypto",
     push: [cryptocom("ETH_USD"), coinbase("ETH-USD"), okx("ETH-USDT")],
@@ -137,6 +145,7 @@ export const FP_FEEDS: FpFeedEntry[] = [
   },
   {
     symbol: "SOL/USD",
+    verifyGateBps: 50, // D3 re-fit 2026-09-18: 2x max 24.1 -> 50
     feedHashHex: "e01fe3bb1d659e5957296b2637658defd1f8b42fc87dd9f16e8fff16fcaeb463",
     assetClass: "crypto",
     push: [cryptocom("SOL_USD"), coinbase("SOL-USD"), okx("SOL-USDT")],
@@ -144,6 +153,7 @@ export const FP_FEEDS: FpFeedEntry[] = [
   },
   {
     symbol: "XRP/USD",
+    verifyGateBps: 50, // D3 re-fit 2026-09-18: 2x max 44.3 = 90 REJECTED: measures verify noise (ruling D3-b); held at 50 + verify-quality gate
     feedHashHex: "a1c4ce28a9a4abd471fb2eb11236c299a3b02cad72f3f93437aa01578405f736",
     assetClass: "crypto",
     push: [cryptocom("XRP_USD"), coinbase("XRP-USD"), okx("XRP-USDT")],
@@ -152,6 +162,7 @@ export const FP_FEEDS: FpFeedEntry[] = [
   {
     // Gold via PAXG, exactly as the SB lane does it — same proxy, same feed id.
     symbol: "XAU/USD",
+    verifyGateBps: 45, // D3 re-fit 2026-09-18: 2x max 20.2 -> 45
     feedHashHex: "6c3c5cc720d1ffd8108aca22bf7834d659612b7e1a4e5f623b76846d1167355e",
     assetClass: "commodity",
     push: [cryptocom("PAXG_USD"), coinbase("PAXG-USD"), okx("PAXG-USDT")],
@@ -179,6 +190,9 @@ export function assertDisjoint(): { checked: number } {
     if (new Set(verifyIds).size !== verifyIds.length) problems.push(`${f.symbol}: duplicate verify source`);
     if (pushIds.length < 3) problems.push(`${f.symbol}: ${pushIds.length} push sources, need >= 3`);
     if (verifyIds.length < 3) problems.push(`${f.symbol}: ${verifyIds.length} verify sources, need >= 3`);
+    if (!Number.isInteger(f.verifyGateBps) || f.verifyGateBps < 10 || f.verifyGateBps > 50) {
+      problems.push(`${f.symbol}: verifyGateBps ${f.verifyGateBps} outside [10, 50] -- a per-feed gate never loosens past the global`);
+    }
 
     for (const id of pushIds) {
       if (!PUSH_SET.includes(id)) problems.push(`${f.symbol}: '${id}' is not a declared PUSH source`);

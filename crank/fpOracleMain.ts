@@ -14,7 +14,7 @@
 // path by which editing one lane silently changes another.
 //
 //   OPTA_FP_RPC_URL          (required) RPC endpoint
-//   OPTA_FP_PROGRAM_ID       (required) SCRATCH program id -- see the guard below
+//   OPTA_FP_PROGRAM_ID       (required) the CANONICAL program id -- see the guard below
 //   OPTA_FP_KEYPAIR          (required) oracle authority keypair path
 //   OPTA_FP_JSONL            (default /opt/opta-fp-oracle/fp-oracle-samples.jsonl)
 //   OPTA_FP_DRY_RUN          (default "1" = ON; "0" to actually send)
@@ -26,11 +26,12 @@
 // THREE BOOT REFUSALS, all fail-closed and all loud. Each exists because the
 // quiet version of the same mistake is expensive:
 //
-//   1. PROGRAM ID. The IDL at app/src/idl/opta.json carries the CANONICAL
-//      program address. Constructing a Program from it without an override
-//      would point this lane at production. OPTA_FP_PROGRAM_ID is REQUIRED and
-//      must NOT equal the canonical id -- while the branch is open, this lane
-//      only ever addresses the scratch program.
+//   1. PROGRAM ID. OPTA_FP_PROGRAM_ID is REQUIRED and, since the plug (wave 1),
+//      MUST equal the canonical id: the scratch program is retired. A soak
+//      against another deployment needs OPTA_FP_ALLOW_NONCANONICAL=1 and is
+//      logged as such on line one. (During the soak the refusal ran the other
+//      way -- canonical was refused -- which is why this is a boot refusal at
+//      all: whichever direction is wrong for the moment is the expensive one.)
 //   2. KEYPAIR PATH. Refuse any path under /opt/opta-crank. opta-trigger already
 //      shares opta-crank's signing key; that pattern must not reach a key that
 //      can write prices (spec 6.3).
@@ -46,20 +47,15 @@ import * as path from "path";
 
 import { runFpOracleCrank, type FpCrankContext, type FpLogLevel } from "./fpOracleCrank";
 
-/** The live production program. This lane must never address it. */
+/** The live production program. Post-plug, the only program this lane serves. */
 const CANONICAL_PROGRAM_ID = "CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq";
-// LANE-LOCAL IDL, deliberately NOT ../app/src/idl/opta.json.
+// LANE-LOCAL IDL. Post-plug every tracked IDL copy carries the module's
+// instructions (the arms are in the canonical surface now), so this is the same
+// content as ../app/src/idl/opta.json -- but the lane still reads its OWN copy
+// under its own tree: one more thing not shared with another service (spec
+// 6.3), and a redeploy of the app cannot change what this process decodes.
 //
-// The app's IDL copy is the CANONICAL surface and does not carry this module's
-// instructions — correctly so. Regenerating it to include push_opta_price would
-// put module instructions into the canonical IDL and trip the IDL-drift gate,
-// which requires every tracked copy to match. So the lane ships its own copy,
-// built from `anchor build` output (target/idl/opta.json), living under its own
-// tree. One more thing not shared with another service (spec 6.3).
-//
-// The `address` field in that file is whatever the build declared; it is
-// overridden below with OPTA_FP_PROGRAM_ID regardless, so a canonical-address
-// IDL is fine to ship here.
+// The `address` field is overridden below with OPTA_FP_PROGRAM_ID regardless.
 const IDL_JSON_PATH =
   process.env.OPTA_FP_IDL?.trim() || path.resolve(__dirname, "../idl/opta.json");
 const DEFAULT_JSONL = "/opt/opta-fp-oracle/fp-oracle-samples.jsonl";
@@ -110,12 +106,21 @@ async function main(): Promise<void> {
   const programIdRaw = required("OPTA_FP_PROGRAM_ID");
   const keypairPath = required("OPTA_FP_KEYPAIR");
 
-  if (programIdRaw === CANONICAL_PROGRAM_ID) {
-    log("fatal", "REFUSING to run against the CANONICAL program", {
-      programId: programIdRaw,
-      invariant: "the fp-oracle branch addresses the scratch program only",
-    });
-    process.exit(1);
+  // PLUG (wave 1): the invariant INVERTS. During the soak this lane refused the
+  // canonical program and addressed the scratch deployment only. The scratch
+  // program is retired with the cfg-gated declare_id; from here the lane serves
+  // the canonical program and refuses anything else -- unless explicitly told it
+  // is running a soak against a non-canonical id (OPTA_FP_ALLOW_NONCANONICAL=1),
+  // which is logged loudly on line one so a misconfiguration cannot hide.
+  if (programIdRaw !== CANONICAL_PROGRAM_ID) {
+    if ((process.env.OPTA_FP_ALLOW_NONCANONICAL ?? "") !== "1") {
+      log("fatal", "REFUSING to run against a NON-CANONICAL program", {
+        programId: programIdRaw, canonical: CANONICAL_PROGRAM_ID,
+        hint: "post-plug the lane serves the canonical program; set OPTA_FP_ALLOW_NONCANONICAL=1 only for a soak",
+      });
+      process.exit(1);
+    }
+    log("warn", "running against a NON-CANONICAL program (soak mode, OPTA_FP_ALLOW_NONCANONICAL=1)", { programId: programIdRaw });
   }
   let programId: PublicKey;
   try {

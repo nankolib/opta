@@ -55,9 +55,21 @@ export const MAX_PUSH_SPREAD_BPS = 200;
 export const RESEED_GAP_SECS = 900;
 /** Per-request timeout. A slow venue must not stall the whole tick. */
 export const FETCH_TIMEOUT_MS = 6_000;
-/** The soak's accuracy gate (S3). Recorded per sample; not enforced here —
- *  the crank does not get to decide its own soak result. */
+/** The GLOBAL S3 accuracy gate, kept as the ceiling no per-feed gate may exceed
+ *  (registry check). The gate actually recorded per sample is
+ *  `entry.verifyGateBps` (D3, per feed). Not enforced here -- the crank does not
+ *  get to decide its own soak result. */
 export const VERIFY_GATE_BPS = 50;
+/** VERIFY-QUALITY GATE (D3 ruling (b), 2026-09-18). When the verify venues
+ *  disagree among THEMSELVES by more than this, the reference median is not a
+ *  reliable measurement of anything and the S3 gate is NOT evaluated for the
+ *  tick: within_gate = null, reference_unreliable = true. The push still goes
+ *  out (the push side is judged by MAX_PUSH_SPREAD_BPS, separately). Chosen
+ *  from the soak: every XRP delta over 19 bps had verify_spread 20-45 while
+ *  push_spread was tight; the other four feeds never exceeded 12 at their
+ *  worst samples. Without this a 2x-max re-fit reads the reference's noise as
+ *  the feed's error and loosens the gate (XRP: 90). */
+export const VERIFY_QUALITY_MAX_SPREAD_BPS = 20;
 
 export const OPTA_PRICE_FEED_SEED = "opta_price_feed";
 
@@ -98,6 +110,8 @@ export interface SampleRecord {
   verify_sources: string[];
   verify_values: number[];
   verify_spread_bps: number | null;
+  /** True when verify_spread_bps > VERIFY_QUALITY_MAX_SPREAD_BPS; within_gate is null then. */
+  reference_unreliable: boolean;
   reseed: boolean;
   gap_secs: number | null;
   status: "sent" | "dry-run" | "aborted" | "failed";
@@ -112,6 +126,8 @@ export interface FpTickReport {
   failed: number;
   reseeds: number;
   outsideGate: number;
+  /** Ticks whose reference failed the verify-quality gate (S3 not evaluated). */
+  referenceUnreliable: number;
   durationMs: number;
 }
 
@@ -172,7 +188,7 @@ export async function tickFeed(
     ts: new Date().toISOString(),
     feed: feedHex.slice(0, 10),
     symbol: entry.symbol,
-    gate_bps: VERIFY_GATE_BPS,
+    gate_bps: entry.verifyGateBps,
   };
 
   // BOTH sides are fetched every tick, and they are fetched CONCURRENTLY and
@@ -188,6 +204,7 @@ export async function tickFeed(
   const verifyVals = verifyQ.map((q) => q.value);
   const pushSpread = pushVals.length >= 2 ? spreadBps(pushVals) : null;
   const verifySpread = verifyVals.length >= 2 ? spreadBps(verifyVals) : null;
+  const refUnreliable = verifySpread !== null && verifySpread > VERIFY_QUALITY_MAX_SPREAD_BPS;
 
   const abort = (reason: string): void => {
     report.aborted += 1;
@@ -196,7 +213,7 @@ export async function tickFeed(
       ...base, pushed_price: null, reference_median: null, bps_delta: null,
       within_gate: null,
       push_sources: pushQ.map((q) => q.id), push_values: pushVals, push_spread_bps: pushSpread,
-      verify_sources: verifyQ.map((q) => q.id), verify_values: verifyVals, verify_spread_bps: verifySpread,
+      verify_sources: verifyQ.map((q) => q.id), verify_values: verifyVals, verify_spread_bps: verifySpread, reference_unreliable: refUnreliable,
       reseed: false, gap_secs: null, status: "aborted", reason,
     }, ctx.log);
   };
@@ -224,7 +241,17 @@ export async function tickFeed(
   const bpsDelta = refMedian !== null && refMedian > 0
     ? Math.abs(price - refMedian) / refMedian * 10_000
     : null;
-  const withinGate = bpsDelta === null ? null : bpsDelta <= VERIFY_GATE_BPS;
+  // Per-feed gate (D3), and NOT evaluated at all when the reference is itself
+  // unreliable (verify-quality gate) -- a null here is "could not judge", which
+  // is a different fact from "outside the gate" and is counted separately.
+  const withinGate = bpsDelta === null || refUnreliable ? null : bpsDelta <= entry.verifyGateBps;
+  if (refUnreliable) {
+    report.referenceUnreliable += 1;
+    ctx.log("info", "fp-oracle: reference UNRELIABLE — verify venues disagree beyond the quality floor; S3 not evaluated this tick", {
+      feed: base.feed, symbol: entry.symbol, verifySpread: verifySpread?.toFixed(1),
+      floor: VERIFY_QUALITY_MAX_SPREAD_BPS, bpsDelta: bpsDelta?.toFixed(1),
+    });
+  }
 
   // Prior on-chain state, for reseed classification and a local pre-check.
   let gapSecs: number | null = null;
@@ -255,7 +282,7 @@ export async function tickFeed(
     push_spread_bps: pushSpread,
     verify_sources: verifyQ.map((q) => q.id),
     verify_values: verifyVals,
-    verify_spread_bps: verifySpread,
+    verify_spread_bps: verifySpread, reference_unreliable: refUnreliable,
     reseed,
     gap_secs: gapSecs,
     status: ctx.dryRun ? "dry-run" : "sent",
@@ -275,7 +302,7 @@ export async function tickFeed(
     report.outsideGate += 1;
     ctx.log("warn", "fp-oracle: sample OUTSIDE verify gate (S3 breach candidate)", {
       feed: base.feed, symbol: entry.symbol,
-      price, refMedian, bpsDelta: bpsDelta?.toFixed(1), gate: VERIFY_GATE_BPS,
+      price, refMedian, bpsDelta: bpsDelta?.toFixed(1), gate: entry.verifyGateBps,
     });
   }
 
@@ -325,7 +352,7 @@ export async function runFpOracleTick(ctx: FpCrankContext): Promise<FpTickReport
   const t0 = Date.now();
   const report: FpTickReport = {
     feedsConsidered: 0, pushed: 0, aborted: 0, failed: 0,
-    reseeds: 0, outsideGate: 0, durationMs: 0,
+    reseeds: 0, outsideGate: 0, referenceUnreliable: 0, durationMs: 0,
   };
   const wanted = ctx.forceFeeds.length > 0
     ? ctx.forceFeeds.map((h) => lookupFpFeed(h)).filter((f): f is FpFeedEntry => !!f)

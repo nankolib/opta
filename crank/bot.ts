@@ -62,6 +62,7 @@ import {
   type VolOracleCrankContext,
   type VolOracleCrankOptions,
 } from "./volOracleCrank";
+import { runOptaVolCrank, type OptaVolCrankContext } from "./optaVolCrank";
 import {
   runTriggerCrank,
   type TriggerCrankContext,
@@ -1225,6 +1226,29 @@ async function main(): Promise<void> {
       throw err;
     }),
   ];
+
+  // FP-ORACLE plug (wave 1), layer 2: the vol-sample lane for oracle_source==2
+  // markets. OWN flag, default OFF. Signs with the crank wallet only -- the
+  // oracle authority key never enters this process (spec 6.3).
+  if ((process.env.OPTA_VOL_OPTA_ENABLED ?? "") === "1") {
+    const optaVolCtx: OptaVolCrankContext = {
+      connection: ctx.connection,
+      wallet: ctx.wallet,
+      program: ctx.program,
+      log: (level, msg, fields) => log(level as any, msg, { subsystem: "opta-vol", ...(fields ?? {}) }),
+      shouldShutdown: () => shutdownRequested,
+      dryRun: (process.env.OPTA_VOL_OPTA_DRY_RUN ?? "1") !== "0",
+    };
+    loops.push(
+      runOptaVolCrank(optaVolCtx, { tickOnce: volCrankOptions.tickOnce }).catch((err) => {
+        logFatal("opta-vol loop crashed", { err: String(err), stack: (err as any)?.stack });
+        throw err;
+      }),
+    );
+    logInfo("opta-vol side-loop ENABLED (OPTA_VOL_OPTA_ENABLED=1)", { dryRun: optaVolCtx.dryRun, note: "set OPTA_VOL_OPTA_DRY_RUN=0 to send" });
+  } else {
+    logInfo("opta-vol side-loop OFF (set OPTA_VOL_OPTA_ENABLED=1 at the layer-2 deploy)");
+  }
 
   if ((process.env.OPTA_VOL_CRANK_DISABLED ?? "") === "1") {
     logInfo("vol-oracle side-loop DISABLED via OPTA_VOL_CRANK_DISABLED=1", {
