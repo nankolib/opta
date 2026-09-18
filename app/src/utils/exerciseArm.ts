@@ -222,6 +222,11 @@ export const EXERCISE_ACCOUNT_INDEX = Object.freeze({
   writerAskPot: 14,
   writerAskPotUsdc: 15,
   protocolState: 16,
+  // FP-ORACLE arm (plug wave 1, 2026-09-18). Appended LAST, so 0-16 and both
+  // legal counts below are unchanged. An Opta-sourced exercise (18 accounts, or
+  // 15 without the pot arm) is NOT accepted by this validator yet: the FE arm
+  // for oracleSource 2 is a separate item and lands with its own shape check.
+  optaPriceFeed: 17,
 });
 
 /** The two legal account counts. 14 = vault-funded (trailing optionals omitted,

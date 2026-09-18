@@ -272,7 +272,7 @@ describe("zzz-metadata-exercise-style (Stage E)", function () {
       await (program.methods as any)
         .createMarket(TEST_ASSET, FEED_ID, 0, 0)
         .accounts({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
           creator: payer.publicKey,
           protocolState: protocolStatePda,
           market: marketPda,

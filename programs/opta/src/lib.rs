@@ -53,36 +53,8 @@ compile_error!(
      Pass `--features testing` only to run the American test suite."
 );
 
-// =============================================================================
-// FP-ORACLE SCRATCH BUILD IDENTITY -- isolation gate TIER 3
-// =============================================================================
-// Anchor 0.32 emits a declared-id check in the program entrypoint
-// (anchor-syn-0.32.1/src/codegen/program/entry.rs:52): a program deployed to an
-// address other than its declare_id! fails EVERY instruction with
-// DeclaredProgramIdMismatch (4100). Deploying the FP-ORACLE module to its
-// throwaway devnet program therefore requires the declared id to change, and
-// there is no build-time override for it -- declare_id! takes a literal.
-//
-// So this block exists, feature-gated, and it is the ONLY canonical-path edit
-// the module makes outside its own files. Same shape as AMERICAN_ENABLED and
-// WRITER_ASKS_ENABLED (LOW-5): the feature-free branch is what production
-// builds, and it is unchanged.
-//
-// THE INVARIANT, MECHANICALLY PROVEN, NOT ASSERTED:
-//   A feature-free build of this tree must be BYTE-IDENTICAL to a feature-free
-//   build of the same tree with this block replaced by the plain canonical
-//   declare_id!. scripts/fp-oracle-identity-proof.sh performs exactly that
-//   comparison and the isolation gate runs it. If the hashes ever diverge, this
-//   block has stopped being free and the gate fails.
-//
-// NEVER deploy a `--features fp-scratch` build to the canonical program. The
-// feature exists to point a THROWAWAY devnet program at itself during soak.
-// AT PLUG TIME this entire block is deleted and replaced by the plain canonical
-// declare_id!, and gate tier 3 is deleted with it.
-// =============================================================================
-#[cfg(feature = "fp-scratch")]
-declare_id!("E9XHfJr4ExaLYafGzcKk6Lnem5KsrcM3LJdXgvwLqJpS");
-#[cfg(not(feature = "fp-scratch"))]
+// FP-ORACLE: the scratch-build identity block (isolation gate tier 3) was
+// deleted at the plug ceremony, as designed. One program, one id.
 declare_id!("CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq");
 
 #[program]
@@ -666,10 +638,10 @@ pub mod opta {
     // =========================================================================
     // FP-ORACLE module — first-party price feed (spec FP_ORACLE_MODULE_SPEC_V2)
     // =========================================================================
-    // Additive entrypoints only. The six oracle_source match arms are NOT armed
-    // here — that lands as a single `arm-6-sites` commit at the plug ceremony.
-    // Until then ORACLE_SOURCE_OPTA is unreachable from every read path, so
-    // these instructions can create and drive a feed that nothing consumes.
+    // Plug wave 1: the six oracle_source match arms are ARMED (create_market,
+    // initialize_vol_oracle, push_vol_sample, settle_expiry, exercise_american,
+    // execute_trigger) and set_oracle_source carries the D1 guard. A market on
+    // ORACLE_SOURCE_OPTA is served from its OptaPriceFeed on every read path.
 
     /// Create an OptaPriceFeed PDA and install its initial oracle authority.
     /// Admin-only. Stores NO price: the feed is unreadable (OptaFeedInvalidPrice)

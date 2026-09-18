@@ -158,7 +158,7 @@ describe("2A — tape source + OCO", () => {
       holderOptionAta: ownerOpt, ownerUsdcAccount: ownerUsdc, ownerWallet: owner.publicKey,
       vaultUsdcAccount: vaultUsdc, tokenProgram: TOKEN_PROGRAM_ID,
       token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       bookOrder: null, bookMaker: null, bookEscrow: null, bookMakerUsdc: null,
       writerAskPot: null, writerAskPotUsdc: null, writerAskPosition: null,
       bookHookMetas: null, bookHookProgram: null, bookHookState: null, bookMakerOption: null,

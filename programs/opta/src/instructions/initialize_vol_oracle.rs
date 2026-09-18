@@ -79,6 +79,8 @@ use crate::state::{
     seed_vol_in_bounds, VolOracle, ORACLE_SOURCE_PYTH, ORACLE_SOURCE_SWITCHBOARD,
     VOL_ORACLE_PYTH_MAX_AGE_SECS, VOL_ORACLE_SEED,
 };
+use crate::state::opta_price_feed::{OptaPriceFeed, ORACLE_SOURCE_OPTA, OPTA_FEED_READ_MAX_AGE_SECS};
+use crate::utils::opta_price_read::opta_current_spot_scale;
 use crate::utils::price_oracle::{
     find_ed25519_ix_index, pyth_current_spot_scale, sb_current_spot_scale, secs_to_slots,
     SB_MIN_ORACLE_SAMPLES_FLOOR,
@@ -90,9 +92,13 @@ pub fn handle_initialize_vol_oracle(
     oracle_source: u8,
     seed_vol: i64,
 ) -> Result<()> {
-    // 0. Validate the requested oracle source: Pyth (0) or Switchboard (1) only.
+    // 0. Validate the requested oracle source: Pyth (0), Switchboard (1) or,
+    //    since the plug (wave 1), Opta (2). The arm below is what proves a
+    //    source-2 feed is live; this check only keeps garbage bytes out.
     require!(
-        oracle_source == ORACLE_SOURCE_PYTH || oracle_source == ORACLE_SOURCE_SWITCHBOARD,
+        oracle_source == ORACLE_SOURCE_PYTH
+            || oracle_source == ORACLE_SOURCE_SWITCHBOARD
+            || oracle_source == ORACLE_SOURCE_OPTA,
         OptaError::InvalidOracleSource
     );
 
@@ -179,6 +185,15 @@ pub fn handle_initialize_vol_oracle(
                 SB_MIN_ORACLE_SAMPLES_FLOOR,
             )?
         }
+        ORACLE_SOURCE_OPTA => {
+            // FP-ORACLE: same proven read path push_vol_sample uses (spot at SCALE).
+            let feed = ctx
+                .accounts
+                .opta_price_feed
+                .as_ref()
+                .ok_or(error!(OptaError::OptaFeedMissing))?;
+            opta_current_spot_scale(feed, feed_id, now, OPTA_FEED_READ_MAX_AGE_SECS)?
+        }
         _ => return Err(error!(OptaError::InvalidOracleSource)),
     };
 
@@ -262,4 +277,13 @@ pub struct InitializeVolOracle<'info> {
     /// CHECK: Instructions sysvar; address-checked == sysvar::instructions::ID at
     /// runtime in the SB arm, then scanned for the ed25519 ix index.
     pub sb_instructions: Option<UncheckedAccount<'info>>,
+
+    /// FP-ORACLE arm (plug, wave 1). Trailing optional, appended AFTER the SB
+    /// optionals so every existing Pyth/SB transaction stays byte-identical.
+    /// REQUIRED (present) when the routed oracle_source == ORACLE_SOURCE_OPTA;
+    /// the arm errors OptaFeedMissing if absent. Identity is proven by the arm
+    /// against the market's feed_id (assert_feed_identity) -- a PDA constraint is
+    /// unnecessary: the account is ours (owner + discriminator via Account) and
+    /// feed_id is unique by init seeds.
+    pub opta_price_feed: Option<Account<'info, OptaPriceFeed>>,
 }

@@ -40,7 +40,13 @@ fail=0
 echo "FP-ORACLE isolation gate — diff base: ${BASE}"
 echo
 
-changed=$(git diff --name-only "${BASE}...HEAD" -- "${SCOPE}")
+# Merge-base -> WORKING TREE, not BASE...HEAD. The three-dot form audits only
+# committed changes, so a dirty checkout with canonical edits read GREEN on
+# 2026-09-18 while six instruction files were modified but not yet committed.
+# A gate that cannot see the working tree cannot fail before the commit it is
+# meant to stop.
+MB=$(git merge-base "${BASE}" HEAD) || { echo "cannot resolve merge-base for ${BASE}"; exit 2; }
+changed=$(git diff --name-only "${MB}" -- "${SCOPE}")
 if [ -z "${changed}" ]; then
   echo "  no canonical-scope changes at all — gate GREEN"
   exit 0
@@ -54,8 +60,8 @@ echo "TIER 2 — registration files (additive only, zero deletions):"
 while read -r f; do
   [ -z "${f}" ] && continue
   # numstat: <added> <deleted> <path>
-  del=$(git diff --numstat "${BASE}...HEAD" -- "${f}" | awk '{print $2}')
-  add=$(git diff --numstat "${BASE}...HEAD" -- "${f}" | awk '{print $1}')
+  del=$(git diff --numstat "${MB}" -- "${f}" | awk '{print $2}')
+  add=$(git diff --numstat "${MB}" -- "${f}" | awk '{print $1}')
   if [ "${del:-0}" -eq 0 ]; then
     printf '    ok   %-40s +%s -0\n' "${f}" "${add:-0}"
   else
@@ -75,77 +81,12 @@ else
 fi
 echo
 
-# ---- TIER 3: build identity ------------------------------------------------
-# The ONE canonical-path edit the module is allowed outside its own files: the
-# cfg-gated declare_id! block that repoints a --features fp-scratch build at the
-# throwaway devnet program. Anchor 0.32 checks the declared id at dispatch
-# (anchor-syn entry.rs:52 -> DeclaredProgramIdMismatch 4100), so a scratch deploy
-# is impossible without it.
-#
-# Tier 2 would already let this through as an additive lib.rs diff — git sees
-# pure insertion because the original declare_id line survives verbatim inside
-# the block. That is too weak. Tier 3 NAMES the block and proves it is free.
-#
-# Skip the (slow, Linux-only) build proof with FP_GATE_SKIP_IDENTITY=1 for a
-# quick structural check; CI and any pre-push run must NOT skip it.
-echo "TIER 3 — build identity (cfg-gated declare_id):"
-T3_MARKER="FP-ORACLE SCRATCH BUILD IDENTITY"
-if grep -q "${T3_MARKER}" programs/opta/src/lib.rs 2>/dev/null; then
-  # The scratch id may appear ONLY inside that block, and ONLY under cfg.
-  scratch_hits=$(grep -c 'declare_id!("E9XHfJr4ExaLYafGzcKk6Lnem5KsrcM3LJdXgvwLqJpS")' programs/opta/src/lib.rs)
-  cfg_hits=$(grep -c '#\[cfg(feature = "fp-scratch")\]' programs/opta/src/lib.rs)
-  canon_hits=$(grep -c 'declare_id!("CtzJ4MJYX6BFvF4g67i5C24tQuwRn6ddKkaE5L84z9Cq")' programs/opta/src/lib.rs)
-  if [ "${scratch_hits}" -eq 1 ] && [ "${cfg_hits}" -eq 1 ] && [ "${canon_hits}" -eq 1 ]; then
-    printf '    ok   block shape: 1 scratch id, 1 cfg guard, 1 canonical id
-'
-  else
-    printf '    FAIL block shape: scratch=%s cfg=%s canonical=%s (expected 1/1/1)
-'       "${scratch_hits}" "${cfg_hits}" "${canon_hits}"
-    fail=1
-  fi
-  # The scratch id must appear NOWHERE else under programs/opta/src.
-  stray=$(grep -rl "E9XHfJr4ExaLYafGzcKk6Lnem5KsrcM3LJdXgvwLqJpS" programs/opta/src 2>/dev/null | grep -v '^programs/opta/src/lib.rs$' || true)
-  if [ -n "${stray}" ]; then
-    echo "${stray}" | sed 's/^/    FAIL scratch id leaked into /'
-    fail=1
-  else
-    printf '    ok   scratch id confined to lib.rs
-'
-  fi
-  if [ "${FP_GATE_SKIP_IDENTITY:-0}" = "1" ]; then
-    printf '    SKIP identity proof (FP_GATE_SKIP_IDENTITY=1) — do not skip before a push
-'
-  else
-    bash scripts/fp-oracle-identity-proof.sh >/tmp/_fp_identity.log 2>&1
-    proof_rc=$?
-    case "${proof_rc}" in
-      0)
-        printf '    ok   identity proof: feature-free build is byte-identical to ungated
-'
-        grep -E '^  (gated|canonical)' /tmp/_fp_identity.log | sed 's/^/      /'
-        ;;
-      2)
-        # Toolchain missing / build could not run. NOT a divergence — say so, and
-        # do NOT pass either. An unrun proof must never read as green.
-        printf '    INCONCLUSIVE identity proof — could not run (toolchain?). NOT a pass.
-'
-        tail -3 /tmp/_fp_identity.log | sed 's/^/      /'
-        printf '      re-run this gate from WSL before pushing.
-'
-        fail=1
-        ;;
-      *)
-        printf '    FAIL identity proof — the cfg gate now changes the production binary
-'
-        tail -6 /tmp/_fp_identity.log | sed 's/^/      /'
-        fail=1
-        ;;
-    esac
-  fi
-else
-  printf '    (block absent — plug ceremony has removed it, or it is not yet added)
-'
-fi
+# ---- TIER 3: RETIRED at the plug ceremony ---------------------------------
+# The cfg-gated declare_id! block and the fp-scratch feature were deleted when
+# the six oracle_source arms were armed (wave 1). There is one program and one
+# id again; nothing is left for tier 3 to prove. fp-oracle-identity-proof.sh was
+# deleted with it. Tiers 1 and 2 remain meaningful until the branch merges.
+echo "TIER 3 — retired (plug ceremony; single canonical declare_id)"
 echo
 
 if [ "${fail}" -ne 0 ]; then

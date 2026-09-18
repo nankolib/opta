@@ -1500,6 +1500,103 @@ export type Opta = {
       ]
     },
     {
+      "name": "closeOptaPriceFeed",
+      "docs": [
+        "Close an OptaPriceFeed and return its rent to the admin. REFUSES unless",
+        "the feed is already frozen (6101), so a live feed can never be deleted in",
+        "one step. Required by the wedge path — a genesis error above the",
+        "breaker's 50% cap is otherwise uncorrectable — and by unplug (spec 9.2)."
+      ],
+      "discriminator": [
+        156,
+        184,
+        144,
+        167,
+        164,
+        54,
+        219,
+        249
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Admin — must match protocol_state.admin. Receives the reclaimed rent.",
+            "NOT the feed authority: the oracle key may write prices, never delete",
+            "the account it writes to."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocolState",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "optaPriceFeed",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  97,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  102,
+                  101,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "feedId"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "feedId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "closeSettledWriterAskVault",
       "docs": [
         "Exchange Phase 3 Slice D2a — reclaim a fully-drained writer-ask vault's",
@@ -1932,6 +2029,19 @@ export type Opta = {
           "name": "sbInstructions",
           "docs": [
             "runtime in the SB arm, then scanned for the ed25519 ix index."
+          ],
+          "optional": true
+        },
+        {
+          "name": "optaPriceFeed",
+          "docs": [
+            "FP-ORACLE arm (plug, wave 1). Trailing optional, appended AFTER the SB",
+            "optionals so every existing Pyth/SB transaction stays byte-identical.",
+            "REQUIRED (present) when the routed oracle_source == ORACLE_SOURCE_OPTA;",
+            "the arm errors OptaFeedMissing if absent. Identity is proven by the arm",
+            "against the market's feed_id (assert_feed_identity) -- a PDA constraint is",
+            "unnecessary: the account is ours (owner + discriminator via Account) and",
+            "feed_id is unique by init seeds."
           ],
           "optional": true
         }
@@ -2814,6 +2924,15 @@ export type Opta = {
           ],
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "optaPriceFeed",
+          "docs": [
+            "FP-ORACLE arm (plug, wave 1). Trailing optional, appended LAST so every",
+            "existing transaction stays byte-identical. REQUIRED when oracle_source ==",
+            "ORACLE_SOURCE_OPTA; the arm errors OptaFeedMissing if absent."
+          ],
+          "optional": true
         }
       ],
       "args": []
@@ -3020,6 +3139,15 @@ export type Opta = {
               }
             ]
           }
+        },
+        {
+          "name": "optaPriceFeed",
+          "docs": [
+            "FP-ORACLE arm (plug, wave 1). Trailing optional, appended LAST so every",
+            "existing transaction stays byte-identical. REQUIRED when oracle_source ==",
+            "ORACLE_SOURCE_OPTA; the arm errors OptaFeedMissing if absent."
+          ],
+          "optional": true
         }
       ],
       "args": [
@@ -4110,6 +4238,115 @@ export type Opta = {
       }
     },
     {
+      "name": "initOptaPriceFeed",
+      "docs": [
+        "Create an OptaPriceFeed PDA and install its initial oracle authority.",
+        "Admin-only. Stores NO price: the feed is unreadable (OptaFeedInvalidPrice)",
+        "until the authority pushes to it, so creating a feed can never make a",
+        "market quotable by accident. Refuses admin-as-authority."
+      ],
+      "discriminator": [
+        34,
+        65,
+        119,
+        6,
+        187,
+        255,
+        132,
+        134
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "docs": [
+            "Admin — must match protocol_state.admin. Pays rent."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocolState",
+          "docs": [
+            "Used only to assert admin == protocol_state.admin."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "optaPriceFeed",
+          "docs": [
+            "The feed PDA, derived from `feed_id`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  97,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  102,
+                  101,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "feedId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "feedId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "initializeEpochConfig",
       "docs": [
         "Initialize the epoch schedule (admin-only, one-time setup)."
@@ -4554,6 +4791,19 @@ export type Opta = {
           "name": "sbInstructions",
           "docs": [
             "runtime in the SB arm, then scanned for the ed25519 ix index."
+          ],
+          "optional": true
+        },
+        {
+          "name": "optaPriceFeed",
+          "docs": [
+            "FP-ORACLE arm (plug, wave 1). Trailing optional, appended AFTER the SB",
+            "optionals so every existing Pyth/SB transaction stays byte-identical.",
+            "REQUIRED (present) when the routed oracle_source == ORACLE_SOURCE_OPTA;",
+            "the arm errors OptaFeedMissing if absent. Identity is proven by the arm",
+            "against the market's feed_id (assert_feed_identity) -- a PDA constraint is",
+            "unnecessary: the account is ours (owner + discriminator via Account) and",
+            "feed_id is unique by init seeds."
           ],
           "optional": true
         }
@@ -6449,6 +6699,92 @@ export type Opta = {
       ]
     },
     {
+      "name": "pushOptaPrice",
+      "docs": [
+        "Write a price to an OptaPriceFeed. Signed by feed.authority — NOT admin,",
+        "and admin has no override. Guards, in order: frozen, authority, price>0,",
+        "clock skew (both directions), rate limit, deviation circuit-breaker.",
+        "The breaker ships at 500 bps and shadow-logs `would_have_tripped` in",
+        "[OBSERVE, MAX) so the final threshold comes from soak data (R4)."
+      ],
+      "discriminator": [
+        118,
+        129,
+        101,
+        173,
+        166,
+        40,
+        184,
+        40
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "The dedicated oracle authority for THIS feed. Deliberately not tied to",
+            "protocol_state — per-feed authority means per-feed revocation, and this",
+            "instruction never needs to load ProtocolState at all."
+          ],
+          "signer": true
+        },
+        {
+          "name": "optaPriceFeed",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  97,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  102,
+                  101,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "feedId"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "feedId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "price6dec",
+          "type": "u64"
+        },
+        {
+          "name": "conf6dec",
+          "type": "u64"
+        },
+        {
+          "name": "publishTime",
+          "type": "i64"
+        }
+      ]
+    },
+    {
       "name": "pushVolSample",
       "docs": [
         "Push a fresh Pyth spot sample to a VolOracle. Permissionless. The",
@@ -6545,6 +6881,19 @@ export type Opta = {
           "name": "sbInstructions",
           "docs": [
             "runtime in the SB arm, then scanned for the ed25519 ix index."
+          ],
+          "optional": true
+        },
+        {
+          "name": "optaPriceFeed",
+          "docs": [
+            "FP-ORACLE arm (plug, wave 1). Trailing optional, appended AFTER the SB",
+            "optionals so every existing Pyth/SB transaction stays byte-identical.",
+            "REQUIRED (present) when the routed oracle_source == ORACLE_SOURCE_OPTA;",
+            "the arm errors OptaFeedMissing if absent. Identity is proven by the arm",
+            "against the market's feed_id (assert_feed_identity) -- a PDA constraint is",
+            "unnecessary: the account is ours (owner + discriminator via Account) and",
+            "feed_id is unique by init seeds."
           ],
           "optional": true
         }
@@ -6871,6 +7220,331 @@ export type Opta = {
       ]
     },
     {
+      "name": "setFeedAuthority",
+      "docs": [
+        "Rotate an OptaPriceFeed's authority (revocation tier 2). Admin-only. The",
+        "old key is inert as of this tx — no redeploy, no migration. Refuses",
+        "admin-as-authority."
+      ],
+      "discriminator": [
+        225,
+        218,
+        1,
+        171,
+        131,
+        226,
+        87,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "protocolState",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "optaPriceFeed",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  97,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  102,
+                  101,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "feedId"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "feedId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "newAuthority",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "setFeedFrozen",
+      "docs": [
+        "Freeze/unfreeze an OptaPriceFeed (revocation tier 1 — the break-glass).",
+        "Admin-only, one transaction, no key movement. A frozen feed blocks every",
+        "read at every arm regardless of freshness, and accepts no pushes even",
+        "from the real authority."
+      ],
+      "discriminator": [
+        252,
+        200,
+        81,
+        10,
+        228,
+        254,
+        20,
+        124
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "protocolState",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "optaPriceFeed",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  112,
+                  116,
+                  97,
+                  95,
+                  112,
+                  114,
+                  105,
+                  99,
+                  101,
+                  95,
+                  102,
+                  101,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "feedId"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "feedId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "frozen",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "setOracleSource",
+      "docs": [
+        "Flip a market's oracle lane. Admin-only. Writes BOTH",
+        "OptionsMarket.oracle_source AND VolOracle.oracle_source, or neither —",
+        "the two bytes are independent at rest and a market that settles from one",
+        "source while its vol oracle is warmed from another keeps quoting, which",
+        "is what makes the desync dangerous (6096).",
+        "",
+        "R1: refuses if any SharedVault passed in remaining_accounts holds live",
+        "collateral (6100). That is a FAT-FINGER guard, not a trustless",
+        "invariant — completeness of the vault list is enforced off-chain by the",
+        "ceremony. See instructions/set_oracle_source.rs for the full limit."
+      ],
+      "discriminator": [
+        171,
+        215,
+        106,
+        56,
+        161,
+        187,
+        188,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "protocolState",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  118,
+                  50
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "assetName"
+              }
+            ]
+          }
+        },
+        {
+          "name": "volOracle",
+          "docs": [
+            "The vol oracle for this market's feed. Required, not optional: the whole",
+            "contract of this instruction is that the pair moves together."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  108,
+                  95,
+                  111,
+                  114,
+                  97,
+                  99,
+                  108,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "feedId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "optaPriceFeed",
+          "docs": [
+            "FP-ORACLE D1 guard input. Trailing optional: REQUIRED when new_source ==",
+            "ORACLE_SOURCE_OPTA (OptaFeedMissing otherwise); ignored for 0/1. Must be",
+            "the feed for `feed_id` (identity asserted), unfrozen, pushed, and fresh."
+          ],
+          "optional": true
+        }
+      ],
+      "args": [
+        {
+          "name": "assetName",
+          "type": "string"
+        },
+        {
+          "name": "feedId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "newSource",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "settleExpiry",
       "docs": [
         "Record the canonical settlement price for an (asset, expiry) tuple",
@@ -6993,6 +7667,19 @@ export type Opta = {
           "name": "sbInstructions",
           "docs": [
             "runtime in the SB arm, then scanned for the ed25519 ix index."
+          ],
+          "optional": true
+        },
+        {
+          "name": "optaPriceFeed",
+          "docs": [
+            "FP-ORACLE arm (plug, wave 1). Trailing optional, appended AFTER the SB",
+            "optionals so every existing Pyth/SB transaction stays byte-identical.",
+            "REQUIRED (present) when the routed oracle_source == ORACLE_SOURCE_OPTA;",
+            "the arm errors OptaFeedMissing if absent. Identity is proven by the arm",
+            "against the market's feed_id (assert_feed_identity) -- a PDA constraint is",
+            "unnecessary: the account is ours (owner + discriminator via Account) and",
+            "feed_id is unique by init seeds."
           ],
           "optional": true
         }
@@ -7629,6 +8316,19 @@ export type Opta = {
         153,
         144,
         193
+      ]
+    },
+    {
+      "name": "optaPriceFeed",
+      "discriminator": [
+        144,
+        18,
+        62,
+        117,
+        166,
+        100,
+        54,
+        253
       ]
     },
     {
@@ -8752,6 +9452,66 @@ export type Opta = {
       "code": 6090,
       "name": "ocoSeriesMismatch",
       "msg": "OCO legs must be on the same option series"
+    },
+    {
+      "code": 6091,
+      "name": "optaFeedStale",
+      "msg": "Opta price feed is stale for this read"
+    },
+    {
+      "code": 6092,
+      "name": "optaFeedFrozen",
+      "msg": "Opta price feed is frozen by the protocol admin"
+    },
+    {
+      "code": 6093,
+      "name": "optaFeedInvalidPrice",
+      "msg": "Opta price feed price is zero or invalid"
+    },
+    {
+      "code": 6094,
+      "name": "optaFeedConfTooWide",
+      "msg": "Opta price feed confidence band is too wide to price against"
+    },
+    {
+      "code": 6095,
+      "name": "optaFeedUnauthorized",
+      "msg": "Signer is not the authority for this Opta price feed"
+    },
+    {
+      "code": 6096,
+      "name": "oracleSourceMismatch",
+      "msg": "Market and vol-oracle oracle_source disagree — they must be set together"
+    },
+    {
+      "code": 6097,
+      "name": "optaFeedPushTooSoon",
+      "msg": "Opta price feed push too soon since the last accepted push"
+    },
+    {
+      "code": 6098,
+      "name": "optaFeedDeviationTooLarge",
+      "msg": "Opta price feed push deviates too far from the previous price"
+    },
+    {
+      "code": 6099,
+      "name": "optaFeedSkewTooLarge",
+      "msg": "Opta price feed push timestamp skew exceeds the allowed window"
+    },
+    {
+      "code": 6100,
+      "name": "marketHasOpenCollateral",
+      "msg": "Market has open collateral — settle or reclaim before changing oracle_source"
+    },
+    {
+      "code": 6101,
+      "name": "optaFeedNotFrozen",
+      "msg": "OptaPriceFeed must be frozen before it can be closed"
+    },
+    {
+      "code": 6102,
+      "name": "optaFeedMissing",
+      "msg": "OptaPriceFeed account required for an Opta-sourced market"
     }
   ],
   "types": [
@@ -8893,6 +9653,97 @@ export type Opta = {
           {
             "name": "settlementPrice",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "optaPriceFeed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "feedId",
+            "docs": [
+              "32-byte feed identity. Same double-duty field as the Pyth feed id and the",
+              "Switchboard feedHash, so one hex string threads market, vol oracle and",
+              "price feed alike."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "price6dec",
+            "docs": [
+              "Current price, USDC 6-dec -- the unit every read site already speaks, so",
+              "the Opta arm returns the same type as the Pyth and SB arms with no",
+              "scaling seam of its own."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "conf6dec",
+            "docs": [
+              "Confidence half-band, USDC 6-dec. Gated by OPTA_FEED_MAX_CONF_BPS."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "publishTime",
+            "docs": [
+              "Unix seconds. THE freshness source of truth -- every read site gates on",
+              "`now - publish_time`, never on `slot`."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "slot",
+            "docs": [
+              "Slot at push. Recorded for forensics and cross-checking against",
+              "publish_time; deliberately NOT used for freshness (the SB arm's",
+              "slot-based max_age is a different mechanism and is not mirrored here)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "The dedicated oracle key. NEVER the protocol admin: admin can upgrade the",
+              "program and move funds, this key must be able to do exactly one thing.",
+              "Rotatable by admin via set_feed_authority (revocation tier 2)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "prevPrice6dec",
+            "docs": [
+              "Previous accepted price, for the deviation breaker."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "prevPublishTime",
+            "docs": [
+              "publish_time of `prev_price_6dec`, so the breaker can tell a 5% jump in",
+              "ten seconds from a 5% drift over an hour."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "frozen",
+            "docs": [
+              "Admin kill-switch (revocation tier 1). When true EVERY read reverts",
+              "OptaFeedFrozen, at all six arm sites, regardless of freshness."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }

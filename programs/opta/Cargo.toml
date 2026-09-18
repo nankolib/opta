@@ -22,11 +22,6 @@ custom-panic = []
 # enable in default builds or deploy a cu-profile build to devnet/mainnet.
 cu-profile = []
 
-# FP-ORACLE scratch build identity (isolation gate tier 3). Repoints declare_id!
-# at the throwaway devnet program so the module can be soaked without touching
-# the canonical program. NEVER deploy a --features fp-scratch build to canonical.
-# Deleted at plug time along with the lib.rs block it gates.
-fp-scratch = []
 # Phase 2 Stage B Step 3: shrinks VOL_ORACLE_MIN_PUSH_INTERVAL_SECS from
 # 55 minutes (production) to 1 second so multi-push ring-buffer tests can
 # run against solana-test-validator (which advances Clock at wall-clock

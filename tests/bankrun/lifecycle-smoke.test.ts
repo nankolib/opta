@@ -108,7 +108,7 @@ describe("bankrun lifecycle smoke (Stage G Pass 1)", function () {
     const feedFixture = Keypair.generate().publicKey;
     injectPythFixture(h.context, feedFixture, pythBody(SETTLE_PRICE_USD, now0));
 
-    await opta.methods.createMarket(ASSET, FEED_ID, 0, 0).accountsStrict({ sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    await opta.methods.createMarket(ASSET, FEED_ID, 0, 0).accountsStrict({ sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       creator: admin().publicKey, protocolState, market, priceUpdate: feedFixture,
       systemProgram: SystemProgram.programId,
     }).rpc();
@@ -116,7 +116,7 @@ describe("bankrun lifecycle smoke (Stage G Pass 1)", function () {
     await opta.methods.initializeVolOracle(FEED_ID, 0, new BN(0)).accountsStrict({
       initializer: admin().publicKey, priceUpdate: feedFixture, volOracle,
       systemProgram: SystemProgram.programId,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     }).rpc();
 
     const strike = usdc(STRIKE_USD);
@@ -224,7 +224,7 @@ describe("bankrun lifecycle smoke (Stage G Pass 1)", function () {
     await opta.methods.settleExpiry(ASSET, new BN(expiry)).accountsStrict({
       caller: admin().publicKey, market, priceUpdate: settleFixture,
       settlementRecord, systemProgram: SystemProgram.programId,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     }).rpc();
     console.log("    E: settle_expiry OK");
 

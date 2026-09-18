@@ -130,7 +130,7 @@ describe("bankrun: close_market (admin-only; cutover name-handover)", function (
     const feedFixture = Keypair.generate().publicKey;
     injectPythFixture(e.h.context, feedFixture, pythBody(e.feedHex, 100, now));
     await e.opta.methods.createMarket("REUSE", e.feedId, 0, 0).accountsStrict({
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       creator: e.admin.publicKey, protocolState: e.protocolState, market: e.market,
       priceUpdate: feedFixture, systemProgram: SystemProgram.programId,
     }).rpc();

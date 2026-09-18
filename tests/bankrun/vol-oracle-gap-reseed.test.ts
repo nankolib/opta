@@ -49,7 +49,7 @@ describe("bankrun: vol_oracle gap-reseed (AM-MED-2)", function () {
       await e.opta.methods.pushVolSample().accountsStrict({
         signer: e.admin.publicKey, priceUpdate: fix, volOracle: e.volOracle,
         systemProgram: SystemProgram.programId,
-        sbQueue: null, sbSlothashes: null, sbInstructions: null,
+        sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       }).rpc();
       return e.opta.account.volOracle.fetch(e.volOracle);
     };

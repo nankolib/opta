@@ -204,7 +204,7 @@ export async function buildSwitchboardExerciseAmericanTx(
       tokenProgram: TOKEN_PROGRAM_ID,
       sbQueue: entry.queue,
       sbSlothashes: SPL_SYSVAR_SLOT_HASHES_ID,
-      sbInstructions: SPL_SYSVAR_INSTRUCTIONS_ID,
+      sbInstructions: SPL_SYSVAR_INSTRUCTIONS_ID, optaPriceFeed: null,
       // Explicit nulls when absent — anchor 0.32.1 does not auto-null optionals
       // at .instruction() (same reason priceUpdate is nulled above).
       writerAskPot: potExists ? writerAskPot : null,

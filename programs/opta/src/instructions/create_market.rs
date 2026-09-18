@@ -39,6 +39,8 @@ use crate::state::{
     OptionsMarket, ProtocolState, MARKET_SEED, MAX_ASSET_CLASS, MAX_ASSET_NAME_LEN,
     ORACLE_SOURCE_PYTH, ORACLE_SOURCE_SWITCHBOARD, PROTOCOL_SEED,
 };
+use crate::state::opta_price_feed::{OptaPriceFeed, ORACLE_SOURCE_OPTA};
+use crate::utils::opta_price_read::opta_prove_feed_exists;
 use crate::utils::price_oracle::{
     find_ed25519_ix_index, sb_prove_feed_exists, secs_to_slots, SB_MIN_ORACLE_SAMPLES_FLOOR,
 };
@@ -140,6 +142,16 @@ pub fn handle_create_market(
                 pyth_feed_id,
                 SB_MIN_ORACLE_SAMPLES_FLOOR,
             )?;
+        }
+        ORACLE_SOURCE_OPTA => {
+            // FP-ORACLE: HIGH-5 existence proof -- PDA resolves, carries this
+            // feed_id, is not frozen, and has been pushed at least once.
+            let feed = ctx
+                .accounts
+                .opta_price_feed
+                .as_ref()
+                .ok_or(error!(OptaError::OptaFeedMissing))?;
+            opta_prove_feed_exists(feed, pyth_feed_id)?;
         }
         _ => return Err(error!(OptaError::InvalidOracleSource)),
     }
@@ -258,4 +270,13 @@ pub struct CreateMarket<'info> {
     /// CHECK: Instructions sysvar; address-checked == sysvar::instructions::ID at
     /// runtime in the SB arm, then scanned for the ed25519 ix index.
     pub sb_instructions: Option<UncheckedAccount<'info>>,
+
+    /// FP-ORACLE arm (plug, wave 1). Trailing optional, appended AFTER the SB
+    /// optionals so every existing Pyth/SB transaction stays byte-identical.
+    /// REQUIRED (present) when the routed oracle_source == ORACLE_SOURCE_OPTA;
+    /// the arm errors OptaFeedMissing if absent. Identity is proven by the arm
+    /// against the market's feed_id (assert_feed_identity) -- a PDA constraint is
+    /// unnecessary: the account is ours (owner + discriminator via Account) and
+    /// feed_id is unique by init seeds.
+    pub opta_price_feed: Option<Account<'info, OptaPriceFeed>>,
 }

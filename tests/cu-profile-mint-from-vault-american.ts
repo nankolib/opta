@@ -51,7 +51,7 @@ function deriveVolOracle(programId: PublicKey, feedId: number[]): [PublicKey, nu
         await (program.methods as any)
           .initializeVolOracle(SOL_FEED_ID, 0, new anchor.BN(0))
           .accountsStrict({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
             initializer: provider.wallet.publicKey,
             priceUpdate: SOL_FIXTURE,
             volOracle: oraclePda,

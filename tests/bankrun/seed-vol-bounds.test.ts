@@ -45,13 +45,13 @@ async function tryInitSeed(
   injectPythFixture(e.h.context, fix, pythBody(f.hex, spotUsd, now));
   await e.opta.methods.createMarket(asset, f.bytes, 0, 0).accountsStrict({
     creator: e.admin.publicKey, protocolState: e.protocolState, market, priceUpdate: fix,
-    systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
   }).rpc();
   const e2: Env = { ...e, market, volOracle: oracle, feedHex: f.hex, feedId: f.bytes, asset };
   try {
     await e.opta.methods.initializeVolOracle(f.bytes, 0, seedVol).accountsStrict({
       initializer: e.admin.publicKey, priceUpdate: fix, volOracle: oracle,
-      systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     }).rpc();
     return { ok: true, err: "", e2 };
   } catch (ex: any) {

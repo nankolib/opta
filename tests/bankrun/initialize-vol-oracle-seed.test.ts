@@ -70,11 +70,11 @@ async function bornColdPyth(e: Env, asset: string, label: string, seedVol: BN, s
   injectPythFixture(e.h.context, fix, pythBody(f.hex, spotUsd, now));
   await e.opta.methods.createMarket(asset, f.bytes, 0, 0).accountsStrict({
     creator: e.admin.publicKey, protocolState: e.protocolState, market, priceUpdate: fix,
-    systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
   }).rpc();
   await e.opta.methods.initializeVolOracle(f.bytes, 0, seedVol).accountsStrict({
     initializer: e.admin.publicKey, priceUpdate: fix, volOracle: oracle,
-    systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
   }).rpc();
   return { ...e, market, volOracle: oracle, feedHex: f.hex, feedId: f.bytes, asset };
 }
@@ -184,7 +184,7 @@ describe("bankrun: initialize_vol_oracle seed-at-birth", function () {
     injectPythFixture(e.h.context, fix, pythBody(f.hex, 100, now));
     await e.opta.methods.createMarket(asset, f.bytes, 0, 0).accountsStrict({
       creator: e.admin.publicKey, protocolState: e.protocolState, market, priceUpdate: fix,
-      systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      systemProgram: SystemProgram.programId, sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     }).rpc();
 
     // Fabricate: cold, oracle_source=1, $100 spot @ SCALE, seed_vol 0.80, ts=now.

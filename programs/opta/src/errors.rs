@@ -627,4 +627,12 @@ pub enum OptaError {
     // then close -- reversible step before irreversible one.
     #[msg("OptaPriceFeed must be frozen before it can be closed")]
     OptaFeedNotFrozen,
+
+    // ---- FP-ORACLE arms (6102) ---------------------------------------------
+    // The Opta read arm of the six oracle_source sites and the set_oracle_source
+    // flip guard take the OptaPriceFeed as a trailing optional account. Absent on
+    // a source-2 market is a caller error, named exactly like PriceUpdateMissing
+    // and SwitchboardAccountsMissing are for their arms. Append-only.
+    #[msg("OptaPriceFeed account required for an Opta-sourced market")]
+    OptaFeedMissing,
 }

@@ -222,7 +222,7 @@ describe("zzz-exercise-american (Stage F)", function () {
     return (program.methods as any)
       .exerciseAmerican(qty)
       .accounts({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
             // Pool-funded exercise → the writer-ask pot arm stays null.
             writerAskPot: null, writerAskPotUsdc: null, protocolState: null,
         holder: h.buyer.kp.publicKey,
@@ -267,7 +267,7 @@ describe("zzz-exercise-american (Stage F)", function () {
       await (program.methods as any)
         .createMarket(TEST_ASSET, FEED_ID, 0, 0)
         .accounts({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
           creator: payer.publicKey, protocolState: protocolStatePda, market: marketPda,
           priceUpdate: FEED_FRESH, systemProgram: SystemProgram.programId,
         })
@@ -281,7 +281,7 @@ describe("zzz-exercise-american (Stage F)", function () {
       await (program.methods as any)
         .initializeVolOracle(FEED_ID, 0, new BN(0))
         .accountsStrict({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
           initializer: payer.publicKey, priceUpdate: FEED_FRESH,
           volOracle: volOraclePda, systemProgram: SystemProgram.programId,
         })

@@ -40,7 +40,7 @@ describe("bankrun: vol_oracle ring-buffer wrap (saturation edge)", function () {
       await e.opta.methods.pushVolSample().accountsStrict({
         signer: e.admin.publicKey, priceUpdate: fix, volOracle: e.volOracle,
         systemProgram: SystemProgram.programId,
-        sbQueue: null, sbSlothashes: null, sbInstructions: null,
+        sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       }).rpc();
       oracle = await e.opta.account.volOracle.fetch(e.volOracle);
       assert.equal(oracle.sampleCount, 720, `sample_count saturates at 720 after push ${i + 1}`);

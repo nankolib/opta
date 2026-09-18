@@ -98,6 +98,14 @@ pub const OPTA_FEED_RESEED_GAP_SECS: i64 = 900;
 /// and a price nobody agrees on must not settle an option.
 pub const OPTA_FEED_MAX_CONF_BPS: u64 = 200;
 
+/// Read-side freshness for every consumer of an OptaPriceFeed (vol push, vol
+/// init, early exercise, trigger, and the set_oracle_source flip guard). The
+/// lane pushes every 60s; 180s = three missed ticks. The soak recorded zero
+/// gaps over 120s in 105,878 samples, so a reading older than this is a lane
+/// fault, not a slow market, and the read must refuse rather than serve it.
+/// Settlement uses SB_SETTLE_WINDOW_SECS instead (persist-at-expiry).
+pub const OPTA_FEED_READ_MAX_AGE_SECS: i64 = 180;
+
 #[account]
 #[derive(InitSpace)]
 pub struct OptaPriceFeed {

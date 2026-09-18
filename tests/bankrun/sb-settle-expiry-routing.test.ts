@@ -41,7 +41,7 @@ function settleArgs(e: any, expiry: any, priceUpdate: any, sb: any) {
   return {
     caller: e.admin.publicKey, market: e.market, priceUpdate,
     settlementRecord: settlementRecordPda(e, expiry), systemProgram: SystemProgram.programId,
-    sbQueue: sb?.queue ?? null, sbSlothashes: sb?.slothashes ?? null, sbInstructions: sb?.instructions ?? null,
+    sbQueue: sb?.queue ?? null, sbSlothashes: sb?.slothashes ?? null, sbInstructions: sb?.instructions ?? null, optaPriceFeed: null,
   };
 }
 

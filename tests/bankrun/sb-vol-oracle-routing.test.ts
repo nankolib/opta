@@ -81,7 +81,7 @@ describe("bankrun: Stage 3 1a-iii — push_vol_sample oracle_source routing", fu
     await e.opta.methods.pushVolSample().accountsStrict({
       signer: e.admin.publicKey, priceUpdate: fix, volOracle: e.volOracle,
       systemProgram: SystemProgram.programId,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     }).rpc();
 
     const o: any = await e.opta.account.volOracle.fetch(e.volOracle);
@@ -106,7 +106,7 @@ describe("bankrun: Stage 3 1a-iii — push_vol_sample oracle_source routing", fu
       await e.opta.methods.pushVolSample().accountsStrict({
         signer: e.admin.publicKey, priceUpdate: null, volOracle: e.volOracle,
         systemProgram: SystemProgram.programId,
-        sbQueue: null, sbSlothashes: null, sbInstructions: null,
+        sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       }).rpc();
     } catch (ex: any) { err = String(ex); }
     console.log(`    (5a) ${err.slice(0, 120)}`);
@@ -123,7 +123,7 @@ describe("bankrun: Stage 3 1a-iii — push_vol_sample oracle_source routing", fu
       await e.opta.methods.pushVolSample().accountsStrict({
         signer: e.admin.publicKey, priceUpdate: null, volOracle: e.volOracle,
         systemProgram: SystemProgram.programId,
-        sbQueue: Keypair.generate().publicKey, sbSlothashes: SYSVAR_SLOT_HASHES_PUBKEY, sbInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        sbQueue: Keypair.generate().publicKey, sbSlothashes: SYSVAR_SLOT_HASHES_PUBKEY, sbInstructions: SYSVAR_INSTRUCTIONS_PUBKEY, optaPriceFeed: null,
       }).preInstructions([]).rpc(); // no ed25519
     } catch (ex: any) { err = String(ex); }
     console.log(`    (5b) ${err.slice(0, 120)}`);
@@ -144,7 +144,7 @@ describe("bankrun: Stage 3 1a-iii — push_vol_sample oracle_source routing", fu
       await e.opta.methods.pushVolSample().accountsStrict({
         signer: e.admin.publicKey, priceUpdate: null, volOracle: e.volOracle,
         systemProgram: SystemProgram.programId,
-        sbQueue: Keypair.generate().publicKey, sbSlothashes: SYSVAR_SLOT_HASHES_PUBKEY, sbInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        sbQueue: Keypair.generate().publicKey, sbSlothashes: SYSVAR_SLOT_HASHES_PUBKEY, sbInstructions: SYSVAR_INSTRUCTIONS_PUBKEY, optaPriceFeed: null,
       }).preInstructions([edIx]).rpc();
     } catch (ex: any) { err = String(ex); }
     console.log(`    (5c) ${err.slice(0, 160)}`);

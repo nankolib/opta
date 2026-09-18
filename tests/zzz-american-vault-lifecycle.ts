@@ -229,7 +229,7 @@ describe("zzz-american-vault-lifecycle (Stage D seed-fix proof)", function () {
       await (program.methods as any)
         .createMarket(TEST_ASSET, SOL_FEED_ID, 0, 0)
         .accounts({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
           creator: payer.publicKey,
           protocolState: protocolStatePda,
           market: marketPda,
@@ -252,7 +252,7 @@ describe("zzz-american-vault-lifecycle (Stage D seed-fix proof)", function () {
       await (program.methods as any)
         .initializeVolOracle(SOL_FEED_ID, 0, new BN(0))
         .accountsStrict({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
           initializer: payer.publicKey,
           priceUpdate: SOL_180_FRESH,
           volOracle: volOraclePda,

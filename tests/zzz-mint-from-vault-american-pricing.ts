@@ -208,7 +208,7 @@ describe("zzz-mint-from-vault-american-pricing (Stage C Pass 2 Step 2)", functio
       await (program.methods as any)
         .createMarket(TEST_ASSET, FEED_ID, 0, 0)
         .accounts({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
           creator: payer.publicKey,
           protocolState: protocolStatePda,
           market: marketPda,
@@ -227,7 +227,7 @@ describe("zzz-mint-from-vault-american-pricing (Stage C Pass 2 Step 2)", functio
       await (program.methods as any)
         .initializeVolOracle(FEED_ID, 0, new BN(0))
         .accountsStrict({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
           initializer: payer.publicKey,
           priceUpdate: FEED_FIXTURE,
           volOracle: volOraclePda,

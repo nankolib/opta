@@ -73,7 +73,7 @@ describe("bankrun: Stage 3 wiring 1a-i — exercise_american oracle_source routi
       market: e.market, priceUpdate: fix, vaultMintRecord: m.vaultMintRecord,
       optionMint: m.optionMint, holderOptionAccount: buyerOptionAta, vaultUsdcAccount: deriveVaultUsdc(vault),
       holderUsdcAccount: buyerUsdc, token2022Program: TOKEN_2022_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       writerAskPot: null, writerAskPotUsdc: null, protocolState: null, // pool-funded → pot arm null
     }).instruction();
 
@@ -108,7 +108,7 @@ describe("bankrun: Stage 3 wiring 1a-i — exercise_american oracle_source routi
         vaultMintRecord: m.vaultMintRecord, optionMint: m.optionMint, holderOptionAccount: buyerOptionAta,
         vaultUsdcAccount: deriveVaultUsdc(vault), holderUsdcAccount: buyerUsdc,
         token2022Program: TOKEN_2022_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
-        sbQueue: null, sbSlothashes: null, sbInstructions: null, // SB market but none provided
+        sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null, // SB market but none provided
         writerAskPot: null, writerAskPotUsdc: null, protocolState: null,
       }).preInstructions([CU(400_000)]).signers([buyer]).rpc();
     } catch (ex: any) { err = String(ex); }
@@ -128,7 +128,7 @@ describe("bankrun: Stage 3 wiring 1a-i — exercise_american oracle_source routi
         vaultMintRecord: m.vaultMintRecord, optionMint: m.optionMint, holderOptionAccount: buyerOptionAta,
         vaultUsdcAccount: deriveVaultUsdc(vault), holderUsdcAccount: buyerUsdc,
         token2022Program: TOKEN_2022_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
-        sbQueue: dummyQueue, sbSlothashes: SYSVAR_SLOT_HASHES_PUBKEY, sbInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        sbQueue: dummyQueue, sbSlothashes: SYSVAR_SLOT_HASHES_PUBKEY, sbInstructions: SYSVAR_INSTRUCTIONS_PUBKEY, optaPriceFeed: null,
         writerAskPot: null, writerAskPotUsdc: null, protocolState: null,
       }).preInstructions([CU(400_000)]).signers([buyer]).rpc(); // no ed25519 preIx
     } catch (ex: any) { err = String(ex); }
@@ -157,7 +157,7 @@ describe("bankrun: Stage 3 wiring 1a-i — exercise_american oracle_source routi
         vaultMintRecord: m.vaultMintRecord, optionMint: m.optionMint, holderOptionAccount: buyerOptionAta,
         vaultUsdcAccount: deriveVaultUsdc(vault), holderUsdcAccount: buyerUsdc,
         token2022Program: TOKEN_2022_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
-        sbQueue: dummyQueue, sbSlothashes: SYSVAR_SLOT_HASHES_PUBKEY, sbInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+        sbQueue: dummyQueue, sbSlothashes: SYSVAR_SLOT_HASHES_PUBKEY, sbInstructions: SYSVAR_INSTRUCTIONS_PUBKEY, optaPriceFeed: null,
         writerAskPot: null, writerAskPotUsdc: null, protocolState: null,
       }).preInstructions([CU(400_000), edIx]).signers([buyer]).rpc();
     } catch (ex: any) { err = String(ex); }

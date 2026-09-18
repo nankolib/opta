@@ -84,14 +84,14 @@ export async function setupEnv(asset: string, feedLabel: string, warmSpotUsd = 1
 
   const feedFixture = Keypair.generate().publicKey;
   injectPythFixture(h.context, feedFixture, pythBody(feedHex, warmSpotUsd, now));
-  await opta.methods.createMarket(asset, feedId, 0, 0).accountsStrict({ sbQueue: null, sbSlothashes: null, sbInstructions: null,
+  await opta.methods.createMarket(asset, feedId, 0, 0).accountsStrict({ sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     creator: admin.publicKey, protocolState, market, priceUpdate: feedFixture,
     systemProgram: SystemProgram.programId,
   }).rpc();
   await opta.methods.initializeVolOracle(feedId, 0, new BN(0)).accountsStrict({
     initializer: admin.publicKey, priceUpdate: feedFixture, volOracle,
     systemProgram: SystemProgram.programId,
-    sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
   }).rpc();
   await synthWarmVolOracle(opta, feedId, spotScaled(warmSpotUsd), admin.publicKey, new BN(now));
 
@@ -223,7 +223,7 @@ export async function settleExpiry(e: Env, expiry: BN, priceUsd: number, publish
     caller: e.admin.publicKey, market: e.market, priceUpdate: fix,
     settlementRecord: settlementRecordPda(e, expiry), systemProgram: SystemProgram.programId,
     // Stage 3 1b: trailing Switchboard read-arm optionals — null on Pyth path.
-    sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
   }).preInstructions([CU(400_000)]).rpc();
 }
 
@@ -273,7 +273,7 @@ export async function exerciseAmerican(
     optionMint: m.optionMint, holderOptionAccount: holderOptAta, vaultUsdcAccount: deriveVaultUsdc(vault),
     holderUsdcAccount: holderUsdc, token2022Program: TOKEN_2022_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
     // Stage 3: trailing Switchboard read-arm optionals — null on the Pyth path.
-    sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     // Writer-ask pot arm — anchor 0.32.1 does not auto-null unprovided optionals
     // under accountsStrict, so all three are always named.
     writerAskPot: pot ? pot.writerAskPot : null,

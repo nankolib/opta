@@ -60,7 +60,8 @@ use crate::state::{
     OptionsMarket, ProtocolState, SharedVault, VolOracle, MARKET_SEED, PROTOCOL_SEED,
     VOL_ORACLE_SEED,
 };
-use crate::state::opta_price_feed::ORACLE_SOURCE_OPTA;
+use crate::state::opta_price_feed::{OptaPriceFeed, ORACLE_SOURCE_OPTA, OPTA_FEED_READ_MAX_AGE_SECS};
+use crate::utils::opta_price_read::opta_prove_feed_exists;
 use crate::state::market::{ORACLE_SOURCE_PYTH, ORACLE_SOURCE_SWITCHBOARD};
 
 pub fn handle_set_oracle_source<'info>(
@@ -79,6 +80,25 @@ pub fn handle_set_oracle_source<'info>(
     );
 
     let market_key = ctx.accounts.market.key();
+
+    // ---- D1 GUARD: a flip to Opta is refused unless the feed is serviceable ----
+    // BEGIN D1-GUARD (mutation target: scripts/fp-oracle-guard-mutation.sh)
+    // "Structural beats procedural" (plug proposal D1). The value 2 is accepted
+    // above only because the six read arms now exist; this guard makes the
+    // ordering hazard in proposal 1.2 impossible at RUNTIME too: you cannot point
+    // a market at an OptaPriceFeed that is absent, wrong-id, frozen, never
+    // pushed, or not fresh. A flip that passed here lands on a feed the read
+    // arms can serve THIS MINUTE, so the flip itself cannot brick the market.
+    if new_source == ORACLE_SOURCE_OPTA {
+        let feed = ctx
+            .accounts
+            .opta_price_feed
+            .as_ref()
+            .ok_or(error!(OptaError::OptaFeedMissing))?;
+        opta_prove_feed_exists(feed, _feed_id)?;
+        feed.assert_readable(Clock::get()?.unix_timestamp, OPTA_FEED_READ_MAX_AGE_SECS)?;
+    }
+    // END D1-GUARD
 
     // ---- R1 guard: no supplied vault may hold live collateral ---------------
     // Every remaining account must deserialize as a SharedVault of THIS market.
@@ -157,6 +177,11 @@ pub struct SetOracleSource<'info> {
         bump = vol_oracle.load()?.bump,
     )]
     pub vol_oracle: AccountLoader<'info, VolOracle>,
+
+    /// FP-ORACLE D1 guard input. Trailing optional: REQUIRED when new_source ==
+    /// ORACLE_SOURCE_OPTA (OptaFeedMissing otherwise); ignored for 0/1. Must be
+    /// the feed for `feed_id` (identity asserted), unfrozen, pushed, and fresh.
+    pub opta_price_feed: Option<Account<'info, OptaPriceFeed>>,
     // remaining_accounts: every SharedVault of `market`. See the R1 note above
     // for what this does and does not prove.
 }

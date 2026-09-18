@@ -38,6 +38,8 @@ use crate::state::{
     VOL_ORACLE_MIN_PUSH_INTERVAL_SECS, VOL_ORACLE_PYTH_MAX_AGE_SECS, VOL_ORACLE_RING_SIZE,
     VOL_ORACLE_SEED,
 };
+use crate::state::opta_price_feed::{OptaPriceFeed, ORACLE_SOURCE_OPTA, OPTA_FEED_READ_MAX_AGE_SECS};
+use crate::utils::opta_price_read::opta_current_spot_scale;
 use crate::utils::price_oracle::{
     find_ed25519_ix_index, pyth_current_spot_scale, sb_current_spot_scale, secs_to_slots,
     SB_MIN_ORACLE_SAMPLES_FLOOR,
@@ -127,6 +129,15 @@ pub fn handle_push_vol_sample(ctx: Context<PushVolSample>) -> Result<()> {
                 expected_feed_id,
                 SB_MIN_ORACLE_SAMPLES_FLOOR,
             )?
+        }
+        ORACLE_SOURCE_OPTA => {
+            // FP-ORACLE: read the lane's feed. Freshness 180s (three ticks).
+            let feed = ctx
+                .accounts
+                .opta_price_feed
+                .as_ref()
+                .ok_or(error!(OptaError::OptaFeedMissing))?;
+            opta_current_spot_scale(feed, expected_feed_id, now, OPTA_FEED_READ_MAX_AGE_SECS)?
         }
         _ => return Err(error!(OptaError::InvalidOracleSource)),
     };
@@ -303,4 +314,13 @@ pub struct PushVolSample<'info> {
     /// CHECK: Instructions sysvar; address-checked == sysvar::instructions::ID at
     /// runtime in the SB arm, then scanned for the ed25519 ix index.
     pub sb_instructions: Option<UncheckedAccount<'info>>,
+
+    /// FP-ORACLE arm (plug, wave 1). Trailing optional, appended AFTER the SB
+    /// optionals so every existing Pyth/SB transaction stays byte-identical.
+    /// REQUIRED (present) when the routed oracle_source == ORACLE_SOURCE_OPTA;
+    /// the arm errors OptaFeedMissing if absent. Identity is proven by the arm
+    /// against the market's feed_id (assert_feed_identity) -- a PDA constraint is
+    /// unnecessary: the account is ours (owner + discriminator via Account) and
+    /// feed_id is unique by init seeds.
+    pub opta_price_feed: Option<Account<'info, OptaPriceFeed>>,
 }

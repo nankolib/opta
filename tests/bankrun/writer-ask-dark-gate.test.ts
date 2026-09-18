@@ -74,14 +74,14 @@ async function setupEnvCold(asset: string, feedLabel: string, spotUsd = 100): Pr
   const fix = Keypair.generate().publicKey;
   injectPythFixture(h.context, fix, pythBody(feedHex, spotUsd, now));
   await opta.methods.createMarket(asset, feedId, 0, 0).accountsStrict({
-    sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     creator: admin.publicKey, protocolState, market, priceUpdate: fix,
     systemProgram: SystemProgram.programId,
   }).rpc();
   await opta.methods.initializeVolOracle(feedId, 0, new BN(0)).accountsStrict({
     initializer: admin.publicKey, priceUpdate: fix, volOracle,
     systemProgram: SystemProgram.programId,
-    sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
   }).rpc();
   // NO synthWarmVolOracle — keeps this feature-free-build compatible.
 

@@ -100,14 +100,14 @@ describe("bankrun Pass-2 money-logic (Stage G)", function () {
 
     const feedFixture = Keypair.generate().publicKey;
     injectPythFixture(h.context, feedFixture, pythBody(100, now0));
-    await opta.methods.createMarket(ASSET, FEED_ID, 0, 0).accountsStrict({ sbQueue: null, sbSlothashes: null, sbInstructions: null,
+    await opta.methods.createMarket(ASSET, FEED_ID, 0, 0).accountsStrict({ sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       creator: admin().publicKey, protocolState, market, priceUpdate: feedFixture,
       systemProgram: SystemProgram.programId,
     }).rpc();
     await opta.methods.initializeVolOracle(FEED_ID, 0, new BN(0)).accountsStrict({
       initializer: admin().publicKey, priceUpdate: feedFixture, volOracle,
       systemProgram: SystemProgram.programId,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     }).rpc();
     // Warm the oracle ($100 spot) so American mint pricing reads Ok. ts = bankrun clock.
     await synthWarmVolOracle(opta, FEED_ID, spotScaled(100), admin().publicKey, new BN(now0));
@@ -177,7 +177,7 @@ describe("bankrun Pass-2 money-logic (Stage G)", function () {
     await opta.methods.settleExpiry(ASSET, new BN(expiry)).accountsStrict({
       caller: admin().publicKey, market, priceUpdate: settleFixture, settlementRecord,
       systemProgram: SystemProgram.programId,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     }).preInstructions([CU_400]).rpc();
     await opta.methods.settleVault().accountsStrict({
       authority: admin().publicKey, sharedVault: vault, market, settlementRecord,
@@ -210,7 +210,7 @@ describe("bankrun Pass-2 money-logic (Stage G)", function () {
       holder: buyer.publicKey, sharedVault: vault, market, priceUpdate: exFixture, vaultMintRecord: m.vaultMintRecord,
       optionMint: m.optionMint, holderOptionAccount: buyerOptionAta, vaultUsdcAccount: vaultUsdc,
       holderUsdcAccount: buyerUsdc, token2022Program: TOKEN_2022_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       // Pool-funded exercise → the writer-ask pot arm stays null.
       writerAskPot: null, writerAskPotUsdc: null, protocolState: null,
     }).preInstructions([CU_400]).signers([buyer]).rpc();
@@ -328,7 +328,7 @@ describe("bankrun Pass-2 money-logic (Stage G)", function () {
       holder: buyer.publicKey, sharedVault: vault, market, priceUpdate: fixture, vaultMintRecord: m.vaultMintRecord,
       optionMint: m.optionMint, holderOptionAccount: buyerOptionAta, vaultUsdcAccount: vaultUsdc,
       holderUsdcAccount: buyerUsdc, token2022Program: TOKEN_2022_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       // Pool-funded exercise → the writer-ask pot arm stays null.
       writerAskPot: null, writerAskPotUsdc: null, protocolState: null,
     });

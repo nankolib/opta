@@ -59,7 +59,7 @@ describe("bankrun: reset_vol_oracle (admin-only; MED-2 clearing path)", function
       await e.opta.methods.pushVolSample().accountsStrict({
         signer: e.admin.publicKey, priceUpdate: fix, volOracle: e.volOracle,
         systemProgram: SystemProgram.programId,
-        sbQueue: null, sbSlothashes: null, sbInstructions: null,
+        sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       }).rpc();
       return e.opta.account.volOracle.fetch(e.volOracle);
     };

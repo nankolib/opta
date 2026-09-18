@@ -44,6 +44,8 @@ use crate::state::{
     OptionsMarket, SettlementRecord, ORACLE_SOURCE_PYTH, ORACLE_SOURCE_SWITCHBOARD, MARKET_SEED,
     SETTLEMENT_SEED,
 };
+use crate::state::opta_price_feed::{OptaPriceFeed, ORACLE_SOURCE_OPTA};
+use crate::utils::opta_price_read::opta_settlement_price_usdc;
 use crate::utils::price_oracle::{
     find_ed25519_ix_index, pyth_settlement_price_usdc, sb_settlement_price_usdc, secs_to_slots,
     SB_MIN_ORACLE_SAMPLES_FLOOR,
@@ -192,6 +194,29 @@ pub fn handle_settle_expiry(
             // differ by source. Slots fit in i64.
             (read.price_usdc, read.recent_slot as i64)
         }
+        ORACLE_SOURCE_OPTA => {
+            // FP-ORACLE: PERSIST-AT-EXPIRY, structurally the Switchboard choice --
+            // no history exists on an OptaPriceFeed, so settlement must land inside
+            // the same SB_SETTLE_WINDOW_SECS after expiry and uses the CURRENT price,
+            // which must itself be published at or after expiry (opta_price_read #3).
+            require!(
+                clock.unix_timestamp.saturating_sub(expiry) <= SB_SETTLE_WINDOW_SECS,
+                OptaError::SwitchboardSettleWindowElapsed
+            );
+            let feed = ctx
+                .accounts
+                .opta_price_feed
+                .as_ref()
+                .ok_or(error!(OptaError::OptaFeedMissing))?;
+            let read = opta_settlement_price_usdc(
+                feed,
+                feed_id,
+                expiry,
+                clock.unix_timestamp,
+                SB_SETTLE_WINDOW_SECS,
+            )?;
+            (read.price_usdc, read.publish_time)
+        }
         _ => return Err(error!(OptaError::InvalidOracleSource)),
     };
 
@@ -278,4 +303,13 @@ pub struct SettleExpiry<'info> {
     /// CHECK: Instructions sysvar; address-checked == sysvar::instructions::ID at
     /// runtime in the SB arm, then scanned for the ed25519 ix index.
     pub sb_instructions: Option<UncheckedAccount<'info>>,
+
+    /// FP-ORACLE arm (plug, wave 1). Trailing optional, appended AFTER the SB
+    /// optionals so every existing Pyth/SB transaction stays byte-identical.
+    /// REQUIRED (present) when the routed oracle_source == ORACLE_SOURCE_OPTA;
+    /// the arm errors OptaFeedMissing if absent. Identity is proven by the arm
+    /// against the market's feed_id (assert_feed_identity) -- a PDA constraint is
+    /// unnecessary: the account is ours (owner + discriminator via Account) and
+    /// feed_id is unique by init seeds.
+    pub opta_price_feed: Option<Account<'info, OptaPriceFeed>>,
 }

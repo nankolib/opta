@@ -9,7 +9,8 @@
 //
 //   (PY)   oracle_source=0 (Pyth) + present price_update → market born source=0
 //          (byte-identical Pyth create — records asset/feed/class/source/bump).
-//   (X)    oracle_source=2 → InvalidOracleSource (6066).
+//   (X)    oracle_source=7 → InvalidOracleSource (6066).   [2 became valid at the plug]
+//   (X2)   oracle_source=2 + NO opta_price_feed → OptaFeedMissing (6102).
 //   (M)    oracle_source=0 + NO price_update → PriceUpdateMissing (6064).
 //   (SBm)  oracle_source=1 + missing SB accounts → SwitchboardAccountsMissing (6065).
 //   (SBe)  oracle_source=1 + SB accounts + no ed25519 → NoEd25519Instruction (6067).
@@ -51,7 +52,7 @@ function createArgs(e: any, name: string, priceUpdate: any, sb: any) {
   return {
     creator: e.admin.publicKey, protocolState: e.protocolState, priceUpdate,
     market: marketPda(name), systemProgram: SystemProgram.programId,
-    sbQueue: sb?.queue ?? null, sbSlothashes: sb?.slothashes ?? null, sbInstructions: sb?.instructions ?? null,
+    sbQueue: sb?.queue ?? null, sbSlothashes: sb?.slothashes ?? null, sbInstructions: sb?.instructions ?? null, optaPriceFeed: null,
   };
 }
 
@@ -73,16 +74,30 @@ describe("bankrun: Stage 3 1c-i-B — create_market oracle_source + branched HIG
     console.log(`    (PY) Pyth create OK: oracle_source=${m.oracleSource}`);
   });
 
-  it("(X) oracle_source=2 → InvalidOracleSource (6066)", async () => {
+  it("(X) oracle_source=7 (out of range) → InvalidOracleSource (6066)", async () => {
+    // Plug wave 1 (2026-09-18): source 2 is VALID now (Opta). The garbage-byte
+    // negative moves to 7; source 2 gets its own negative below.
     const e = await setupEnv("SBCM1", "sbcm1", 100);
     const feed = freshFeed("sbcm1-bad");
     let err = "";
     try {
-      await e.opta.methods.createMarket("BADSRC", feed.bytes, 0, 2)
+      await e.opta.methods.createMarket("BADSRC", feed.bytes, 0, 7)
         .accountsStrict(createArgs(e, "BADSRC", null, null)).rpc();
     } catch (ex: any) { err = String(ex); }
     console.log(`    (X) ${err.slice(0, 110)}`);
     assert.match(err, /InvalidOracleSource|6066/, "out-of-range source must revert");
+  });
+
+  it("(X2) oracle_source=2 (Opta) + NO opta_price_feed → OptaFeedMissing (6102)", async () => {
+    const e = await setupEnv("SBCM1B", "sbcm1b", 100);
+    const feed = freshFeed("sbcm1b-nofeed");
+    let err = "";
+    try {
+      await e.opta.methods.createMarket("NOFEED", feed.bytes, 0, 2)
+        .accountsStrict(createArgs(e, "NOFEED", null, null)).rpc();
+    } catch (ex: any) { err = String(ex); }
+    console.log(`    (X2) ${err.slice(0, 110)}`);
+    assert.match(err, /OptaFeedMissing|6102/, "an Opta create without the feed account must revert on the arm, not on validation");
   });
 
   it("(M) oracle_source=0 (Pyth) but NO price_update → PriceUpdateMissing (6064)", async () => {

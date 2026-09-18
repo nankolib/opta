@@ -44,7 +44,7 @@ export async function ensureVolOracle(
     await program.methods
       .initializeVolOracle(feedId, 0, new BN(0))
       .accountsStrict({
-            sbQueue: null, sbSlothashes: null, sbInstructions: null,
+            sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
         initializer: payer,
         priceUpdate,
         volOracle: oracle,

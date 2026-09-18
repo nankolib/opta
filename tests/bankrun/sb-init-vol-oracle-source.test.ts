@@ -49,7 +49,7 @@ describe("bankrun: Stage 3 1c-i-A — initialize_vol_oracle oracle_source + seed
     await e.opta.methods.initializeVolOracle(feed.bytes, 0, SEED).accountsStrict({
       initializer: e.admin.publicKey, priceUpdate: fix, volOracle: oracle,
       systemProgram: SystemProgram.programId,
-      sbQueue: null, sbSlothashes: null, sbInstructions: null,
+      sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
     }).rpc();
 
     const o: any = await e.opta.account.volOracle.fetch(oracle);
@@ -74,27 +74,45 @@ describe("bankrun: Stage 3 1c-i-A — initialize_vol_oracle oracle_source + seed
       await e.opta.methods.initializeVolOracle(feed.bytes, 1, SEED).accountsStrict({
         initializer: e.admin.publicKey, priceUpdate: null, volOracle: oracle,
         systemProgram: SystemProgram.programId,
-        sbQueue: null, sbSlothashes: null, sbInstructions: null,
+        sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       }).rpc();
     } catch (ex: any) { err = String(ex); }
     console.log(`    (SB) ${err.slice(0, 120)}`);
     assert.match(err, /SwitchboardAccountsMissing|6065/, "SB birth must require the SB verify accounts");
   });
 
-  it("(X) oracle_source=2 (invalid) → InvalidOracleSource (6066)", async () => {
+  it("(X) oracle_source=7 (out of range) → InvalidOracleSource (6066)", async () => {
+    // Plug wave 1 (2026-09-18): source 2 is VALID now (Opta). The garbage-byte
+    // negative moves to 7; source 2 gets its own negative below.
     const e = await setupEnv("SBINIT2", "sbinit2", 100);
     const feed = freshFeed("sbinit2-bad");
+    const oracle = volOraclePda(feed.bytes);
+    let err = "";
+    try {
+      await e.opta.methods.initializeVolOracle(feed.bytes, 7, SEED).accountsStrict({
+        initializer: e.admin.publicKey, priceUpdate: null, volOracle: oracle,
+        systemProgram: SystemProgram.programId,
+        sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
+      }).rpc();
+    } catch (ex: any) { err = String(ex); }
+    console.log(`    (X) ${err.slice(0, 120)}`);
+    assert.match(err, /InvalidOracleSource|6066/, "out-of-range oracle_source must revert");
+  });
+
+  it("(X2) oracle_source=2 (Opta) + NO opta_price_feed → OptaFeedMissing (6102)", async () => {
+    const e = await setupEnv("SBINIT2B", "sbinit2b", 100);
+    const feed = freshFeed("sbinit2b-nofeed");
     const oracle = volOraclePda(feed.bytes);
     let err = "";
     try {
       await e.opta.methods.initializeVolOracle(feed.bytes, 2, SEED).accountsStrict({
         initializer: e.admin.publicKey, priceUpdate: null, volOracle: oracle,
         systemProgram: SystemProgram.programId,
-        sbQueue: null, sbSlothashes: null, sbInstructions: null,
+        sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       }).rpc();
     } catch (ex: any) { err = String(ex); }
-    console.log(`    (X) ${err.slice(0, 120)}`);
-    assert.match(err, /InvalidOracleSource|6066/, "out-of-range oracle_source must revert");
+    console.log(`    (X2) ${err.slice(0, 120)}`);
+    assert.match(err, /OptaFeedMissing|6102/, "an Opta init without the feed account must revert on the arm, not on validation");
   });
 
   it("(M) oracle_source=0 (Pyth) but NO price_update → PriceUpdateMissing (6064)", async () => {
@@ -106,7 +124,7 @@ describe("bankrun: Stage 3 1c-i-A — initialize_vol_oracle oracle_source + seed
       await e.opta.methods.initializeVolOracle(feed.bytes, 0, SEED).accountsStrict({
         initializer: e.admin.publicKey, priceUpdate: null, volOracle: oracle,
         systemProgram: SystemProgram.programId,
-        sbQueue: null, sbSlothashes: null, sbInstructions: null,
+        sbQueue: null, sbSlothashes: null, sbInstructions: null, optaPriceFeed: null,
       }).rpc();
     } catch (ex: any) { err = String(ex); }
     console.log(`    (M) ${err.slice(0, 120)}`);

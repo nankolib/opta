@@ -439,7 +439,7 @@ export async function buildPostUpdateAndSettleTx(
         systemProgram: SystemProgram.programId,
         sbQueue: null,
         sbSlothashes: null,
-        sbInstructions: null,
+        sbInstructions: null, optaPriceFeed: null,
       })
       .instruction();
 
@@ -584,7 +584,7 @@ export async function buildPostUpdateAndCreateMarketTx(
         systemProgram: SystemProgram.programId,
         sbQueue: null,
         sbSlothashes: null,
-        sbInstructions: null,
+        sbInstructions: null, optaPriceFeed: null,
       })
       .instruction();
 
@@ -746,7 +746,7 @@ export async function buildPostUpdateAndInitializeVolOracleTx(
         // Pyth path: trailing SB optionals are null (no Switchboard accounts).
         sbQueue: null,
         sbSlothashes: null,
-        sbInstructions: null,
+        sbInstructions: null, optaPriceFeed: null,
       })
       .instruction();
 
@@ -819,7 +819,7 @@ export async function buildPostUpdateAndPushVolSampleTx(
         systemProgram: SystemProgram.programId,
         sbQueue: null,
         sbSlothashes: null,
-        sbInstructions: null,
+        sbInstructions: null, optaPriceFeed: null,
       })
       .instruction();
 
@@ -903,7 +903,7 @@ export async function buildPostUpdateAndExerciseAmericanTx(
         tokenProgram: TOKEN_PROGRAM_ID,
         sbQueue: null,
         sbSlothashes: null,
-        sbInstructions: null,
+        sbInstructions: null, optaPriceFeed: null,
       })
       .instruction();
 

@@ -578,7 +578,7 @@ export function assembleExecuteAccounts(
     systemProgram: SystemProgram.programId,
     sbQueue: isSb ? sb!.queue : null,
     sbSlothashes: isSb ? SPL_SYSVAR_SLOT_HASHES_ID : null,
-    sbInstructions: isSb ? SPL_SYSVAR_INSTRUCTIONS_ID : null,
+    sbInstructions: isSb ? SPL_SYSVAR_INSTRUCTIONS_ID : null, optaPriceFeed: null,
     // Phase B1: the ten book-fire optionals [21]-[30] — ALWAYS null on this
     // peg-path assembler (book fires are dark until the Jul-31 flip). accountsStrict
     // requires every IDL account to be specified, so these must be present-as-null;

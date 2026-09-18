@@ -77,6 +77,7 @@ use crate::instructions::fill_writer_ask::writer_ask_fill_core;
 use crate::instructions::fill_order::{bid_fill_core, resale_ask_fill_core};
 use crate::feature_flags::BOOK_TRIGGERS_ENABLED;
 use crate::state::*;
+use crate::utils::opta_price_read::opta_current_spot_usdc;
 use crate::utils::price_oracle::{
     find_ed25519_ix_index, pyth_current_spot_usdc, sb_current_spot_usdc, secs_to_slots,
     SB_MIN_ORACLE_SAMPLES_FLOOR,
@@ -170,6 +171,15 @@ pub fn handle_execute_trigger(ctx: Context<ExecuteTrigger>) -> Result<()> {
                 feed_id,
                 SB_MIN_ORACLE_SAMPLES_FLOOR,
             )?
+        }
+        ORACLE_SOURCE_OPTA => {
+            // FP-ORACLE: no EMA exists on a first-party feed -- spot, like the SB arm.
+            let feed = ctx
+                .accounts
+                .opta_price_feed
+                .as_ref()
+                .ok_or(error!(OptaError::OptaFeedMissing))?;
+            opta_current_spot_usdc(feed, feed_id, clock.unix_timestamp, OPTA_FEED_READ_MAX_AGE_SECS)?
         }
         _ => return Err(error!(OptaError::InvalidOracleSource)),
     };
@@ -1241,4 +1251,9 @@ pub struct ExecuteTrigger<'info> {
     /// those guards exist for.
     #[account(mut)]
     pub oco_peer: Option<Account<'info, TriggerOrder>>,
+
+    /// FP-ORACLE arm (plug, wave 1). Trailing optional, appended LAST so every
+    /// existing transaction stays byte-identical. REQUIRED when oracle_source ==
+    /// ORACLE_SOURCE_OPTA; the arm errors OptaFeedMissing if absent.
+    pub opta_price_feed: Option<Account<'info, OptaPriceFeed>>,
 }

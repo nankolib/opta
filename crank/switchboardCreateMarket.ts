@@ -105,7 +105,7 @@ export async function buildSwitchboardCreateMarketTx(
       systemProgram: SystemProgram.programId,
       sbQueue: entry.queue,
       sbSlothashes: SPL_SYSVAR_SLOT_HASHES_ID,
-      sbInstructions: SPL_SYSVAR_INSTRUCTIONS_ID,
+      sbInstructions: SPL_SYSVAR_INSTRUCTIONS_ID, optaPriceFeed: null,
     })
     .instruction();
 

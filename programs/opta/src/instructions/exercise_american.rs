@@ -41,6 +41,7 @@ use crate::feature_flags::AMERICAN_ENABLED;
 use crate::state::*;
 use crate::utils::collateral::required_collateral_per_contract;
 use crate::utils::exercise_intrinsic::exercise_capped_intrinsic;
+use crate::utils::opta_price_read::opta_current_spot_usdc;
 use crate::utils::price_oracle::{
     find_ed25519_ix_index, pyth_current_spot_usdc, sb_current_spot_usdc, secs_to_slots,
     SB_MIN_ORACLE_SAMPLES_FLOOR,
@@ -174,6 +175,15 @@ pub fn handle_exercise_american(
                 feed_id,
                 SB_MIN_ORACLE_SAMPLES_FLOOR,
             )?
+        }
+        ORACLE_SOURCE_OPTA => {
+            // FP-ORACLE: current spot in USDC 6-dec, 180s freshness.
+            let feed = ctx
+                .accounts
+                .opta_price_feed
+                .as_ref()
+                .ok_or(error!(OptaError::OptaFeedMissing))?;
+            opta_current_spot_usdc(feed, feed_id, clock.unix_timestamp, OPTA_FEED_READ_MAX_AGE_SECS)?
         }
         _ => return Err(error!(OptaError::InvalidOracleSource)),
     };
@@ -612,4 +622,9 @@ pub struct ExerciseAmerican<'info> {
         bump = protocol_state.bump,
     )]
     pub protocol_state: Option<Box<Account<'info, ProtocolState>>>,
+
+    /// FP-ORACLE arm (plug, wave 1). Trailing optional, appended LAST so every
+    /// existing transaction stays byte-identical. REQUIRED when oracle_source ==
+    /// ORACLE_SOURCE_OPTA; the arm errors OptaFeedMissing if absent.
+    pub opta_price_feed: Option<Account<'info, OptaPriceFeed>>,
 }
