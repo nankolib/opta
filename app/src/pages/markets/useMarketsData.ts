@@ -1,3 +1,4 @@
+import { spotSourceOf } from "../../utils/oracleArm";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useProgram } from "../../hooks/useProgram";
@@ -187,7 +188,7 @@ export function useMarketsData(): UseMarketsData {
   // Feeds — one entry per (asset, feed_id) pair for assets with at least
   // one live vault. useSpotPrices batches them by oracle source.
   const feeds = useMemo(() => {
-    const out: { ticker: string; feedIdHex: string; oracleSource: 0 | 1 }[] = [];
+    const out: { ticker: string; feedIdHex: string; oracleSource: 0 | 1 | 2 }[] = [];
     const seen = new Set<string>();
     for (const v of vaults) {
       const market = markets.find((m) =>
@@ -200,7 +201,7 @@ export function useMarketsData(): UseMarketsData {
       out.push({
         ticker,
         feedIdHex: hexFromBytes(market.account.pythFeedId as number[]),
-        oracleSource: ((market.account.oracleSource as number) ?? 0) === 1 ? 1 : 0,
+        oracleSource: spotSourceOf(market.account.oracleSource),
       });
     }
     return out;

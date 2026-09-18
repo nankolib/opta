@@ -64,7 +64,8 @@ test("a Pyth market still routes to the Pyth arm — the working arm is untouche
 test("an unreadable oracle_source throws rather than guessing", () => {
   // Defaulting either way is a bug: Pyth is the P1 we are fixing, and Switchboard
   // would break the seven markets that work today.
-  for (const bad of [undefined, null, 2, 255, -1, "0", NaN, {}]) {
+  // 2 became the Opta arm at plug wave 1 (2026-09-18); it is asserted below.
+  for (const bad of [undefined, null, 3, 255, -1, "0", NaN, {}]) {
     assert.throws(
       () => chooseExerciseArm(bad),
       UnknownOracleSourceError,
@@ -190,6 +191,8 @@ function buildTx(opts: Opts = {}): VersionedTransaction {
     writerAskPot,
     writerAskPotUsdc,
     protocolState,
+    // Plug wave 1: the trailing feed slot; the sentinel on the SB arm.
+    optaPriceFeed: PROGRAM,
     ...(opts.accounts ?? {}),
   } as Record<string, PublicKey>;
 
@@ -197,7 +200,7 @@ function buildTx(opts: Opts = {}): VersionedTransaction {
     "holder", "sharedVault", "market", "priceUpdate", "vaultMintRecord",
     "optionMint", "holderOptionAccount", "vaultUsdcAccount", "holderUsdcAccount",
     "token2022Program", "tokenProgram", "sbQueue", "sbSlothashes", "sbInstructions",
-    "writerAskPot", "writerAskPotUsdc", "protocolState",
+    "writerAskPot", "writerAskPotUsdc", "protocolState", "optaPriceFeed",
   ].slice(0, opts.accountCount ?? 14);
 
   const data = opts.discriminator
@@ -534,9 +537,22 @@ test("REFUSES: a half-supplied pot arm (15 or 16 accounts)", () => {
   for (const n of [15, 16]) {
     assert.throws(
       () => assertExerciseTxShape(buildTx({ accountCount: n }), EXPECTED_POT),
-      new RegExp(`${n} accounts, expected 14 or 17`),
+      new RegExp(`${n} accounts, expected 14, 17 or 18`),
     );
   }
+});
+
+test("plug wave 1: source 2 resolves to the opta arm", () => {
+  assert.equal(chooseExerciseArm(2), "opta");
+});
+
+test("GREEN: an 18-account SB build carrying the trailing sentinel passes (current endpoint shape)", () => {
+  assertExerciseTxShape(buildTx({ accountCount: 18 }), EXPECTED_POT);
+});
+
+test("REFUSES: an 18-account build with a REAL key in the feed slot — not a Switchboard exercise", () => {
+  const tx = buildTx({ accountCount: 18, accounts: { optaPriceFeed: Keypair.generate().publicKey } });
+  assert.throws(() => assertExerciseTxShape(tx, EXPECTED_POT), /unexpected price account/);
 });
 
 test("indices 0-13 are unchanged by the arm — the legacy map still reads true", () => {

@@ -33,6 +33,7 @@ import { useProgram } from "./useProgram";
 import { VOL_ORACLE_SEED } from "../utils/constants";
 import { getXbarBase } from "../utils/env";
 import { parseSimulate, decodeVolSpot, resolveSbSpots, splitBySource, normFeed } from "./spotSources";
+import { optaPriceFeedPda, decodeOptaFeed } from "../utils/oracleArm";
 
 const REFRESH_INTERVAL_MS = 30_000;
 const FETCH_TIMEOUT_MS = 4000;
@@ -43,7 +44,7 @@ export type SpotRequest = {
   /** 64-char lowercase hex, no `0x` prefix. */
   feedIdHex: string;
   /** 0 = off-chain pull path; 1 = proxy-simulate with on-chain sample fallback. */
-  oracleSource: 0 | 1;
+  oracleSource: 0 | 1 | 2;
 };
 
 export type SpotPricesResult = {
@@ -131,7 +132,7 @@ export function useSpotPrices(
   priority: readonly string[] = [],
 ): SpotPricesResult {
   // ---- Split by source. Both branches run every render (hooks rules). --------
-  const { pythFeeds, sbFeeds } = useMemo(() => {
+  const { pythFeeds, sbFeeds, optaFeeds } = useMemo(() => {
     return splitBySource(entries);
   }, [entries]);
 
@@ -157,6 +158,44 @@ export function useSpotPrices(
   const [sbAsOf, setSbAsOf] = useState<Record<string, number>>({});
   const [sbLoading, setSbLoading] = useState(false);
   const [sbError, setSbError] = useState<string | null>(null);
+
+  // ---- ORACLE_SOURCE_OPTA (plug wave 1): read the OptaPriceFeed account ----
+  // No proxy, no simulate: the price IS the account. Display path only.
+  const optaKey = useMemo(
+    () => optaFeeds.map((f) => `${f.ticker}:${f.feedIdHex}`).sort().join(","),
+    [optaFeeds],
+  );
+  const [optaPrices, setOptaPrices] = useState<Record<string, number>>({});
+  const [optaAsOf, setOptaAsOf] = useState<Record<string, number>>({});
+  const [optaLoading, setOptaLoading] = useState(false);
+  useEffect(() => {
+    if (optaFeeds.length === 0 || !programId) {
+      setOptaPrices({}); setOptaAsOf({}); setOptaLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setOptaLoading(true);
+    const run = async () => {
+      try {
+        const pdas = optaFeeds.map((f) => optaPriceFeedPda(f.feedIdHex, programId));
+        const infos = await connection.getMultipleAccountsInfo(pdas, "confirmed");
+        const prices: Record<string, number> = {};
+        const asOf: Record<string, number> = {};
+        for (let i = 0; i < optaFeeds.length; i++) {
+          const info = infos[i];
+          if (!info) continue;
+          const d = decodeOptaFeed(info.data as Uint8Array);
+          if (d) { prices[optaFeeds[i].ticker] = d.spot; asOf[optaFeeds[i].ticker] = d.asOf; }
+        }
+        if (!cancelled) { setOptaPrices(prices); setOptaAsOf(asOf); setOptaLoading(false); }
+      } catch {
+        if (!cancelled) setOptaLoading(false);
+      }
+    };
+    run();
+    const id = setInterval(run, REFRESH_INTERVAL_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [optaKey, connection, programId?.toBase58()]);
 
   useEffect(() => {
     if (sbFeeds.length === 0) {
@@ -215,7 +254,7 @@ export function useSpotPrices(
 
   // ---- Merge. Pyth-only inputs return byte-identically. ----------------------
   return useMemo(() => {
-    const hasSb = sbFeeds.length > 0;
+    const hasSb = sbFeeds.length > 0 || optaFeeds.length > 0;
     if (!hasSb) {
       return {
         prices: pyth.prices,
@@ -224,13 +263,14 @@ export function useSpotPrices(
         stale: pyth.stale,
       };
     }
-    const asOf = Object.keys(sbAsOf).length > 0 ? sbAsOf : undefined;
+    const mergedAsOf = { ...sbAsOf, ...optaAsOf };
+    const asOf = Object.keys(mergedAsOf).length > 0 ? mergedAsOf : undefined;
     return {
-      prices: { ...pyth.prices, ...sbPrices },
-      loading: pyth.loading || sbLoading,
+      prices: { ...pyth.prices, ...sbPrices, ...optaPrices },
+      loading: pyth.loading || sbLoading || optaLoading,
       error: pyth.error ?? sbError,
       stale: pyth.stale,
       asOf,
     };
-  }, [pyth.prices, pyth.loading, pyth.error, pyth.stale, sbPrices, sbAsOf, sbLoading, sbError, sbFeeds.length]);
+  }, [pyth.prices, pyth.loading, pyth.error, pyth.stale, sbPrices, sbAsOf, sbLoading, sbError, sbFeeds.length, optaPrices, optaAsOf, optaLoading, optaFeeds.length]);
 }

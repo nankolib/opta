@@ -1,3 +1,4 @@
+import { spotSourceOf } from "../../utils/oracleArm";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useSearchParams } from "react-router-dom";
@@ -325,7 +326,7 @@ export function useTradeData(): UseTradeData {
   // (ticker, feedIdHex, oracleSource) tuples so useSpotPrices routes each
   // market to the correct source.
   const feeds = useMemo(() => {
-    const out: { ticker: string; feedIdHex: string; oracleSource: 0 | 1 }[] = [];
+    const out: { ticker: string; feedIdHex: string; oracleSource: 0 | 1 | 2 }[] = [];
     const seen = new Set<string>();
     for (const v of vaults) {
       if (v.account.isSettled) continue;
@@ -339,7 +340,7 @@ export function useTradeData(): UseTradeData {
       out.push({
         ticker,
         feedIdHex: hexFromBytes(market.account.pythFeedId as number[]),
-        oracleSource: ((market.account.oracleSource as number) ?? 0) === 1 ? 1 : 0,
+        oracleSource: spotSourceOf(market.account.oracleSource),
       });
     }
     return out;

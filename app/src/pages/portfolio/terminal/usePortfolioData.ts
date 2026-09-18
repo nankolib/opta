@@ -19,6 +19,7 @@
 // useWriterActions are the byte-identical engines).
 // =============================================================================
 
+import { spotSourceOf } from "../../../utils/oracleArm";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -80,7 +81,7 @@ export function usePortfolioData() {
   const { vaults, vaultMints, myPositions, getUnclaimedPremium, refetch: refetchVaults } = useVaults();
 
   const feeds = useMemo(() => {
-    const out: { ticker: string; feedIdHex: string; oracleSource: 0 | 1 }[] = [];
+    const out: { ticker: string; feedIdHex: string; oracleSource: 0 | 1 | 2 }[] = [];
     const seen = new Set<string>();
     for (const m of markets) {
       const ticker = m.account.assetName as string;
@@ -89,7 +90,7 @@ export function usePortfolioData() {
       out.push({
         ticker,
         feedIdHex: hexFromBytes(m.account.pythFeedId as number[]),
-        oracleSource: ((m.account.oracleSource as number) ?? 0) === 1 ? 1 : 0,
+        oracleSource: spotSourceOf(m.account.oracleSource),
       });
     }
     return out;

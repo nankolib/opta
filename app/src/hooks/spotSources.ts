@@ -24,7 +24,7 @@ export function normFeed(hex: string): string {
   return hex.replace(/^0x/, "").toLowerCase();
 }
 
-export type SpotEntry = { ticker: string; feedIdHex: string; oracleSource: 0 | 1 };
+export type SpotEntry = { ticker: string; feedIdHex: string; oracleSource: 0 | 1 | 2 };
 
 /**
  * Route entries by oracle source. Source-0 (Pyth) feeds pass through UNCHANGED
@@ -32,15 +32,17 @@ export type SpotEntry = { ticker: string; feedIdHex: string; oracleSource: 0 | 1
  * (SB) feeds are normalized here since the same hex keys both the proxy and the
  * on-chain sample account. Entries missing ticker/feedIdHex are dropped.
  */
-export function splitBySource(entries: SpotEntry[]): { pythFeeds: SbFeed[]; sbFeeds: SbFeed[] } {
+export function splitBySource(entries: SpotEntry[]): { pythFeeds: SbFeed[]; sbFeeds: SbFeed[]; optaFeeds: SbFeed[] } {
   const pythFeeds: SbFeed[] = [];
   const sbFeeds: SbFeed[] = [];
+  const optaFeeds: SbFeed[] = [];
   for (const e of entries) {
     if (!e?.ticker || !e?.feedIdHex) continue;
     if (e.oracleSource === 1) sbFeeds.push({ ticker: e.ticker, feedIdHex: normFeed(e.feedIdHex) });
+    else if (e.oracleSource === 2) optaFeeds.push({ ticker: e.ticker, feedIdHex: normFeed(e.feedIdHex) });
     else pythFeeds.push({ ticker: e.ticker, feedIdHex: e.feedIdHex });
   }
-  return { pythFeeds, sbFeeds };
+  return { pythFeeds, sbFeeds, optaFeeds };
 }
 
 /**

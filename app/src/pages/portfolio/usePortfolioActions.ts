@@ -33,6 +33,7 @@ import {
   deriveVaultResaleEscrow,
 } from "../../hooks/useAccounts";
 import {
+  buildOptaExerciseAmericanTx,
   buildPostUpdateAndExerciseAmericanTx,
   submitWithFallback,
 } from "../../utils/pythPullPost";
@@ -371,6 +372,30 @@ async function exerciseAmericanV2({
         vaultUsdcAccount: v.vaultUsdcAccount as PublicKey,
         holderUsdcAccount,
       },
+    });
+    return;
+  }
+
+  // ── OPTA ARM (plug wave 1) — local build, no off-chain post, no endpoint ──
+  if (arm === "opta") {
+    const optaFeedIdHex = hexFromBytes(mktBody.pythFeedId as number[]);
+    const optaTxs = await buildOptaExerciseAmericanTx(program, provider.wallet, {
+      feedIdHex: optaFeedIdHex,
+      quantity: position.contracts,
+      sharedVault: vault.publicKey,
+      market: marketPda,
+      vaultMintRecord: vaultMint.publicKey,
+      optionMint,
+      holderOptionAccount,
+      vaultUsdcAccount: v.vaultUsdcAccount as PublicKey,
+      holderUsdcAccount,
+    });
+    const optaSig = await submitWithFallback(program.provider.connection, provider.wallet, optaTxs);
+    showToast({
+      type: "success",
+      title: "Exercised early!",
+      message: `${position.contracts} contract${position.contracts === 1 ? "" : "s"} exercised · USDC sent to your wallet.`,
+      txSignature: optaSig,
     });
     return;
   }

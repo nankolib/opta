@@ -50,8 +50,12 @@ import { PublicKey, VersionedTransaction } from "@solana/web3.js";
 
 export const ORACLE_SOURCE_PYTH = 0;
 export const ORACLE_SOURCE_SWITCHBOARD = 1;
+/** Plug wave 1 (2026-09-18): the first-party feed. Routed to a LOCAL build —
+ *  no off-chain post, no endpoint — carrying the feed PDA in the trailing
+ *  optional. See utils/oracleArm.ts. */
+export const ORACLE_SOURCE_OPTA = 2;
 
-export type ExerciseArm = "pyth" | "switchboard";
+export type ExerciseArm = "pyth" | "switchboard" | "opta";
 
 /** Raised when a market's oracle_source is absent or not one of {0,1}. */
 export class UnknownOracleSourceError extends Error {
@@ -75,6 +79,7 @@ export class UnknownOracleSourceError extends Error {
 export function chooseExerciseArm(oracleSource: unknown): ExerciseArm {
   if (oracleSource === ORACLE_SOURCE_PYTH) return "pyth";
   if (oracleSource === ORACLE_SOURCE_SWITCHBOARD) return "switchboard";
+  if (oracleSource === ORACLE_SOURCE_OPTA) return "opta";
   throw new UnknownOracleSourceError(oracleSource);
 }
 
@@ -234,6 +239,11 @@ export const EXERCISE_ACCOUNT_INDEX = Object.freeze({
  *  is carried. Anything else is not this instruction. */
 export const EXERCISE_ACCOUNTS_VAULT_ONLY = 14;
 export const EXERCISE_ACCOUNTS_WITH_POT = 17;
+/** Plug wave 1: an endpoint built against the current IDL carries the trailing
+ *  `opta_price_feed` slot too. On the Switchboard arm that slot MUST hold the
+ *  program-id sentinel (index 17 is checked below); a real key there is not an
+ *  SB exercise. 14 and 17 stay legal for older endpoint builds. */
+export const EXERCISE_ACCOUNTS_WITH_FEED_SLOT = 18;
 
 export interface ExpectedExercise extends SbExerciseRequest {
   /** Our Opta program id — not the endpoint's claim about it. */
@@ -385,11 +395,12 @@ export function assertExerciseTxShape(
   const acc = ix.accountKeyIndexes;
   if (
     acc.length !== EXERCISE_ACCOUNTS_VAULT_ONLY &&
-    acc.length !== EXERCISE_ACCOUNTS_WITH_POT
+    acc.length !== EXERCISE_ACCOUNTS_WITH_POT &&
+    acc.length !== EXERCISE_ACCOUNTS_WITH_FEED_SLOT
   ) {
     throw new ExerciseTxShapeError(
       `instruction has ${acc.length} accounts, expected ` +
-        `${EXERCISE_ACCOUNTS_VAULT_ONLY} or ${EXERCISE_ACCOUNTS_WITH_POT}`,
+        `${EXERCISE_ACCOUNTS_VAULT_ONLY}, ${EXERCISE_ACCOUNTS_WITH_POT} or ${EXERCISE_ACCOUNTS_WITH_FEED_SLOT}`,
     );
   }
   const at = (i: number) => keys[acc[i]];
@@ -405,7 +416,13 @@ export function assertExerciseTxShape(
   // not the length. (14 remains legal: an endpoint built against an IDL that
   // predates the arm omits the trailing optionals entirely.)
   const carriesPot =
-    acc.length === EXERCISE_ACCOUNTS_WITH_POT && at(I.writerAskPot) !== expected.programId;
+    acc.length >= EXERCISE_ACCOUNTS_WITH_POT && at(I.writerAskPot) !== expected.programId;
+  // Plug wave 1: on the Switchboard arm the trailing feed slot, when present,
+  // must be the omitted-optional sentinel. A real account there means the
+  // endpoint built something other than a Switchboard exercise.
+  if (acc.length === EXERCISE_ACCOUNTS_WITH_FEED_SLOT && at(I.optaPriceFeed) !== expected.programId) {
+    throw new ExerciseTxShapeError("transaction carries an unexpected price account");
+  }
 
   const mustMatch: Array<[number, string, string]> = [
     [I.holder, expected.holder, "holder"],

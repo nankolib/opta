@@ -35,6 +35,7 @@ import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import { Program } from "@coral-xyz/anchor";
 import type { Opta } from "../idl/opta";
+import { optaPriceFeedPda, ORACLE_SOURCE_OPTA } from "./oracleArm";
 
 /**
  * Minimal wallet shape both pythPullPost callers satisfy:
@@ -525,6 +526,28 @@ export async function buildPostUpdateAndCreateMarketTx(
   hermesBase: string = DEFAULT_HERMES_BASE,
   oracleSource: number = 0,
 ): Promise<BuiltTx[]> {
+  if (oracleSource === ORACLE_SOURCE_OPTA) {
+    // Opta arm: HIGH-5 existence proof reads the OptaPriceFeed PDA; nothing to
+    // post. price_update and the SB accounts are None.
+    const feedIdBytes = Array.from(Buffer.from(pythFeedIdHex.replace(/^0x/, ""), "hex"));
+    const [protocolState] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], program.programId);
+    const [market] = PublicKey.findProgramAddressSync([Buffer.from("market"), Buffer.from(assetName)], program.programId);
+    const ix = await program.methods
+      .createMarket(assetName, feedIdBytes, assetClass, oracleSource)
+      .accountsPartial({
+        creator: wallet.publicKey,
+        protocolState,
+        market,
+        priceUpdate: null,
+        systemProgram: SystemProgram.programId,
+        sbQueue: null,
+        sbSlothashes: null,
+        sbInstructions: null,
+        optaPriceFeed: optaPriceFeedPda(pythFeedIdHex, program.programId),
+      })
+      .instruction();
+    return buildSingleV0(program, wallet.publicKey, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
+  }
   const priceUpdateData = await fetchHermesUpdate(pythFeedIdHex, hermesBase);
 
   const receiver = new PythSolanaReceiver({
@@ -693,7 +716,26 @@ export async function buildPostUpdateAndInitializeVolOracleTx(
   pythFeedIdHex: string,
   seedVol: number,
   hermesBase: string = DEFAULT_HERMES_BASE,
+  oracleSource: number = 0,
 ): Promise<BuiltTx[]> {
+  if (oracleSource === ORACLE_SOURCE_OPTA) {
+    const feedIdBytes = Array.from(Buffer.from(pythFeedIdHex.replace(/^0x/, ""), "hex"));
+    const [volOracle] = PublicKey.findProgramAddressSync([Buffer.from("vol_oracle"), Buffer.from(feedIdBytes)], program.programId);
+    const ix = await program.methods
+      .initializeVolOracle(feedIdBytes, oracleSource, new BN(seedVol))
+      .accountsStrict({
+        initializer: wallet.publicKey,
+        priceUpdate: null,
+        volOracle,
+        systemProgram: SystemProgram.programId,
+        sbQueue: null,
+        sbSlothashes: null,
+        sbInstructions: null,
+        optaPriceFeed: optaPriceFeedPda(pythFeedIdHex, program.programId),
+      })
+      .instruction();
+    return buildSingleV0(program, wallet.publicKey, [ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }), ix]);
+  }
   const priceUpdateData = await fetchHermesUpdate(pythFeedIdHex, hermesBase);
 
   const receiver = new PythSolanaReceiver({
@@ -926,6 +968,78 @@ export async function buildPostUpdateAndExerciseAmericanTx(
 // ---------------------------------------------------------------------------
 // One-stop settle helper — atomic Pyth tx + batched settle_vault calls
 // ---------------------------------------------------------------------------
+
+// ============================================================================
+// ORACLE_SOURCE_OPTA arm (plug wave 1, 2026-09-18). No off-chain post: the
+// instruction reads the market's OptaPriceFeed PDA through the trailing optional
+// `opta_price_feed`. price_update and the three Switchboard accounts are None.
+// Same instruction data as the Pyth arm; only the account slots differ.
+// ============================================================================
+
+async function buildSingleV0(
+  program: Program<Opta>,
+  payer: PublicKey,
+  instructions: TransactionInstruction[],
+): Promise<BuiltTx[]> {
+  const { blockhash } = await program.provider.connection.getLatestBlockhash("confirmed");
+  const msg = new TransactionMessage({ payerKey: payer, recentBlockhash: blockhash, instructions }).compileToV0Message();
+  return [{ tx: new VersionedTransaction(msg), signers: [] }];
+}
+
+export function buildOptaExerciseAmericanIx(
+  program: Program<Opta>,
+  holder: PublicKey,
+  params: {
+    feedIdHex: string;
+    quantity: number;
+    sharedVault: PublicKey;
+    market: PublicKey;
+    vaultMintRecord: PublicKey;
+    optionMint: PublicKey;
+    holderOptionAccount: PublicKey;
+    vaultUsdcAccount: PublicKey;
+    holderUsdcAccount: PublicKey;
+  },
+) {
+  return program.methods
+    .exerciseAmerican(new BN(params.quantity))
+    .accountsPartial({
+      holder,
+      sharedVault: params.sharedVault,
+      market: params.market,
+      priceUpdate: null,
+      vaultMintRecord: params.vaultMintRecord,
+      optionMint: params.optionMint,
+      holderOptionAccount: params.holderOptionAccount,
+      vaultUsdcAccount: params.vaultUsdcAccount,
+      holderUsdcAccount: params.holderUsdcAccount,
+      token2022Program: TOKEN_2022_PROGRAM_ID,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      sbQueue: null,
+      sbSlothashes: null,
+      sbInstructions: null,
+      // Vault-funded shape: the writer-ask pot arm is absent (three Nones).
+      writerAskPot: null,
+      writerAskPotUsdc: null,
+      protocolState: null,
+      optaPriceFeed: optaPriceFeedPda(params.feedIdHex, program.programId),
+    })
+    .instruction();
+}
+
+/** exercise_american on an ORACLE_SOURCE_OPTA market: one versioned tx, no
+ *  Hermes post, no endpoint. */
+export async function buildOptaExerciseAmericanTx(
+  program: Program<Opta>,
+  wallet: SignerWallet,
+  params: Parameters<typeof buildOptaExerciseAmericanIx>[2],
+): Promise<BuiltTx[]> {
+  const ix = await buildOptaExerciseAmericanIx(program, wallet.publicKey, params);
+  return buildSingleV0(program, wallet.publicKey, [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 }),
+    ix,
+  ]);
+}
 
 export type SettleAllResult = {
   /** Atomic tx signature (post + settle_expiry). Null if the SettlementRecord

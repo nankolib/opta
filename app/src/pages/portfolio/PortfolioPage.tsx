@@ -1,3 +1,4 @@
+import { spotSourceOf } from "../../utils/oracleArm";
 import type { FC } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
@@ -103,7 +104,7 @@ const PortfolioPageLegacy: FC = () => {
     refetch: refetchVaults,
   } = useVaults();
   const feeds = useMemo(() => {
-    const out: { ticker: string; feedIdHex: string; oracleSource: 0 | 1 }[] = [];
+    const out: { ticker: string; feedIdHex: string; oracleSource: 0 | 1 | 2 }[] = [];
     const seen = new Set<string>();
     for (const m of markets) {
       const ticker = m.account.assetName as string;
@@ -112,7 +113,7 @@ const PortfolioPageLegacy: FC = () => {
       out.push({
         ticker,
         feedIdHex: hexFromBytes(m.account.pythFeedId as number[]),
-        oracleSource: ((m.account.oracleSource as number) ?? 0) === 1 ? 1 : 0,
+        oracleSource: spotSourceOf(m.account.oracleSource),
       });
     }
     return out;
