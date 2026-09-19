@@ -46,7 +46,9 @@ const g = (o, a, b) => (o[a] !== undefined ? o[a] : o[b]);
       last_sample_ts: v ? Number(g(v, "last_sample_ts", "lastSampleTs")) : null, seed_vol: v ? String(g(v, "seed_vol", "seedVol")) : null,
       feed_price_6dec: f ? String(g(f, "price_6dec", "price6dec")) : null, feed_publish_time: f ? Number(g(f, "publish_time", "publishTime")) : null, feed_frozen: f ? !!f.frozen : null,
       spot: v ? Number(g(v, "last_spot_price", "lastSpotPrice")) / 1e12 : null, quotes: {} };
-    const strike = rec.spot ? Math.round(rec.spot / 100) * 100 : null; const expiry = Math.floor(Date.now() / 1000) + 7 * 86400;
+    // ATM strike on a step that scales with the price (BTC 81,617 -> 81,600; ETH 2,650 -> 2,650)
+    const step = rec.spot ? Math.pow(10, Math.floor(Math.log10(rec.spot)) - 2) : null;
+    const strike = rec.spot ? Math.round(rec.spot / step) * step : null; const expiry = Math.floor(Date.now() / 1000) + 7 * 86400;
     rec.strike = strike; rec.expiry = expiry;
     for (const side of ["call", "put"]) {
       try {
