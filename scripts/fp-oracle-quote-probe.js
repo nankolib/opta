@@ -16,7 +16,9 @@ const fs = require("fs");
 const path = require("path");
 const { Connection, PublicKey, Transaction, ComputeBudgetProgram } = require("@solana/web3.js");
 const anchor = require("@coral-xyz/anchor"); const { BN } = anchor;
-const idl = require(path.resolve(__dirname, "..", "crank", "idl", "opta.json"));
+// OPTA_IDL_PATH lets the probe run standalone on the box (outside the repo
+// checkout), pointing at the crank's own IDL; default = the repo layout.
+const idl = require(process.env.OPTA_IDL_PATH || path.resolve(__dirname, "..", "crank", "idl", "opta.json"));
 const PID = new PublicKey(idl.address);
 const PAYER = new PublicKey("5YRMuuoY3P7z5GeRAAQND7BxgNdmPSa6CSPCJLca1zZk"); // any funded account; nothing is signed
 const conn = new Connection(process.env.RPC_URL || "https://api.devnet.solana.com", "confirmed");
