@@ -28,13 +28,17 @@ export interface MarketInfo {
 }
 
 export interface OracleState {
-  ready: boolean;   // fresh AND (warm OR seeded)
+  ready: boolean;   // fresh AND (warm OR seeded) — and for source 2, WARM only (see oracleStateOf)
   reason: string;   // when !ready
   spot: number;     // coarse spot (human USD), for strike selection
   samples: number;
   seedVol: number;
   ageSecs: number;
+  oracleSource: number; // VolOracle.oracle_source as the coder emits it (0 Pyth, 1 Switchboard, 2 Opta)
 }
+
+/** ORACLE_SOURCE_OPTA — the first-party lane (app/src/utils/oracleArm.ts). */
+export const ORACLE_SOURCE_OPTA = 2;
 
 export interface MyOrder {
   pubkey: PublicKey;
@@ -116,21 +120,45 @@ export async function readOracle(
   try {
     o = await (program.account as any).volOracle.fetch(pda);
   } catch {
-    return { ready: false, reason: "oracle-not-initialized", spot: 0, samples: 0, seedVol: 0, ageSecs: Infinity };
+    return { ready: false, reason: "oracle-not-initialized", spot: 0, samples: 0, seedVol: 0, ageSecs: Infinity, oracleSource: -1 };
   }
   if (debug) log.info("oracle-debug", { keys: Object.keys(o) });
-  const samples = bnNum(o.sampleCount ?? o.samples ?? 0);
+  return oracleStateOf(o, nowSec);
+}
+
+/**
+ * Pure readiness decision over a DECODED VolOracle (the object the real Anchor
+ * coder emits: camelCase keys). Exported so the contract test can feed it a
+ * coder-decoded account and catch a key-name drift (P4).
+ *
+ * WARMING SOURCE-2 GATE (2026-09-23, ops ledger 62): a market on the
+ * first-party lane (oracle_source 2) is CLOSED to this writer until its ring
+ * holds 168 samples, seeded or not. The FE write-gate (writeWarmupGate) binds
+ * users the same way; the bot is a writer too. Before this, a freshly reset
+ * ring (sample_count 0, seed_vol set) read as "seeded → ready" and the bot
+ * posted asks on SOL and XRP inside their first pricing week. Writer lanes
+ * treat a warming source-2 market as closed regardless of ceremony state.
+ * Not-ready → the engine also PULLS any resting asks there (stale-pull path).
+ */
+export function oracleStateOf(o: any, nowSec: number): OracleState {
+  // NOT `o.samples` — that is the 720-entry ring under snake_case keys (NaN when read as a count).
+  const samples = bnNum(o.sampleCount ?? o.sample_count ?? 0);
   const seedVol = bnNum(o.seedVol ?? o.seed_vol ?? 0);
   const lastTs = bnNum(o.lastSampleTs ?? o.lastTs ?? o.last_sample_ts ?? 0);
   const spotScaled = o.lastSpotPrice ?? o.lastSpot ?? o.spot ?? o.last_spot_price;
   const spot = spotScaled != null ? bnNum(spotScaled) / 1e12 : 0;
+  const oracleSource = bnNum(o.oracleSource ?? o.oracle_source ?? 0);
   const ageSecs = lastTs > 0 ? nowSec - lastTs : Infinity;
   const fresh = ageSecs < VOL_STALE_SECS;
   const warm = samples >= VOL_WARMUP_SAMPLES;
   const seeded = seedVol !== 0;
-  const ready = fresh && (warm || seeded) && spot > 0;
-  const reason = !fresh ? "oracle-stale" : !(warm || seeded) ? "oracle-warmup" : spot <= 0 ? "no-spot" : "ok";
-  return { ready, reason, spot, samples, seedVol, ageSecs };
+  const source2Warming = oracleSource === ORACLE_SOURCE_OPTA && !warm;
+  const ready = fresh && (warm || seeded) && !source2Warming && spot > 0;
+  const reason = !fresh ? "oracle-stale"
+    : source2Warming ? `source2-warmup:${samples}/${VOL_WARMUP_SAMPLES}`
+    : !(warm || seeded) ? "oracle-warmup"
+    : spot <= 0 ? "no-spot" : "ok";
+  return { ready, reason, spot, samples, seedVol, ageSecs, oracleSource };
 }
 
 /** Enumerate the bot's own resting orders (memcmp on discriminator + owner@8). */
