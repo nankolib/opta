@@ -13,3 +13,9 @@ deploy/**/*.sh      text eol=lf
 deploy/**/*.conf    text eol=lf
 deploy/**/*.service text eol=lf
 deploy/**/*.timer   text eol=lf
+# The whitepaper slicer (app/vite.config.ts) matches "
+---
+"; a Windows
+# checkout with autocrlf double-converts this file (
+) and the build fails.
+Opta_Whitepaper_v1.md text eol=lf
