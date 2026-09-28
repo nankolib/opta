@@ -25,7 +25,6 @@ import * as path from "path";
 import type { Opta } from "@app/idl/opta";
 import { settleAllForExpiry } from "@app/utils/pythPullPost";
 import { safeFetchAll } from "@app/hooks/useFetchAccounts";
-import { hexFromBytes } from "@app/utils/format";
 
 import {
   runHolderFinalize,
@@ -63,6 +62,17 @@ import {
   type VolOracleCrankOptions,
 } from "./volOracleCrank";
 import { runOptaVolCrank, type OptaVolCrankContext } from "./optaVolCrank";
+import {
+  runOptaSettleCrank,
+  realDeps as optaSettleRealDeps,
+  OPTA_SETTLE_MARKER,
+  type OptaSettleContext,
+} from "./optaSettleCrank";
+import {
+  computePythExpiredTuples,
+  assertPythTuple,
+  type ExpiryTuple,
+} from "./settleRouting";
 import {
   runTriggerCrank,
   type TriggerCrankContext,
@@ -188,17 +198,13 @@ interface AccountRecord {
   account: any;
 }
 
-interface ExpiryTuple {
-  /** Stable key = `${asset}:${expiry}`. */
-  key: string;
-  asset: string;
-  expiry: number;
-  feedIdHex: string;
-  vaultPdas: PublicKey[];
-}
-
 interface TickResult {
   tuplesFound: number;
+  /** Expired unsettled vaults the Pyth pass left to another lane, or to none. */
+  vaultsSkippedSwitchboard: number;
+  vaultsSkippedSource2: number;
+  vaultsSkippedVoided: number;
+  vaultsRefusedSource: number;
   /** Phase 1b — settle_vault fan-out (every oracle arm). */
   fanoutEligible: number;
   fanoutSettled: number;
@@ -235,55 +241,8 @@ interface TickResult {
   reclaimErrors: number;
 }
 
-/**
- * Group expired non-settled vaults by (asset, expiry). Mirrors the
- * client-side derivation in AdminTools.tsx — no SettlementRecord-existence
- * filter, since settleAllForExpiry handles the resume case internally
- * via its own getAccountInfo check.
- */
-function computeExpiredTuples(
-  vaults: AccountRecord[],
-  markets: AccountRecord[],
-): ExpiryTuple[] {
-  const now = Math.floor(Date.now() / 1000);
-  const marketByPda = new Map<string, AccountRecord>();
-  for (const m of markets) marketByPda.set(m.publicKey.toBase58(), m);
-
-  const grouped = new Map<string, ExpiryTuple>();
-  for (const v of vaults) {
-    const expiry =
-      typeof v.account.expiry === "number"
-        ? v.account.expiry
-        : v.account.expiry.toNumber();
-    if (expiry >= now) continue;
-    if (v.account.isSettled) continue;
-    const market = marketByPda.get((v.account.market as PublicKey).toBase58());
-    if (!market) continue;
-    // Stage 3 1c-ii-B: Switchboard markets (oracle_source==1) are settled by the
-    // sb-oracle crank's SB settle-at-expiry pass (fresh quote + settle_expiry SB
-    // arm within the 300s window) — NOT the Pyth/Hermes path. Skip them here so
-    // the Pyth settle loop never tries (and errors SwitchboardAccountsMissing) on
-    // them. Pyth markets (oracle_source==0/undefined) are unaffected — byte-
-    // identical tuple grouping.
-    if ((market.account.oracleSource as number) === 1) continue;
-    const asset = market.account.assetName as string;
-    if (!asset) continue;
-    const key = `${asset}:${expiry}`;
-    const existing = grouped.get(key);
-    if (existing) {
-      existing.vaultPdas.push(v.publicKey);
-    } else {
-      grouped.set(key, {
-        key,
-        asset,
-        expiry,
-        feedIdHex: hexFromBytes(market.account.pythFeedId as number[]),
-        vaultPdas: [v.publicKey],
-      });
-    }
-  }
-  return Array.from(grouped.values()).sort((a, b) => a.expiry - b.expiry);
-}
+// The Pyth tuple enumeration lives in settleRouting.ts (computePythExpiredTuples)
+// so its routing rules can be loaded by a test. This file runs main() on import.
 
 function readEnv(): {
   rpcUrl: string;
@@ -592,6 +551,10 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
 
   const result: TickResult = {
     tuplesFound: 0,
+    vaultsSkippedSwitchboard: 0,
+    vaultsSkippedSource2: 0,
+    vaultsSkippedVoided: 0,
+    vaultsRefusedSource: 0,
     fanoutEligible: 0,
     fanoutSettled: 0,
     fanoutSkippedRaced: 0,
@@ -624,11 +587,24 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
   };
 
   // ---- Phase 1: settle expired non-settled vaults (existing behavior) ----
-  const tuples = computeExpiredTuples(
+  // Source 1 belongs to the sb-oracle pass, source 2 to the opta-settle lane,
+  // and a voided vault to nobody: none of them enumerate here.
+  const pythEnum = computePythExpiredTuples(
     vaults as AccountRecord[],
     markets as AccountRecord[],
+    Math.floor(Date.now() / 1000),
   );
+  const tuples: ExpiryTuple[] = pythEnum.tuples;
   result.tuplesFound = tuples.length;
+  result.vaultsSkippedSwitchboard = pythEnum.skipped.switchboard;
+  result.vaultsSkippedSource2 = pythEnum.skipped.opta;
+  result.vaultsSkippedVoided = pythEnum.skipped.voided;
+  result.vaultsRefusedSource = pythEnum.skipped.refused;
+  if (pythEnum.skipped.refused > 0) {
+    logWarn("settle routing: vaults on a market with an unknown oracle source (refused)", {
+      vaults: pythEnum.skipped.refused,
+    });
+  }
 
   if (tuples.length > 0) {
     logInfo("tuples to process", { count: tuples.length });
@@ -642,6 +618,7 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
       await sleep(ctx.hermesBackoff.currentMs);
 
       try {
+        assertPythTuple(t);
         const settleResult = await settleAllForExpiry(
           ctx.program,
           ctx.wallet,
@@ -1172,6 +1149,13 @@ async function main(): Promise<void> {
       currentMs: ctx.hermesBackoff.currentMs,
     },
     reclaim: { enabled: ctx.reclaimEnabled, dryRun: ctx.reclaimDryRun },
+    // The source-2 settle lane. The marker names the deployed generation, so a
+    // stale build is visible on this line alone.
+    source2Settle: {
+      marker: OPTA_SETTLE_MARKER,
+      enabled: (process.env.OPTA_SETTLE_OPTA_ENABLED ?? "") === "1",
+      dryRun: (process.env.OPTA_SETTLE_OPTA_DRY_RUN ?? "1") !== "0",
+    },
   });
 
   await checkWalletBalance(ctx, "boot");
@@ -1248,6 +1232,37 @@ async function main(): Promise<void> {
     logInfo("opta-vol side-loop ENABLED (OPTA_VOL_OPTA_ENABLED=1)", { dryRun: optaVolCtx.dryRun, note: "set OPTA_VOL_OPTA_DRY_RUN=0 to send" });
   } else {
     logInfo("opta-vol side-loop OFF (set OPTA_VOL_OPTA_ENABLED=1 at the layer-2 deploy)");
+  }
+
+  // Source-2 settle lane: settle_expiry through the first-party arm, keyed on
+  // expiry timestamps (the 300 s window is shorter than this file's tick).
+  // OWN flag, default OFF; dry-run default ON. Signs with the crank wallet only.
+  if ((process.env.OPTA_SETTLE_OPTA_ENABLED ?? "") === "1") {
+    const optaSettleCtx: OptaSettleContext = {
+      programId: ctx.program.programId,
+      caller: ctx.wallet.publicKey,
+      dryRun: (process.env.OPTA_SETTLE_OPTA_DRY_RUN ?? "1") !== "0",
+      log: (level, msg, fields) =>
+        log(level === "debug" ? "info" : level, msg, { subsystem: "opta-settle", ...(fields ?? {}) }),
+      shouldShutdown: () => shutdownRequested,
+    };
+    loops.push(
+      runOptaSettleCrank(
+        optaSettleCtx,
+        optaSettleRealDeps(
+          { connection: ctx.connection, wallet: ctx.wallet, program: ctx.program as any },
+          optaSettleCtx,
+        ),
+      ).catch((err) => {
+        logFatal("opta-settle loop crashed", { err: String(err), stack: (err as any)?.stack });
+        throw err;
+      }),
+    );
+    logInfo("opta-settle side-loop ENABLED (OPTA_SETTLE_OPTA_ENABLED=1)", {
+      marker: OPTA_SETTLE_MARKER, dryRun: optaSettleCtx.dryRun, note: "set OPTA_SETTLE_OPTA_DRY_RUN=0 to send",
+    });
+  } else {
+    logInfo("opta-settle side-loop OFF (set OPTA_SETTLE_OPTA_ENABLED=1)", { marker: OPTA_SETTLE_MARKER });
   }
 
   if ((process.env.OPTA_VOL_CRANK_DISABLED ?? "") === "1") {

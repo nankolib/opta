@@ -43,6 +43,8 @@ import { hexFromBytes } from "@app/utils/format";
 import type { Program } from "@coral-xyz/anchor";
 import { lookupSbFeed } from "./sbFeedRegistry";
 import { setLivenessMap, type FeedLiveness } from "./livenessStore";
+import { livenessSourceOf } from "./settleRouting";
+import { feedPdaFor, feedSnapshot, OPTA_FEED_READ_MAX_AGE_SECS } from "./optaVolCrank";
 
 export interface LivenessCrankContext {
   hermesBase: string;
@@ -107,7 +109,9 @@ function firstNumber(results: unknown[] | null | undefined): number | null {
 }
 
 interface FeedState {
-  source: 0 | 1;
+  source: 0 | 1 | 2;
+  /** Source 2 only: the feed_id bytes, to derive the OptaPriceFeed PDA. */
+  feedBytes?: number[];
   jobs?: Array<Record<string, unknown>>; // SB only
   live: boolean;
   asOf: number;
@@ -193,12 +197,17 @@ export async function runLivenessCrank(
     try {
       const markets = await safeFetchAll<any>(ctx.program, "optionsMarket");
       for (const m of markets) {
-        const src = m.account.oracleSource === 1 ? 1 : 0;
+        // Routed by the source byte. A first-party market (2) used to be filed as
+        // Pyth and probed against a price service that has never carried its
+        // feed; an unknown byte belongs to no family and is not tracked.
+        const src = livenessSourceOf(m.account.oracleSource);
+        if (src === null) continue;
         const id = norm(hexFromBytes(m.account.pythFeedId as number[]));
         if (!state.has(id)) {
           const sb = src === 1 ? lookupSbFeed(id) : undefined;
           state.set(id, {
             source: src,
+            feedBytes: src === 2 ? Array.from(m.account.pythFeedId as number[]) : undefined,
             jobs: sb?.jobs,
             live: false,
             asOf: 0,
@@ -237,6 +246,7 @@ export async function runLivenessCrank(
         mode: PROBE_ALL_PYTH ? "full-catalog" : "scoped",
         pythTracked: [...state.values()].filter((s) => s.source === 0).length,
         sbTracked: [...state.values()].filter((s) => s.source === 1).length,
+        optaTracked: [...state.values()].filter((s) => s.source === 2).length,
         curatedAdded,
         curatedMatched: matched.sort(),
         curatedSkipped: skipped.sort(),
@@ -297,6 +307,33 @@ export async function runLivenessCrank(
     if (total > 0) ctx.log("info", "liveness SB probe", { tracked: total, live });
   };
 
+  // First-party feeds: live means the on-chain feed account is unfrozen and its
+  // last push is inside the read max-age the program itself enforces.
+  const probeOpta = async () => {
+    let live = 0;
+    let total = 0;
+    for (const [, s] of state) {
+      if (s.source !== 2 || !s.feedBytes) continue;
+      total++;
+      try {
+        const f = feedSnapshot(
+          await (ctx.program.account as any).optaPriceFeed.fetch(
+            feedPdaFor(ctx.program.programId, s.feedBytes),
+          ),
+        );
+        if (!f.frozen && nowSec() - f.publishTime <= OPTA_FEED_READ_MAX_AGE_SECS) {
+          markHit(s, f.publishTime);
+          live++;
+        } else {
+          markMiss(s);
+        }
+      } catch {
+        markMiss(s);
+      }
+    }
+    if (total > 0) ctx.log("info", "liveness first-party probe", { tracked: total, live });
+  };
+
   const publish = () => {
     const feeds: Record<string, FeedLiveness> = {};
     for (const [id, s] of state) {
@@ -320,6 +357,7 @@ export async function runLivenessCrank(
       lastCatalog = Date.now();
     }
     await probePyth();
+    await probeOpta();
     if (Date.now() - lastSb >= SB_PROBE_MS) {
       await probeSb();
       lastSb = Date.now();
