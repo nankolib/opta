@@ -370,3 +370,41 @@ body {
   transition: width 2.4s var(--ease-opta);
 }
 .opta-tracer.is-in::before { width: 100%; }
+
+/* ============================================================================
+   Incident-banner offset — consumed by components/FreezeBanner.tsx
+
+   FreezeBanner is `fixed`, so it takes no space in normal flow. It publishes
+   its measured height as --opta-banner-h on <html>; the four rules below are
+   the ONLY consumers.
+
+   Every rule degrades to an identity transform at the 0px default, so with no
+   banner mounted (or once it is dismissed) the computed layout is identical to
+   what shipped before this block existed. Deleting the banner needs no layout
+   cleanup — just delete this block.
+
+   These sit OUTSIDE @layer on purpose: Tailwind 4 emits `h-screen` /
+   `min-h-screen` inside @layer utilities, and unlayered rules beat layered
+   ones regardless of source order. That is what lets us retune the two
+   viewport-height utilities without touching the 12 pages that use them.
+   ============================================================================ */
+:root {
+  --opta-banner-h: 0px;
+}
+
+body {
+  padding-top: var(--opta-banner-h);
+}
+
+/* The 4 terminal pages (Markets / Trade v2 / Write / Portfolio terminal) pin to
+   the viewport and scroll internally; without this they overflow by the banner
+   height and grow a phantom document scrollbar. */
+.h-screen {
+  height: calc(100vh - var(--opta-banner-h));
+}
+
+/* The paper pages grow past the fold on their own; this only stops a
+   short page from being banner-height taller than the viewport. */
+.min-h-screen {
+  min-height: calc(100vh - var(--opta-banner-h));
+}

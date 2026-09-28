@@ -54,9 +54,14 @@ export const AppNav: FC = () => {
 
   return (
     <>
+    {/* `top` is driven by --opta-banner-h (see components/FreezeBanner.tsx),
+        which defaults to 0px — so with no incident banner this is exactly
+        `top-0`. AppNav is the only FIXED bar that must sit below the banner;
+        the terminal pages carry TerminalAppBar in normal flow, which the body
+        padding already moves. */}
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 top-0 z-[200] flex flex-wrap items-center justify-between font-mono text-[11.5px] uppercase tracking-[0.18em] text-ink py-[22px] px-[clamp(20px,4vw,56px)] bg-paper border-b border-rule"
+      className="fixed inset-x-0 top-[var(--opta-banner-h,0px)] z-[200] flex flex-wrap items-center justify-between font-mono text-[11.5px] uppercase tracking-[0.18em] text-ink py-[22px] px-[clamp(20px,4vw,56px)] bg-paper border-b border-rule"
     >
       <Wordmark context="light" />
 
