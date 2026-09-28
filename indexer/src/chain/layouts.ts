@@ -226,6 +226,9 @@ export function decodeEpochConfig(b: Buffer): EpochConfigRow | null {
 // existing tape/marketsRefresh.ts parser; the difference is that this one keeps
 // the whole struct rather than just (asset_name, asset_class).
 
+/** The highest oracle_source the program defines (ORACLE_SOURCE_OPTA). */
+export const MAX_ORACLE_SOURCE = 2;
+
 export interface OptionsMarketRow {
   assetName: string;
   pythFeedId: string; // hex
@@ -258,7 +261,10 @@ export function decodeOptionsMarket(b: Buffer): OptionsMarketRow | null {
     // Known ranges. Out-of-range means a legacy layout decoded as garbage — the
     // exact failure the repo's account size-drift history warns about.
     if (assetClass > 4) return null;
-    if (oracleSource > 1) return null;
+    // The program's own set of sources: 0 Pyth, 1 Switchboard, 2 first-party.
+    // The bound was 1 until 2026-09-28, which dropped every market flipped to
+    // the first-party lane from the index, and with it from the site.
+    if (oracleSource > MAX_ORACLE_SOURCE) return null;
     return { assetName, pythFeedId, assetClass, bump, oracleSource };
   } catch {
     return null;
