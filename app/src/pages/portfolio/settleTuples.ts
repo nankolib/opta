@@ -37,6 +37,9 @@ export const PYTH_MAX_AGE_SECS = 2_592_000;
 
 export const ORACLE_PYTH = 0;
 export const ORACLE_SWITCHBOARD = 1;
+/** The first-party lane. Like Switchboard it persists the CURRENT price, so it
+ *  shares the 300 s window; the keeper settles it (crank/optaSettleCrank.ts). */
+export const ORACLE_OPTA = 2;
 
 /**
  * What this UI can do with a tuple.
@@ -46,11 +49,11 @@ export const ORACLE_SWITCHBOARD = 1;
  *  pyth       — no record, Pyth-sourced, still inside the 30-day backstop. The
  *               existing atomic post_update + settle_expiry path can create the
  *               record and then fan out.
- *  crankOnly  — no record, Switchboard, still inside the 300 s window. Settleable
+ *  crankOnly  — no record, Switchboard or first-party, still inside the 300 s window. Settleable
  *               in principle but NOT by this UI: posting a signed SB quote needs
  *               the Switchboard SDK, which is deliberately kept out of the FE
  *               bundle. The crank owns this. A ~5-minute sliver; rarely seen.
- *  dark       — no record, Switchboard, past the 300 s window. Unsettleable by
+ *  dark       — no record, Switchboard or first-party, past the 300 s window. Unsettleable by
  *               ANYONE, permanently: the verifier resolves the quote's
  *               signed_slothash against the live SlotHashes sysvar, so no stored
  *               attestation can ever satisfy it. Disposition is
@@ -72,7 +75,7 @@ export interface MarketRow {
   pda: string;
   assetName: string;
   feedIdHex: string;
-  /** 0 Pyth / 1 Switchboard. Legacy 62-byte markets decode as undefined → Pyth. */
+  /** 0 Pyth / 1 Switchboard / 2 first-party. Legacy 62-byte markets decode as undefined → Pyth. */
   oracleSource: number;
 }
 
@@ -136,6 +139,10 @@ export function classifySettleTuples(
     } else if (src === ORACLE_PYTH) {
       cls = age <= PYTH_MAX_AGE_SECS ? "pyth" : "dark";
     } else {
+      // Every source that is not Pyth: Switchboard, first-party, or a byte this
+      // build does not know. None has a historical print, so none is ever
+      // offered for a manual settle; the manual path is the Pyth builder, which
+      // refuses them (pythPullPost.assertPythSettleSource).
       cls = age <= SB_SETTLE_WINDOW_SECS ? "crankOnly" : "dark";
     }
 

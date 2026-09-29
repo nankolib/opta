@@ -35,7 +35,7 @@ import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import BN from "bn.js";
 import { Program } from "@coral-xyz/anchor";
 import type { Opta } from "../idl/opta";
-import { optaPriceFeedPda, ORACLE_SOURCE_OPTA } from "./oracleArm";
+import { optaPriceFeedPda, ORACLE_SOURCE_OPTA, ORACLE_SOURCE_PYTH } from "./oracleArm";
 
 /**
  * Minimal wallet shape both pythPullPost callers satisfy:
@@ -361,6 +361,41 @@ export async function fetchHermesParsedPrice(
 export type BuiltTx = { tx: VersionedTransaction; signers: Signer[] };
 
 /**
+ * Thrown when the Pyth settle builder is asked to settle a market it cannot
+ * settle. The message reaches the UI, so it names no vendor.
+ */
+export class SettleSourceRefusedError extends Error {
+  readonly asset: string;
+  readonly expiry: number;
+  readonly oracleSource: unknown;
+  constructor(asset: string, expiry: number, oracleSource: unknown) {
+    super(
+      `${asset} is settled by the protocol keeper inside its settlement window. ` +
+        "A manual settle cannot carry this market's price account, so none was built.",
+    );
+    this.name = "SettleSourceRefusedError";
+    this.asset = asset;
+    this.expiry = expiry;
+    this.oracleSource = oracleSource;
+  }
+}
+
+/**
+ * The builder below passes `optaPriceFeed: null`. On a first-party market
+ * (oracle_source 2) settle_expiry answers OptaFeedMissing, and the price this
+ * builder would fetch is not that market's price anyway: the instruction it
+ * emits cannot succeed. So it is not emitted. The keeper owns settling those
+ * markets (crank/optaSettleCrank.ts), inside a 300 s window this path could not
+ * meet. An absent byte is a legacy market and is Pyth; any byte other than 0 is
+ * refused, because this builder carries the accounts of no other source.
+ */
+export function assertPythSettleSource(asset: string, expiry: number, oracleSource: unknown): void {
+  if (oracleSource === undefined || oracleSource === null) return;
+  if (Number(oracleSource) === ORACLE_SOURCE_PYTH) return;
+  throw new SettleSourceRefusedError(asset, expiry, oracleSource);
+}
+
+/**
  * Compose the atomic post_update_atomic + settle_expiry transaction(s).
  * Returns an array because the SDK may split if we ever exceed tx size;
  * for our single-feed case this is virtually always length 1.
@@ -373,6 +408,17 @@ export async function buildPostUpdateAndSettleTx(
   feedIdHex: string,
   hermesBase: string = DEFAULT_HERMES_BASE,
 ): Promise<BuiltTx[]> {
+  // The builder checks what it is about to build for, itself, before it asks
+  // the price service for anything. A caller's classification is not trusted:
+  // every source-2 tuple that expired on 2026-09-25 reached this function.
+  // A market that cannot be read is an error, not a settle.
+  const [guardMarketPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from(MARKET_SEED), Buffer.from(assetName)],
+    program.programId,
+  );
+  const guardMarket: any = await (program.account as any).optionsMarket.fetch(guardMarketPda);
+  assertPythSettleSource(assetName, expiry, guardMarket?.oracleSource);
+
   // Historical fetch — VAA whose publish_time is at-or-after vault expiry,
   // walked forward within the on-chain settlement window so small Hermes
   // archive holes near the exact expiry second don't fail the settle.

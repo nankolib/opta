@@ -26,6 +26,39 @@ export function normFeed(hex: string): string {
 
 export type SpotEntry = { ticker: string; feedIdHex: string; oracleSource: 0 | 1 | 2 };
 
+/** Narrow a raw on-chain oracle_source byte for the DISPLAY path. Unknown bytes
+ *  fall back to 0, as oracleArm.spotSourceOf does; a transaction path must never
+ *  use this. Kept here, not imported, so this module stays free of web3.js. */
+export function narrowSpotSource(raw: unknown): 0 | 1 | 2 {
+  const n = Number(raw ?? 0);
+  return n === 1 ? 1 : n === 2 ? 2 : 0;
+}
+
+/**
+ * One spot entry per asset, from decoded OptionsMarket accounts, keeping each
+ * market's own oracle source. The trade dock built this inline and coerced
+ * every source that was not 1 to 0, which sent a first-party market's spot
+ * lookup to a price service that has never carried its feed.
+ */
+export function spotEntriesFromMarkets(
+  markets: ReadonlyArray<{ account: { assetName?: unknown; pythFeedId?: ArrayLike<number>; oracleSource?: unknown } }>,
+): SpotEntry[] {
+  const out: SpotEntry[] = [];
+  const seen = new Set<string>();
+  for (const m of markets) {
+    const ticker = m?.account?.assetName;
+    const bytes = m?.account?.pythFeedId;
+    if (typeof ticker !== "string" || !ticker || !bytes || seen.has(ticker)) continue;
+    seen.add(ticker);
+    out.push({
+      ticker,
+      feedIdHex: Buffer.from(Array.from(bytes)).toString("hex"),
+      oracleSource: narrowSpotSource(m.account.oracleSource),
+    });
+  }
+  return out;
+}
+
 /**
  * Route entries by oracle source. Source-0 (Pyth) feeds pass through UNCHANGED
  * (feedIdHex byte-identical — the off-chain path normalizes internally). Source-1
