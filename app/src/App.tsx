@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-route
 import { useWallet } from "@solana/wallet-adapter-react";
 import posthog from "posthog-js";
 import { Header } from "./components/Header";
-import { FreezeBanner } from "./components/FreezeBanner";
 import { ToastContainer } from "./components/Toast";
 import { useVersionCheck } from "./hooks/useVersionCheck";
 import { Landing } from "./pages/Landing";
@@ -96,9 +95,6 @@ function AppShell() {
 
   return (
     <div className="min-h-screen bg-bg-primary text-text-primary">
-      {/* Global incident notice. Mounted above the router so it is genuinely
-          on every route, including the paper surfaces that hide <Header />. */}
-      <FreezeBanner />
       {showHeader && <Header />}
       <ToastContainer />
       {/* Shaded tutorial. Self-gates on EPOCH0_UI, dismissal and quest state, so
