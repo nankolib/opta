@@ -95,6 +95,7 @@ import {
   type LivenessCrankOptions,
 } from "./livenessCrank";
 import { runReclaimSweep, type ReclaimContext } from "./reclaimUnsettled";
+import { SweepQuarantine } from "./sweepQuarantine";
 
 // ---- Constants -------------------------------------------------------------
 
@@ -180,6 +181,8 @@ interface CrankContext {
   autoCancelOptions: AutoCancelOptions;
   // Sweep-expired-orders wiring (Phase 1 exchange book)
   sweepOptions: SweepOptions;
+  sweepQuarantine: SweepQuarantine;
+  sweepQuarantinePath: string;
   // Wallet-balance check (Phase 1 hardening)
   lowBalanceWarnSol: number;
   balanceCheckTicks: number;
@@ -234,6 +237,9 @@ interface TickResult {
   sweepOrdersSwept: number;
   sweepOrdersAtaSkipped: number;
   sweepOrdersErrors: number;
+  /** Batches held back because they are quarantined (announced once, retried daily). */
+  sweepOrdersQuarantined: number;
+  sweepOrdersNewlyQuarantined: number;
   // Dead-feed reclaim (Phase 3)
   reclaimCandidates: number;
   reclaimVoided: number;
@@ -479,10 +485,16 @@ async function bootstrapContext(): Promise<CrankContext> {
     dryRun: env.dryRun, // shares the OPTA_AUTO_FINALIZE_DRY_RUN flag
   };
 
+  // Sweep quarantine (ruled 2026-09-29): persisted beside the finalize cache so
+  // a restart neither re-announces nor re-spams a batch that cannot land.
+  const sweepQuarantinePath =
+    process.env.OPTA_SWEEP_QUARANTINE_PATH || "/var/lib/opta-crank/sweep-quarantine.json";
+  const sweepQuarantine = SweepQuarantine.load(sweepQuarantinePath);
   const sweepOptions: SweepOptions = {
     ordersBatchSize: env.sweepOrdersBatchSize,
     computeUnitLimit: DEFAULT_SWEEP_ORDERS_CU,
     dryRun: env.dryRun, // shares the OPTA_AUTO_FINALIZE_DRY_RUN flag
+    quarantine: sweepQuarantine,
   };
 
   // Dead-feed reclaim pass (Phase 3) — reuses the already-bootstrapped clients.
@@ -508,6 +520,8 @@ async function bootstrapContext(): Promise<CrankContext> {
     ),
     autoCancelOptions,
     sweepOptions,
+    sweepQuarantine,
+    sweepQuarantinePath,
     lowBalanceWarnSol: env.lowBalanceWarnSol,
     balanceCheckTicks: env.balanceCheckTicks,
     hermesBackoff: { currentMs: env.hermesBackoffBaseMs, consecutiveOk: 0 },
@@ -580,6 +594,8 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
     sweepOrdersSwept: 0,
     sweepOrdersAtaSkipped: 0,
     sweepOrdersErrors: 0,
+    sweepOrdersQuarantined: 0,
+    sweepOrdersNewlyQuarantined: 0,
     reclaimCandidates: 0,
     reclaimVoided: 0,
     reclaimWritersReclaimed: 0,
@@ -881,6 +897,8 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
       result.sweepOrdersSwept += sweepReport.ordersSweptFromEvents;
       result.sweepOrdersAtaSkipped += sweepReport.ordersSkippedMissingAta;
       result.sweepOrdersErrors += sweepReport.txFailed;
+      result.sweepOrdersQuarantined += sweepReport.batchesQuarantined;
+      result.sweepOrdersNewlyQuarantined += sweepReport.batchesNewlyQuarantined;
       sweepProgressed = sweepReport.txSent > 0;
       sweepEmptyScan = sweepReport.ordersTotal === 0;
       logInfo("sweep-expired-orders pass", { ...sweepReport });
@@ -980,6 +998,7 @@ async function tick(ctx: CrankContext): Promise<TickResult> {
   // crash mid-sweep costs only the marks from this tick (re-earned next tick).
   const cachePruned = ctx.fullyFinalized.prune(nowSec);
   ctx.fullyFinalized.flush();
+  ctx.sweepQuarantine.flush(ctx.sweepQuarantinePath);
   logInfo("finalize cache persisted", {
     entries: ctx.fullyFinalized.size(),
     pruned: cachePruned,
@@ -1151,6 +1170,11 @@ async function main(): Promise<void> {
     reclaim: { enabled: ctx.reclaimEnabled, dryRun: ctx.reclaimDryRun },
     // The source-2 settle lane. The marker names the deployed generation, so a
     // stale build is visible on this line alone.
+    sweepQuarantine: {
+      marker: "sweep-quarantine-v1",
+      path: ctx.sweepQuarantinePath,
+      ...ctx.sweepQuarantine.summary(Date.now()),
+    },
     source2Settle: {
       marker: OPTA_SETTLE_MARKER,
       enabled: (process.env.OPTA_SETTLE_OPTA_ENABLED ?? "") === "1",

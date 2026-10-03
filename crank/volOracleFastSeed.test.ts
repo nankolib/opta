@@ -368,6 +368,22 @@ test("a Switchboard market is NEVER a candidate (sbOracleCrank owns that PDA)", 
   assert.equal(sel.skippedSb, 1, "and the skip is COUNTED, not silent");
 });
 
+test("a first-party market (oracle_source 2) with no ring is NEVER Pyth-seeded (its lane seeds it, at the ceremony)", () => {
+  const fp = market({ assetName: "SOL", oracleSource: 2, feedIdHex: feedHex(44) });
+  const sel = selectSeedCandidates([fp], newFastSeedState(), new Set(), 0);
+
+  assert.equal(sel.candidates.length, 0, "no ring on chain, and still not a candidate");
+  assert.equal(sel.skippedSb, 0, "it is not Switchboard");
+  assert.equal(sel.skippedNonPyth, 1, "counted under its own reason");
+});
+
+test("an unknown oracle_source byte is never seeded either", () => {
+  const odd = market({ assetName: "ODD", oracleSource: 3, feedIdHex: feedHex(45) });
+  const sel = selectSeedCandidates([odd], newFastSeedState(), new Set(), 0);
+  assert.equal(sel.candidates.length, 0);
+  assert.equal(sel.skippedNonPyth, 1);
+});
+
 test("an unknown asset_class is skipped, never seeded with the 0 sentinel", () => {
   const weird = market({ assetClass: 99, feedIdHex: feedHex(42) });
   const sel = selectSeedCandidates([weird], newFastSeedState(), new Set(), 0);
