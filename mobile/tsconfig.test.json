@@ -30,6 +30,7 @@
     "src/solana/program.ts",
     "src/solana/cluster.ts",
     "src/solana/pdas.ts",
+    "src/solana/optaFeed.ts",
     "src/constants.ts",
     "src/solana/indexerReadPath.ts",
     "src/solana/transactions.ts"

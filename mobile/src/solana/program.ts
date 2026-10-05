@@ -6,6 +6,7 @@ import { Buffer } from "buffer";
 import idl from "../idl/opta.json";
 import { PROGRAM_ID } from "../constants";
 import { ensureDevnetConnection } from "./cluster";
+import { isSupportedOracleSource, parseOptaFeedFields } from "./optaFeed";
 
 export type OptaAccountName =
   | "optionsMarket"
@@ -15,7 +16,8 @@ export type OptaAccountName =
   | "writerPosition"
   | "protocolState"
   | "epochConfig"
-  | "volOracle";
+  | "volOracle"
+  | "optaPriceFeed";
 
 const IDL_ACCOUNT_NAMES: Readonly<Record<OptaAccountName, string>> = {
   optionsMarket: "OptionsMarket",
@@ -25,7 +27,8 @@ const IDL_ACCOUNT_NAMES: Readonly<Record<OptaAccountName, string>> = {
   writerPosition: "WriterPosition",
   protocolState: "ProtocolState",
   epochConfig: "EpochConfig",
-  volOracle: "VolOracle"
+  volOracle: "VolOracle",
+  optaPriceFeed: "OptaPriceFeed"
 };
 
 export class OptaAccountReadError extends Error {
@@ -195,6 +198,8 @@ function decodeAccount(accountName: OptaAccountName, data: Buffer): any | null {
         return parseEpochConfig(data);
       case "volOracle":
         return parseVolOracle(data);
+      case "optaPriceFeed":
+        return parseOptaFeedFields(data);
       default:
         return null;
     }
@@ -395,8 +400,13 @@ function isValidOptionsMarket(account: any): boolean {
     typeof account.assetClass === "number" &&
     account.assetClass >= 0 &&
     account.assetClass <= 4 &&
-    (account.oracleSource === 0 || account.oracleSource === 1)
+    isSupportedOracleSource(account.oracleSource)
   );
+}
+
+/** Test seam: the manual decoders, without a connection. Not used by the app. */
+export function __test_decodeAccount(accountName: OptaAccountName, data: Buffer): any | null {
+  return decodeAccount(accountName, data);
 }
 
 function bs58Encode(bytes: Buffer): string {

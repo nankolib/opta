@@ -43,7 +43,26 @@ const idlPaths = [
   resolve(mobileRoot, "src", "idl", "opta.json"),
 ];
 const idlHashes = idlPaths.map(sha256);
-requireText(new Set(idlHashes).size === 1, "Generated, web, and mobile IDLs must be byte-identical.");
+// The web and mobile copies are tracked and must always be byte-identical.
+requireText(idlHashes[1] === idlHashes[2], "Web and mobile IDLs must be byte-identical.");
+// The generated copy (target/idl) is an untracked local build output, and a
+// test-feature build leaves a test-only instruction in it. When it differs, the
+// only acceptable substitute is the IDL published on chain for the deployed
+// program: pass OPTA_IDL_REFERENCE=<json fetched from the chain> and the tracked
+// copy must be structurally identical to it. Without that, a mismatch fails.
+if (idlHashes[0] !== idlHashes[1]) {
+  const reference = process.env.OPTA_IDL_REFERENCE;
+  if (!reference) {
+    requireText(false, "Generated, web, and mobile IDLs must be byte-identical (or set OPTA_IDL_REFERENCE to the on-chain IDL).");
+  } else {
+    const canon = (value) => JSON.stringify(value, (_k, v) => (v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]])) : v));
+    const tracked = canon(JSON.parse(readFileSync(idlPaths[1], "utf8")));
+    const onChain = canon(JSON.parse(readFileSync(reference, "utf8")));
+    requireText(tracked === onChain, "The tracked IDL must be structurally identical to the on-chain IDL reference.");
+    console.log("PASS IDL parity against the on-chain reference (target/idl differs: local build output)");
+  }
+}
 
 const source = sourceFiles(resolve(mobileRoot, "src"))
   .filter((path) => [".ts", ".tsx"].includes(extname(path)))
@@ -114,9 +133,12 @@ requireText(marketData.includes("getMetadataPointerState"), "Token-2022 metadata
 requireText(marketData.includes("deriveVaultResaleListing"), "Resale listing PDAs must be validated.");
 requireText(marketData.includes("MAX_CONFIDENCE_BPS"), "Live prices must enforce the protocol confidence bound.");
 requireText(marketData.includes("PRICE_FETCH_TIMEOUT_MS"), "Price requests must have a bounded timeout.");
+const optaFeedSource = read(mobileRoot, "src", "solana", "optaFeed.ts");
 requireText(
-  marketData.includes("market.account.oracleSource !== 0 && market.account.oracleSource !== 1"),
-  "Only source 0 (pull-oracle) and source 1 (on-chain vol-oracle) markets may reach transactional screens; any other source stays hidden."
+  marketData.includes("if (!isSupportedOracleSource(market.account.oracleSource)) return [];") &&
+    optaFeedSource.includes("return source === 0 || source === 1 || source === 2;") &&
+    marketData.includes('route === "http"') && marketData.includes('route === "optaFeed"'),
+  "Only sources with a quote route (0 pull-oracle, 1 on-chain sample, 2 first-party feed) may reach transactional screens, through the one predicate; any other source stays hidden, and only route http may use the HTTP price path."
 );
 
 const marketState = read(mobileRoot, "src", "state", "useMarketState.ts");

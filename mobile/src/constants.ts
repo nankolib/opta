@@ -53,6 +53,7 @@ export const VAULT_PURCHASE_ESCROW_SEED = "vault_purchase_escrow";
 export const VAULT_RESALE_LISTING_SEED = "vault_resale_listing";
 export const VAULT_RESALE_ESCROW_SEED = "vault_resale_escrow";
 export const VOL_ORACLE_SEED = "vol_oracle";
+export const OPTA_PRICE_FEED_SEED = "opta_price_feed";
 
 export const SERIES_OPTION_TYPE_CALL = 0;
 export const SERIES_OPTION_TYPE_PUT = 1;

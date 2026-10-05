@@ -17,8 +17,10 @@ import {
   deriveVaultMintRecord,
   deriveVaultResaleListing,
   deriveWriterPosition,
-  deriveVolOracle
+  deriveVolOracle,
+  deriveOptaPriceFeed
 } from "./pdas";
+import { asFallbackSpot, feedFieldsToSpot, isSupportedOracleSource, spotRouteFor } from "./optaFeed";
 import { HERMES_BASE, PHASE2_CUTOFF_TIMESTAMP } from "../constants";
 import { hexFromBytes, usdcToNumber } from "../format";
 import { sanitizeAssetDisplayName } from "../runtime/assetDisplay";
@@ -101,6 +103,17 @@ const ONCHAIN_SPOT_MAX_AGE_SECONDS = 7_200; // ~2h; mirrors the vol-oracle sampl
 const SOLMATH_SCALE = 1e12;
 
 type SpotQuote = { value: number; state: "live" | "stale" };
+
+/** Source 2: the first-party feed account for this market's feed id. */
+async function fetchOptaFeedSpot(
+  program: ReturnType<typeof createOptaProgram>,
+  feedId: number[]
+): Promise<SpotQuote | null> {
+  const record = await fetchDecodedAccount(program, "optaPriceFeed", deriveOptaPriceFeed(feedId, program.programId));
+  if (!record) return null;
+  const spot = feedFieldsToSpot(record.account, Math.floor(Date.now() / 1000));
+  return spot ? { value: spot.value, state: spot.state } : null;
+}
 
 async function fetchOnchainSpot(
   program: ReturnType<typeof createOptaProgram>,
@@ -214,10 +227,11 @@ export async function loadMarketSnapshot(
   ]);
 
   const markets = rawMarkets.flatMap((market) => {
-    // Source 0 = pull-oracle HTTP quote; source 1 = on-chain vol-oracle spot,
-    // read below. Any other source stays hidden from Trade/Write until its
-    // verified mobile quote adapter is implemented; token metadata still works.
-    if (market.account.oracleSource !== 0 && market.account.oracleSource !== 1) return [];
+    // Source 0 = pull-oracle HTTP quote; source 1 = hourly on-chain sample;
+    // source 2 = first-party feed account. Each has a spot route below
+    // (spotRouteFor). Any other source stays hidden from Trade/Write until it
+    // has one; token metadata still works.
+    if (!isSupportedOracleSource(market.account.oracleSource)) return [];
     const rawName = market.account.assetName;
     if (typeof rawName !== "string" || !market.publicKey.equals(deriveMarket(rawName))) return [];
     const displayName = sanitizeAssetDisplayName(rawName);
@@ -702,9 +716,18 @@ export async function loadSpotPrices(
       }
     }
     await Promise.all(Array.from(feeds.entries()).map(async ([asset, feed]) => {
-      const quote = feed.source === 1
-        ? await fetchOnchainSpot(program, feed.feedId).catch(() => null)
-        : await fetchSpot(feed.feedHex).catch(() => null);
+      const route = spotRouteFor(feed.source);
+      let quote: SpotQuote | null = null;
+      if (route === "optaFeed") {
+        // First-party feed, seconds fresh. If the read fails, the hourly sample
+        // may fill the number in, but it is never shown as live.
+        quote = await fetchOptaFeedSpot(program, feed.feedId).catch(() => null);
+        if (quote == null) quote = asFallbackSpot(await fetchOnchainSpot(program, feed.feedId).catch(() => null));
+      } else if (route === "volOracle") {
+        quote = await fetchOnchainSpot(program, feed.feedId).catch(() => null);
+      } else if (route === "http") {
+        quote = await fetchSpot(feed.feedHex).catch(() => null);
+      }
       if (quote == null) {
         spotStatusByAsset[asset] = "stale";
       } else {

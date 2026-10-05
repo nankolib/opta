@@ -19,7 +19,8 @@
     "typecheck": "tsc --noEmit",
     "check:handoff": "node scripts/verify-seeker-build.mjs",
     "doctor": "expo-doctor",
-    "build:apk": "node scripts/build-android.mjs"
+    "build:apk": "node scripts/build-android.mjs",
+    "build:release": "node scripts/build-release.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

@@ -15,7 +15,8 @@ import {
   VAULT_PURCHASE_ESCROW_SEED,
   VAULT_RESALE_LISTING_SEED,
   VAULT_RESALE_ESCROW_SEED,
-  VOL_ORACLE_SEED
+  VOL_ORACLE_SEED,
+  OPTA_PRICE_FEED_SEED
 } from "../constants";
 import type { ExerciseStyle } from "../types";
 
@@ -159,6 +160,14 @@ export function deriveVaultResaleEscrow(listing: PublicKey, programId = PROGRAM_
 export function deriveVolOracle(feedId: number[], programId = PROGRAM_ID): PublicKey {
   return PublicKey.findProgramAddressSync(
     [Buffer.from(VOL_ORACLE_SEED), Buffer.from(feedId)],
+    programId
+  )[0];
+}
+
+/** First-party price feed for a source-2 market: [opta_price_feed, feed_id]. */
+export function deriveOptaPriceFeed(feedId: number[], programId = PROGRAM_ID): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(OPTA_PRICE_FEED_SEED), Buffer.from(feedId)],
     programId
   )[0];
 }

@@ -4,7 +4,7 @@
     "slug": "opta-seeker",
     "scheme": "opta-seeker",
     "icon": "./assets/opta-icon.png",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "platforms": [
@@ -15,7 +15,7 @@
     ],
     "android": {
       "package": "com.opta.seeker",
-      "versionCode": 3,
+      "versionCode": 4,
       "allowBackup": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon-foreground.png",
