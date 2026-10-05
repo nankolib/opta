@@ -42,6 +42,7 @@ import {
 // substantial and independently testable); this file owns the hourly cadence
 // and the shared in-flight hand-off between the two.
 import { runFastSeedLoop, type FastSeedConfig } from "./volOracleFastSeed";
+import { routeForSource } from "./settleRouting";
 
 // ---- Types -----------------------------------------------------------------
 
@@ -80,6 +81,10 @@ export interface TickReport {
   /** Stage 3: Switchboard-sourced markets dropped before discovery (this crank
    *  is Pyth-only; SB vol is sbOracleCrank's job). Keeps the skip visible. */
   marketsSkippedSb: number;
+  /** First-party markets (oracle_source==2) left to optaVolCrank, and markets
+   *  whose source byte is unknown and belong to no lane. */
+  marketsSkippedOpta: number;
+  marketsRefused: number;
   durationMs: number;
 }
 
@@ -201,6 +206,8 @@ export async function tickOnce(
     feedsSkippedOther: 0,
     feedsErrored: 0,
     marketsSkippedSb: 0,
+    marketsSkippedOpta: 0,
+    marketsRefused: 0,
     durationMs: 0,
   };
 
@@ -211,8 +218,10 @@ export async function tickOnce(
   // Stage 3 guard: the Pyth vol crank must NEVER touch a Switchboard-sourced
   // market (oracle_source==1) — it would corrupt or fail the SB VolOracle PDA
   // (see partitionPythMarkets). Mirror the Pyth settle-loop skip in bot.ts.
-  const { pyth: markets, skippedSb } = partitionPythMarkets(allMarkets);
+  const { pyth: markets, skippedSb, skippedOpta, refused } = partitionPythMarkets(allMarkets);
   report.marketsSkippedSb = skippedSb;
+  report.marketsSkippedOpta = skippedOpta;
+  report.marketsRefused = refused;
   const allFeeds: number[][] = markets.map(
     (m) => m.account.pythFeedId as number[],
   );
@@ -231,6 +240,8 @@ export async function tickOnce(
   ctx.log("info", "vol-oracle tick: discovered feeds", {
     markets: markets.length,
     marketsSkippedSb: report.marketsSkippedSb,
+    marketsSkippedOpta: report.marketsSkippedOpta,
+    marketsRefused: report.marketsRefused,
     uniqueFeeds: uniqueFeeds.length,
   });
 
@@ -409,9 +420,20 @@ async function processOneFeed(
  */
 export function partitionPythMarkets<T extends { account: { oracleSource?: number } }>(
   markets: T[],
-): { pyth: T[]; skippedSb: number } {
-  const pyth = markets.filter((m) => (m.account.oracleSource as number) !== 1);
-  return { pyth, skippedSb: markets.length - pyth.length };
+): { pyth: T[]; skippedSb: number; skippedOpta: number; refused: number } {
+  // Routed, not "everything that is not Switchboard": a first-party market
+  // (oracle_source==2) has its own lane (optaVolCrank) and an unknown byte has
+  // none. Both used to fall through to this lane (ops ledger 66).
+  const pyth: T[] = [];
+  let skippedSb = 0, skippedOpta = 0, refused = 0;
+  for (const m of markets) {
+    const route = routeForSource(m.account.oracleSource);
+    if (route === "pyth") pyth.push(m);
+    else if (route === "switchboard") skippedSb += 1;
+    else if (route === "opta") skippedOpta += 1;
+    else refused += 1;
+  }
+  return { pyth, skippedSb, skippedOpta, refused };
 }
 
 /**

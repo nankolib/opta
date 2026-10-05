@@ -56,6 +56,7 @@ import {
 // Type-only import: erased at compile time, so this does NOT create a runtime
 // import cycle with volOracleCrank.ts (which imports runFastSeedLoop from here).
 import type { VolCrankLogger, VolOracleCrankContext } from "./volOracleCrank";
+import { routeForSource } from "./settleRouting";
 
 /** Granularity at which interruptible sleep checks the shutdown flag. */
 const SHUTDOWN_CHECK_MS = 5000;
@@ -184,6 +185,9 @@ export function nextBackoffMs(
 export interface SelectResult {
   candidates: SeedCandidate[];
   skippedSb: number;
+  /** First-party (oracle_source 2) and unknown sources: never Pyth-seeded.
+   *  A first-party ring is seeded by its own ceremony, not by this loop. */
+  skippedNonPyth: number;
   skippedSeeded: number;
   skippedBackoff: number;
   skippedInFlight: number;
@@ -213,14 +217,23 @@ export function selectSeedCandidates(
   const candidates: SeedCandidate[] = [];
   const seenFeed = new Set<string>();
   let skippedSb = 0;
+  let skippedNonPyth = 0;
   let skippedSeeded = 0;
   let skippedBackoff = 0;
   let skippedInFlight = 0;
   let skippedNoSeedVol = 0;
 
   for (const m of markets) {
-    if (m.oracleSource === 1) {
+    const route = routeForSource(m.oracleSource);
+    if (route === "switchboard") {
       skippedSb += 1;
+      continue;
+    }
+    if (route !== "pyth") {
+      // Source 2 (and any byte this build does not know) has no Pyth feed to
+      // seed from. Until 2026-10-03 only source 1 was excluded here, so a
+      // first-party market with no ring would have been Pyth-seeded.
+      skippedNonPyth += 1;
       continue;
     }
     // Dedupe by feed: many markets can share one feed, one oracle serves all.
@@ -255,6 +268,7 @@ export function selectSeedCandidates(
   return {
     candidates,
     skippedSb,
+    skippedNonPyth,
     skippedSeeded,
     skippedBackoff,
     skippedInFlight,

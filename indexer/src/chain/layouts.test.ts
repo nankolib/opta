@@ -191,7 +191,7 @@ test("OptionsMarket parses positionally past the variable-length name", () => {
 
 test("legacy OptionsMarket layouts are rejected by their out-of-range values", () => {
   // The repo's size-drift history: old layouts share the discriminator and
-  // decode as garbage. assetClass > 4 and oracleSource > 1 are the tells.
+  // decode as garbage. assetClass > 4 and oracleSource > 2 are the tells.
   assert.equal(decodeOptionsMarket(buildMarket("JTO", 249, 1)), null, "assetClass 249 is garbage");
   assert.equal(decodeOptionsMarket(buildMarket("JTO", 0, 7)), null, "oracleSource 7 is garbage");
   assert.equal(decodeOptionsMarket(buildMarket(" bad", 0, 1)), null, "non-ticker name is garbage");
@@ -202,4 +202,73 @@ test("an absurd name length is refused before it reaches a slice", () => {
   const b = Buffer.alloc(64);
   b.writeUInt32LE(0xffffffff, 8);
   assert.equal(decodeOptionsMarket(b), null);
+});
+
+// ---------------------------------------------------------------------------
+// oracle_source 2 (the first-party lane) — real account bytes, read from devnet
+// on 2026-09-28
+// ---------------------------------------------------------------------------
+//
+// The decoder bounded oracle_source at 1, so the four markets flipped to the
+// first-party lane were dropped from /api/chain/markets at their own flips and
+// disappeared from every surface that reads the index. The bound is a tell for
+// a legacy layout decoded as garbage; it has to follow the program's own set of
+// sources, which is {0, 1, 2}.
+
+const SOURCE_2_MARKETS: Array<[string, string, string]> = [
+  ["BTC", "G3PT11ZybpeMk78GSRGg8MzULWSYB5oN9w8KjJEUBRci", "Qx5aJILbpggDAAAAQlRDuvGCtUOGtKHANUt9ZPsz1nkwEIeotQnWo5fXtPUWLuIA/wIAAAAAAAAAAAAAAAAA"],
+  ["ETH", "HouoTH9ZLxB3q1oCv7ZKH4o4vyRyCNYGiDReVDWeztFu", "Qx5aJILbpggDAAAARVRIHY9VoD2nYNDzIrwdBmQn6VVz9lHVBuDjGlSZZZNJyqMA/wIAAAAAAAAAAAAAAAAA"],
+  ["SOL", "7ke68gTGTKTz3ENygmrcPLp4415pPpajywSdZcaggd7U", "Qx5aJILbpggDAAAAU09M4B/jux1lnllXKWsmN2WN79H4tC/Ifdnxbo//FvyutGMA/QIAAAAAAAAAAAAAAAAA"],
+  ["XRP", "3LjAQGDSZXYoEVgg4rfdU19BGtzjtdyxMShEeu3anRc3", "Qx5aJILbpggDAAAAWFJQocTOKKmkq9Rx+y6xEjbCmaOwLK1y8/k0N6oBV4QF9zYA/wIAAAAAAAAAAAAAAAAA"],
+];
+// One real account of each legacy length on chain (68, 87 and 88 bytes).
+const LEGACY_MARKETS: Array<[number, string]> = [
+  [68, "Qx5aJILbpggCAMLrCwAAAADNIPJpAAAAAAAAAAAAAAAAAADmPykPQGrkYpbcc48igJdKNxR30iPsLFalakZph5XDyP4="],
+  [87, "Qx5aJILbpggDAAAARVRIAMOd0AAAAAD+ct5pAAAAAAAAAAAAAAAAAADKgLptwy4I0G8aqIYBHu0dd8d76et2HIrfGZZIbR1ssfsAAAAAAAAAAAAAAAAA"],
+  [88, "Qx5aJILbpggDAAAAU09MAJW6CgAAAAA0n9NpAAAAAAABwHafCwAAAABmQhzKlad3dc+EDB4sveiYhLcl9DGqlZ+fWFQWWdD9gQD/AAAAAAAAAAAAAAAAAA=="],
+];
+const XAU_SOURCE_1 = "Qx5aJILbpggDAAAAWEFVbDxcxyDR/9gQisoiv3g01llhK34aTl9iO3aEbRFnNV4B/wEAAAAAAAAAAAAAAAAA";
+
+test("the four first-party markets decode, with oracle_source 2", () => {
+  for (const [asset, , b64] of SOURCE_2_MARKETS) {
+    const buf = Buffer.from(b64, "base64");
+    assert.equal(buf.length, 63, `${asset} is a current-layout account`);
+    const got = decodeOptionsMarket(buf);
+    assert.ok(got, `${asset} must not be dropped`);
+    assert.equal(got!.assetName, asset);
+    assert.equal(got!.oracleSource, 2);
+    assert.equal(got!.assetClass, 0);
+    assert.equal(got!.pythFeedId, buf.subarray(15, 47).toString("hex"));
+  }
+});
+
+test("oracle_source 0, 1 and 2 are accepted on a synthetic market", () => {
+  for (const s of [0, 1, 2]) assert.equal(decodeOptionsMarket(buildMarket("JTO", 0, s))!.oracleSource, s);
+});
+
+test("oracle_source 3 is rejected, and so is every value above it", () => {
+  for (let s = 3; s <= 255; s++) assert.equal(decodeOptionsMarket(buildMarket("JTO", 0, s)), null, `source ${s}`);
+});
+
+test("a real Switchboard market still decodes as source 1", () => {
+  const got = decodeOptionsMarket(Buffer.from(XAU_SOURCE_1, "base64"))!;
+  assert.equal(got.assetName, "XAU");
+  assert.equal(got.oracleSource, 1);
+});
+
+test("a legacy-length account is rejected whatever byte sits where oracle_source would be", () => {
+  for (const [len, b64] of LEGACY_MARKETS) {
+    const base = Buffer.from(b64, "base64");
+    assert.equal(base.length, len);
+    assert.equal(decodeOptionsMarket(base), null, `${len}-byte account as found on chain`);
+    // oracle_source sits at 12 + nameLen + 34, so for names of 1..16 bytes it is
+    // somewhere in 47..62. Put every accepted source value at every one of them.
+    for (let at = 47; at <= 62 && at < len; at++) {
+      for (const v of [0, 1, 2]) {
+        const b = Buffer.from(base);
+        b.writeUInt8(v, at);
+        assert.equal(decodeOptionsMarket(b), null, `${len}-byte account, byte ${v} at ${at}`);
+      }
+    }
+  }
 });

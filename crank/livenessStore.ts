@@ -10,11 +10,11 @@
 // =============================================================================
 
 export interface FeedLiveness {
-  /** 0 = Pyth, 1 = Switchboard. */
-  source: 0 | 1;
+  /** 0 = Pyth, 1 = Switchboard, 2 = first-party (on-chain feed account). */
+  source: 0 | 1 | 2;
   /** Whether this feed is currently considered live (after hysteresis). */
   live: boolean;
-  /** unix seconds — Pyth publish_time, or the SB last-successful-verify time. */
+  /** unix seconds — Pyth or first-party publish_time, or the SB last-successful-verify time. */
   asOf: number;
   /** SB oracle-sample floor (informational); null for Pyth. */
   samples: number | null;

@@ -10,7 +10,7 @@
   "scripts": {
     "start": "ts-node -r tsconfig-paths/register bot.ts",
     "typecheck": "tsc --noEmit",
-    "test": "ts-node --transpile-only -r tsconfig-paths/register volOracleCrank.test.ts && ts-node --transpile-only -r tsconfig-paths/register volOracleFastSeed.test.ts && ts-node --transpile-only -r tsconfig-paths/register tokenIdentity.test.ts"
+    "test": "ts-node --transpile-only -r tsconfig-paths/register volOracleCrank.test.ts && ts-node --transpile-only -r tsconfig-paths/register volOracleFastSeed.test.ts && ts-node --transpile-only -r tsconfig-paths/register tokenIdentity.test.ts && ts-node --transpile-only -r tsconfig-paths/register settleRouting.test.ts && ts-node --transpile-only -r tsconfig-paths/register optaSettleCrank.test.ts && ts-node --transpile-only -r tsconfig-paths/register sweepQuarantine.test.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

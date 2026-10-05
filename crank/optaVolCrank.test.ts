@@ -4,9 +4,14 @@ import assert from "node:assert/strict";
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   decidePush, partitionOptaMarkets, pushAccounts, tickOnce, feedPdaFor, volOraclePdaFor,
+  feedSnapshot, oracleSnapshot,
   OPTA_FEED_READ_MAX_AGE_SECS, VOL_MIN_PUSH_INTERVAL_SECS,
   type OptaVolCrankContext, type OptaVolDeps, type FeedSnapshot, type OracleSnapshot,
 } from "./optaVolCrank";
+import * as anchor from "@coral-xyz/anchor";
+import { Connection } from "@solana/web3.js";
+import * as fs from "fs";
+import * as path from "path";
 
 type Test = { name: string; fn: () => void | Promise<void> };
 const tests: Test[] = [];
@@ -141,6 +146,63 @@ test("shutdown mid-tick stops before the next feed", async () => {
   const { deps, sent } = depsWith({}, [B1, B2]);
   const r = await tickOnce(ctx, deps);
   assert.equal(r.feedsConsidered, 1); assert.equal(sent.length, 1);
+});
+
+// ---- the runtime shape, decoded through the REAL program coder ---------------
+//
+// The 2026-09-18 first live tick failed because the lane read `price6dec` from
+// an account the Program coder had camelCased to `price6Dec`. Injected deps can
+// never catch that; only a decode through the same coder the crank uses can.
+function realProgram(): anchor.Program {
+  const idl = JSON.parse(fs.readFileSync(path.join(__dirname, "idl", "opta.json"), "utf-8"));
+  const provider = new anchor.AnchorProvider(new Connection("http://127.0.0.1:1"), new anchor.Wallet(Keypair.generate()), {});
+  return new anchor.Program(idl as anchor.Idl, provider);
+}
+test("feedSnapshot reads the camelCased keys the Program coder actually emits (price6Dec, not price6dec)", async () => {
+  const p = realProgram();
+  const coder = p.coder.accounts as any;
+  const buf: Buffer = await coder.encode("optaPriceFeed", {
+    feedId: Array.from(Buffer.alloc(32, 7)), price6Dec: new anchor.BN("80156000000"), conf6Dec: new anchor.BN(18965000),
+    publishTime: new anchor.BN(1789740009), slot: new anchor.BN(1), authority: Keypair.generate().publicKey,
+    prevPrice6Dec: new anchor.BN(0), prevPublishTime: new anchor.BN(0), frozen: false, bump: 255,
+  });
+  const decoded: any = coder.decode("optaPriceFeed", buf);
+  assert.equal(decoded.price6dec, undefined, "the key the old code read does not exist on a coder-decoded account");
+  assert.equal(String(decoded.price6Dec), "80156000000");
+  assert.deepEqual(feedSnapshot(decoded), { frozen: false, publishTime: 1789740009, price6dec: 80156000000n });
+});
+test("oracleSnapshot reads lastSampleTs / sampleCount through the real coder", async () => {
+  // anchor's account encoder caps at 1000 bytes and VolOracle is 5864, so the
+  // buffer is laid out by hand at the offsets the FE also relies on
+  // (last_sample_ts @5832, sample_count @5850) and decoded through the real coder.
+  const p = realProgram();
+  const coder = p.coder.accounts as any;
+  const disc = anchor.utils.bytes.bs58.decode(coder.memcmp("volOracle").bytes);
+  const buf = Buffer.alloc(5864);
+  Buffer.from(disc).copy(buf, 0);
+  buf.writeBigInt64LE(1789740000n, 5832);
+  buf.writeUInt16LE(5, 5850);
+  buf[5853] = 2;
+  const decoded: any = coder.decode("volOracle", buf);
+  assert.equal(Number(decoded.oracleSource), 2);
+  assert.deepEqual(oracleSnapshot(decoded), { lastSampleTs: 1789740000, sampleCount: 5 });
+});
+test("a decoded account missing the price field is a SHAPE error, never a silent null", () => {
+  assert.throws(() => feedSnapshot({ frozen: false, publishTime: 1 }), /no field "price6Dec"/);
+  assert.throws(() => oracleSnapshot({ sampleCount: 0 }), /no field "lastSampleTs"/);
+});
+test("tick: a read that throws is counted as errored and logged with the cause, not skipped as no-feed", async () => {
+  const { ctx, logs } = ctxWith(false);
+  const deps: OptaVolDeps = {
+    fetchMarkets: async () => [{ publicKey: Keypair.generate().publicKey, account: { oracleSource: 2, pythFeedId: Array.from(Buffer.alloc(32, 9)) } }],
+    fetchFeed: async () => { throw new Error("opta-vol: decoded OptaPriceFeed has no field \"price6Dec\""); },
+    fetchOracle: async () => warm,
+    sendPush: async () => { throw new Error("must not push"); },
+    now: () => NOW,
+  };
+  const r = await tickOnce(ctx, deps);
+  assert.equal(r.errored, 1); assert.equal(r.skippedNoFeed, 0); assert.equal(r.pushed, 0);
+  assert.ok(logs.some((l: any) => l.msg === "opta-vol read failed" && /price6Dec/.test(String(l.err))));
 });
 
 (async () => {

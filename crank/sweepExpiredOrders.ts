@@ -45,6 +45,7 @@ import {
 import { safeFetchAll } from "@app/hooks/useFetchAccounts";
 
 import type { AutoFinalizeContext } from "./autoFinalize";
+import { SweepQuarantine, quarantineKey } from "./sweepQuarantine";
 
 // ---- Constants -------------------------------------------------------------
 
@@ -78,6 +79,9 @@ export interface SweepOptions {
   computeUnitLimit: number;
   /// When true, enumerate + log only; send no transactions.
   dryRun: boolean;
+  /// A (vault, mint) batch that failed QUARANTINE_AFTER_FAILURES times in a
+  /// row is quarantined: announced once, retried daily. Absent = never quarantine.
+  quarantine?: SweepQuarantine;
 }
 
 export const DEFAULT_SWEEP_OPTIONS: SweepOptions = {
@@ -100,6 +104,10 @@ export interface SweepReport {
   ordersSweptFromEvents: number;
   txSent: number;
   txFailed: number;
+  /// Batches not sent this pass because they are quarantined and not yet due.
+  batchesQuarantined: number;
+  /// Batches whose failure crossed the quarantine line on this pass.
+  batchesNewlyQuarantined: number;
   dryRun: boolean;
 }
 
@@ -187,6 +195,8 @@ export async function runSweepExpiredOrders(
     ordersSweptFromEvents: 0,
     txSent: 0,
     txFailed: 0,
+    batchesQuarantined: 0,
+    batchesNewlyQuarantined: 0,
     dryRun: options.dryRun,
   };
 
@@ -335,6 +345,17 @@ export async function runSweepExpiredOrders(
   const callerPubkey = ctx.program.provider.publicKey!;
 
   for (const g of mintGroups) {
+    const qKey = quarantineKey(vault.toBase58(), g.optionMint.toBase58());
+    const decision = options.quarantine?.decide(qKey, Date.now());
+    if (decision && !decision.attempt) {
+      // Quarantined and not yet due. Silent on the tick: the announcement was
+      // made once, at the transition; the heartbeat carries the count.
+      report.batchesQuarantined += chunk(g.orders, options.ordersBatchSize).length;
+      continue;
+    }
+    if (decision && decision.reason === "daily-retry") {
+      ctx.log("info", "sweep: quarantined batch retried (daily)", { vault: vault.toBase58(), mint: g.optionMint.toBase58() });
+    }
     for (const batch of chunk(g.orders, options.ordersBatchSize)) {
       report.ordersBatched += batch.length;
 
@@ -373,6 +394,7 @@ export async function runSweepExpiredOrders(
 
         const sig = await ctx.program.provider.sendAndConfirm!(tx);
         report.txSent += 1;
+        options.quarantine?.recordSuccess(qKey);
         report.ordersSweptFromEvents += await countOrderSweptEvents(ctx, sig);
 
         ctx.log("info", "sweep batch ok", {
@@ -382,13 +404,31 @@ export async function runSweepExpiredOrders(
           sig,
         });
       } catch (err) {
-        report.txFailed += 1;
-        ctx.log("error", "sweep batch failed (will retry next tick)", {
-          vault: vault.toBase58(),
-          mint: g.optionMint.toBase58(),
-          batchSize: batch.length,
-          err: String(err),
-        });
+        const outcome = options.quarantine?.recordFailure(qKey, Date.now());
+        if (outcome?.transitioned) {
+          report.batchesNewlyQuarantined += 1;
+          ctx.log("warn", "sweep batch QUARANTINED: failed on " + outcome.failures + " consecutive passes; retried once a day from now", {
+            vault: vault.toBase58(),
+            mint: g.optionMint.toBase58(),
+            batchSize: batch.length,
+            failures: outcome.failures,
+            err: String(err).slice(0, 300),
+          });
+        } else if (outcome?.quarantined) {
+          // A failed daily retry: stays quarantined, no second announcement,
+          // and not an error on the heartbeat.
+          report.batchesQuarantined += 1;
+          ctx.log("info", "sweep: quarantined batch still failing", { vault: vault.toBase58(), mint: g.optionMint.toBase58(), failures: outcome.failures });
+        } else {
+          report.txFailed += 1;
+          ctx.log("error", "sweep batch failed (will retry next tick)", {
+            vault: vault.toBase58(),
+            mint: g.optionMint.toBase58(),
+            batchSize: batch.length,
+            failures: outcome?.failures ?? null,
+            err: String(err),
+          });
+        }
       }
     }
   }
