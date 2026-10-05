@@ -40,6 +40,12 @@ export const INTERNAL_WALLETS: InternalWallet[] = [
   { pubkey: "2VSPpJ5gdDYGoCnpZUTAG283obtE7fvbJZajYYxgDf4E", label: "faucet-probe-1" },
   { pubkey: "FPSmTjwGEm1UucPMwECCe8cA8riRLRwecYqvBV1hHXML", label: "faucet-probe-2" },
   { pubkey: "BqNX89nQe9bSshsdekc6Pw3NQsvENn7manuSR5QD8NZs", label: "faucet-probe-3" },
+  // Founder QA wallet. Used for the first hand-written order on a first-party
+  // market (2026-10-05) BEFORE it was registered, so for a few minutes it stood
+  // at rank 1 on the profit board as an outside wallet and the taker treated its
+  // ask as fillable outside flow. Rule since: a founder or test wallet is
+  // registered here before its first use, never after.
+  { pubkey: "Bw3ThDvrwnXkkETcDSC3GkcFbra7qc1aeGKR6S6F2ke2", label: "founder-A" },
 ];
 
 const BY_PUBKEY = new Map(INTERNAL_WALLETS.map((w) => [w.pubkey, w]));
