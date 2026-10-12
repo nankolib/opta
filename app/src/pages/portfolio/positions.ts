@@ -64,6 +64,12 @@ export type Position = {
    * `null` means the action is live.
    */
   blockedReason?: string | null;
+  /**
+   * The series has a writer-ask pot (present in `potByMint`). Early exercise on
+   * a first-party-oracle market must then carry the pot accounts, or the program
+   * reverts 6084 whenever the vault alone cannot cover the payout.
+   */
+  hasWriterAskPot: boolean;
   strike: number;
   expiry: number;
   contracts: number;
@@ -233,6 +239,7 @@ export function buildPositions(args: BuildPositionsArgs): Position[] {
       id: mintKey,
       source: { kind: "v2", vault, vaultMint, market },
       blockedReason: availability.available ? null : availability.reason,
+      hasWriterAskPot: potByMint?.has(mintKey) ?? false,
       vaultPda: vault.publicKey,
       asset: assetName || "?",
       side: isCall ? "call" : "put",

@@ -36,6 +36,7 @@ import BN from "bn.js";
 import { Program } from "@coral-xyz/anchor";
 import type { Opta } from "../idl/opta";
 import { optaPriceFeedPda, ORACLE_SOURCE_OPTA, ORACLE_SOURCE_PYTH } from "./oracleArm";
+import { deriveWriterAskPotPda, deriveWriterAskPotUsdcPda } from "./constants";
 
 /**
  * Minimal wallet shape both pythPullPost callers satisfy:
@@ -1045,8 +1046,27 @@ export function buildOptaExerciseAmericanIx(
     holderOptionAccount: PublicKey;
     vaultUsdcAccount: PublicKey;
     holderUsdcAccount: PublicKey;
+    /** The series has a writer-ask pot (a WriterAskPot record exists for this
+     *  option mint). A writer-ask series holds its collateral in the pot, not
+     *  the vault, and the program reverts EarlyExercisePotRequired (6084) when
+     *  the vault falls short and the pot arm is absent. No pot → the arm stays
+     *  absent: a non-existent pot passed as an account would fail to load. */
+    hasWriterAskPot: boolean;
   },
 ) {
+  // All three or none — the program treats a partial set as absent. Derived
+  // here from option_mint, never taken from elsewhere, same as the SB arm.
+  const potArm = params.hasWriterAskPot
+    ? {
+        writerAskPot: deriveWriterAskPotPda(params.optionMint)[0],
+        writerAskPotUsdc: deriveWriterAskPotUsdcPda(params.optionMint)[0],
+        protocolState: PublicKey.findProgramAddressSync(
+          [Buffer.from(PROTOCOL_SEED)],
+          program.programId,
+        )[0],
+      }
+    : { writerAskPot: null, writerAskPotUsdc: null, protocolState: null };
+
   return program.methods
     .exerciseAmerican(new BN(params.quantity))
     .accountsPartial({
@@ -1064,10 +1084,7 @@ export function buildOptaExerciseAmericanIx(
       sbQueue: null,
       sbSlothashes: null,
       sbInstructions: null,
-      // Vault-funded shape: the writer-ask pot arm is absent (three Nones).
-      writerAskPot: null,
-      writerAskPotUsdc: null,
-      protocolState: null,
+      ...potArm,
       optaPriceFeed: optaPriceFeedPda(params.feedIdHex, program.programId),
     })
     .instruction();

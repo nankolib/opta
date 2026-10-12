@@ -105,9 +105,9 @@ test("settle_expiry, source 0: same data, +1 sentinel", async () => {
 });
 
 // ---- the source-2 arm ---------------------------------------------------------
-test("opta exercise: no price_update, no SB accounts, feed PDA in the trailing slot, same data as the Pyth build", async () => {
+test("opta exercise, no pot: no price_update, no SB accounts, no pot arm, feed PDA in the trailing slot, same data as the Pyth build", async () => {
   const holder = K();
-  const params = { feedIdHex: FEED, quantity: 3, sharedVault: K(), market: K(), vaultMintRecord: K(), optionMint: K(), holderOptionAccount: K(), vaultUsdcAccount: K(), holderUsdcAccount: K() };
+  const params = { feedIdHex: FEED, quantity: 3, sharedVault: K(), market: K(), vaultMintRecord: K(), optionMint: K(), holderOptionAccount: K(), vaultUsdcAccount: K(), holderUsdcAccount: K(), hasWriterAskPot: false };
   const ix = await buildOptaExerciseAmericanIx(now as any, holder, params);
   const I = EXERCISE_ACCOUNT_INDEX;
   assert.equal(ix.keys.length, 18);
@@ -119,6 +119,35 @@ test("opta exercise: no price_update, no SB accounts, feed PDA in the trailing s
   const pyth = await now.methods.exerciseAmerican(new BN(3)).accountsPartial({ ...exerciseAccounts(K(), false), optaPriceFeed: null } as any).instruction();
   assert.ok(Buffer.from(ix.data).equals(Buffer.from(pyth.data)), "instruction data identical across arms");
   assert.equal(ORACLE_SOURCE_OPTA, 2);
+});
+
+// A writer-ask series keeps its collateral in the pot, not the vault, so without
+// the pot arm the program reverts EarlyExercisePotRequired (6084). Measured
+// 2026-10-12 on the SOL 16-Oct calls: vault $0, pot funded, 6084 every time.
+test("opta exercise, pot exists: all three pot accounts derived from option_mint, nothing else moves", async () => {
+  const holder = K();
+  const optionMint = K();
+  const base = { feedIdHex: FEED, quantity: 3, sharedVault: K(), market: K(), vaultMintRecord: K(), optionMint, holderOptionAccount: K(), vaultUsdcAccount: K(), holderUsdcAccount: K() };
+  const withPot = await buildOptaExerciseAmericanIx(now as any, holder, { ...base, hasWriterAskPot: true });
+  const noPot = await buildOptaExerciseAmericanIx(now as any, holder, { ...base, hasWriterAskPot: false });
+  const I = EXERCISE_ACCOUNT_INDEX;
+  // Seeds written out here, not imported, so a drifted helper cannot agree with itself.
+  const [pot] = PublicKey.findProgramAddressSync([Buffer.from("writer_ask_pot"), optionMint.toBuffer()], PID);
+  const [potUsdc] = PublicKey.findProgramAddressSync([Buffer.from("writer_ask_pot_usdc"), optionMint.toBuffer()], PID);
+  const [protocolState] = PublicKey.findProgramAddressSync([Buffer.from("protocol_v2")], PID);
+  assert.equal(withPot.keys.length, 18);
+  assert.equal(withPot.keys[I.writerAskPot].pubkey.toBase58(), pot.toBase58(), "pot record");
+  assert.equal(withPot.keys[I.writerAskPotUsdc].pubkey.toBase58(), potUsdc.toBase58(), "pot USDC account");
+  assert.equal(withPot.keys[I.protocolState].pubkey.toBase58(), protocolState.toBase58(), "protocol_state signs the pot transfer");
+  assert.ok(withPot.keys[I.writerAskPot].isWritable && withPot.keys[I.writerAskPotUsdc].isWritable, "pot accounts are mut");
+  assert.ok(!withPot.keys[I.protocolState].isWritable, "protocol_state is read-only here");
+  for (let i = 0; i < withPot.keys.length; i++) {
+    if (i === I.writerAskPot || i === I.writerAskPotUsdc || i === I.protocolState) continue;
+    assert.ok(withPot.keys[i].pubkey.equals(noPot.keys[i].pubkey), "slot " + i + " moved");
+  }
+  assert.ok(withPot.keys[I.priceUpdate].pubkey.equals(PID) && withPot.keys[I.sbQueue].pubkey.equals(PID), "still no Pyth / SB accounts");
+  assert.equal(withPot.keys[I.optaPriceFeed].pubkey.toBase58(), optaPriceFeedPda(FEED, PID).toBase58(), "feed PDA still in the trailing slot");
+  assert.ok(Buffer.from(withPot.data).equals(Buffer.from(noPot.data)), "instruction data identical with and without the pot arm");
 });
 
 // ---- what did NOT change: trigger placement and minting carry no price ------

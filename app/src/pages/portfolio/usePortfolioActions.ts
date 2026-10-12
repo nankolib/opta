@@ -389,6 +389,7 @@ async function exerciseAmericanV2({
       holderOptionAccount,
       vaultUsdcAccount: v.vaultUsdcAccount as PublicKey,
       holderUsdcAccount,
+      hasWriterAskPot: position.hasWriterAskPot,
     });
     const optaSig = await submitWithFallback(program.provider.connection, provider.wallet, optaTxs);
     showToast({
